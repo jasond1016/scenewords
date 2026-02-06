@@ -1,0 +1,56 @@
+{
+  "providers": [
+    {
+      "id": "local_comfy",
+      "display_name": "Local ComfyUI",
+      "type": "comfyui",
+      "enabled": true,
+      "base_url": "http://127.0.0.1:8188",
+      "api_path": "/prompt",
+      "models": [
+        {
+          "name": "wan2.2-5b-lowmem",
+          "display_name": "WAN2.2 5B (Low VRAM)",
+          "default": true
+        },
+        {
+          "name": "hunyuanvideo-experimental",
+          "display_name": "HunyuanVideo (Experimental)",
+          "default": false
+        }
+      ]
+    },
+    {
+      "id": "sora2",
+      "display_name": "Sora API",
+      "type": "openai_compatible",
+      "enabled": true,
+      "base_url": "https://api.openai.com",
+      "api_path": "/v1/video/generations",
+      "auth_env": "OPENAI_API_KEY",
+      "models": [
+        {
+          "name": "sora-2",
+          "display_name": "Sora 2",
+          "default": true
+        }
+      ]
+    },
+    {
+      "id": "veo31",
+      "display_name": "Veo 3.1",
+      "type": "vertex_veo",
+      "enabled": true,
+      "base_url": "https://us-central1-aiplatform.googleapis.com",
+      "api_path": "/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predictLongRunning",
+      "auth_env": "GOOGLE_API_KEY",
+      "models": [
+        {
+          "name": "veo-3.1-generate-preview",
+          "display_name": "Veo 3.1 Generate Preview",
+          "default": true
+        }
+      ]
+    }
+  ]
+}
