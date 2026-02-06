@@ -9,6 +9,7 @@
   --ok: #227f43;
   --err: #be2e3d;
   --running: #8d6a11;
+  --player-bg: #0c121a;
 }
 
 * {
@@ -117,6 +118,11 @@ button {
   padding: 8px 14px;
 }
 
+#play-latest-button {
+  width: auto;
+  padding: 8px 14px;
+}
+
 #task-list {
   list-style: none;
   margin: 0;
@@ -131,6 +137,11 @@ button {
   border-radius: 10px;
   padding: 10px;
   background: #fbfcfe;
+}
+
+.task-item.is-active {
+  border-color: var(--accent);
+  background: #f3faf7;
 }
 
 .task-head {
@@ -154,6 +165,34 @@ button {
   margin-top: 10px;
 }
 
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-play-button {
+  width: auto;
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: #fff;
+}
+
+.task-play-button:hover {
+  background: #e8f6f2;
+}
+
+.task-open-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.task-open-link:hover {
+  text-decoration: underline;
+}
+
 .status-succeeded {
   color: var(--ok);
 }
@@ -167,11 +206,62 @@ button {
   color: var(--running);
 }
 
-video {
+.player-card {
+  position: sticky;
+  top: 10px;
+  z-index: 1;
+}
+
+.player-shell {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--player-bg);
+}
+
+#main-player {
   width: 100%;
-  max-height: 220px;
-  border-radius: 8px;
-  margin-top: 6px;
+  aspect-ratio: 16 / 9;
+  display: block;
+  background: #000;
+}
+
+.player-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#player-switch-button {
+  width: auto;
+  padding: 8px 14px;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+  background: #fff;
+}
+
+.button-link.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.player-meta {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 details {
@@ -186,5 +276,9 @@ summary {
 @media (max-width: 640px) {
   .row {
     grid-template-columns: 1fr;
+  }
+
+  .player-card {
+    position: static;
   }
 }
