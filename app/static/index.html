@@ -42,7 +42,18 @@
             <option value="854x480">854x480 (默认)</option>
             <option value="1024x576">1024x576</option>
             <option value="1280x720">1280x720</option>
+            <option value="720x1280">720x1280 (竖屏)</option>
+            <option value="576x1024">576x1024 (竖屏)</option>
           </select>
+
+          <div id="veo-shortcuts" class="veo-shortcuts" hidden>
+            <label>Veo 画幅快捷</label>
+            <div class="row">
+              <button id="veo-landscape-button" type="button">横屏 16:9</button>
+              <button id="veo-portrait-button" type="button">竖屏 9:16</button>
+            </div>
+            <p class="shortcut-meta" id="veo-shortcut-meta"></p>
+          </div>
 
           <details>
             <summary>高级设置（可选）</summary>

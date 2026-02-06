@@ -11,6 +11,10 @@ const playerSwitchButton = document.getElementById("player-switch-button");
 const playerOpenLink = document.getElementById("player-open-link");
 const playerMeta = document.getElementById("player-meta");
 const playerHint = document.getElementById("player-hint");
+const veoShortcuts = document.getElementById("veo-shortcuts");
+const veoLandscapeButton = document.getElementById("veo-landscape-button");
+const veoPortraitButton = document.getElementById("veo-portrait-button");
+const veoShortcutMeta = document.getElementById("veo-shortcut-meta");
 
 const ADVANCED_OPTION_IDS = [
   "base_url",
@@ -26,6 +30,7 @@ const ADVANCED_OPTION_IDS = [
   "extra_body",
 ];
 const STORAGE_PREFIX = "video_gateway_opt_";
+const VEO_ASPECT_STORAGE_KEY = "video_gateway_veo_aspect_ratio";
 const POLL_INTERVAL_MS = 4000;
 
 const state = {
@@ -38,6 +43,7 @@ const state = {
     pendingUrl: null,
     pendingTaskId: null,
   },
+  veoAspectRatio: "16:9",
 };
 
 let taskPollTimer = null;
@@ -45,6 +51,7 @@ let taskPollTimer = null;
 async function init() {
   hydrateToken();
   hydrateAdvancedOptions();
+  hydrateVeoAspectRatio();
   await loadCatalog();
   bindEvents();
   await refreshTasks();
@@ -52,14 +59,18 @@ async function init() {
 }
 
 function bindEvents() {
-  providerSelect.addEventListener("change", () => {
-    populateModels(providerSelect.value);
-  });
+  providerSelect.addEventListener("change", onProviderChanged);
   refreshButton.addEventListener("click", refreshTasks);
   form.addEventListener("submit", onSubmit);
   taskList.addEventListener("click", onTaskListClick);
   playLatestButton.addEventListener("click", onPlayLatest);
   playerSwitchButton.addEventListener("click", onSwitchPlayerVersion);
+  if (veoLandscapeButton) {
+    veoLandscapeButton.addEventListener("click", onVeoLandscapeClick);
+  }
+  if (veoPortraitButton) {
+    veoPortraitButton.addEventListener("click", onVeoPortraitClick);
+  }
 
   for (const id of ADVANCED_OPTION_IDS) {
     const element = document.getElementById(id);
@@ -86,6 +97,7 @@ async function loadCatalog() {
   if (state.catalog.length > 0) {
     providerSelect.value = state.catalog[0].id;
     populateModels(state.catalog[0].id);
+    applyProviderFormDefaults(getSelectedProvider(), { force: true });
   }
 }
 
@@ -168,6 +180,7 @@ async function onSubmit(event) {
       resolution: document.getElementById("resolution").value,
       provider_options: providerOptions,
     };
+    applyProviderPayloadDefaults(payload, getSelectedProvider());
     const response = await fetch("/v1/video/generations", {
       method: "POST",
       headers: { ...getGatewayHeaders(), "Content-Type": "application/json" },
@@ -186,6 +199,7 @@ async function onSubmit(event) {
     hydrateAdvancedOptions();
     providerSelect.value = selectedProvider;
     populateModels(selectedProvider);
+    applyProviderFormDefaults(getSelectedProvider(), { force: true });
     modelSelect.value = selectedModel;
     await refreshTasks();
   } catch (error) {
@@ -392,6 +406,151 @@ function formatTime(value) {
   } catch {
     return value;
   }
+}
+
+function onProviderChanged() {
+  populateModels(providerSelect.value);
+  applyProviderFormDefaults(getSelectedProvider(), { force: true });
+}
+
+function getSelectedProvider() {
+  return state.catalog.find((item) => item.id === providerSelect.value) || null;
+}
+
+function isComfyProvider(provider) {
+  return provider?.type === "comfyui";
+}
+
+function isVeoProvider(provider) {
+  return provider?.type === "gemini_veo_compatible" || provider?.type === "vertex_veo";
+}
+
+function isGeminiVeoProvider(provider) {
+  return provider?.type === "gemini_veo_compatible";
+}
+
+function applyProviderFormDefaults(provider, options = {}) {
+  const force = Boolean(options.force);
+  const durationInput = document.getElementById("duration_sec");
+  const fpsInput = document.getElementById("fps");
+  const resolutionSelect = document.getElementById("resolution");
+
+  if (isVeoProvider(provider)) {
+    veoShortcuts.hidden = false;
+    if (force) {
+      durationInput.value = "4";
+      fpsInput.value = "24";
+      resolutionSelect.value = preferredResolutionForAspectRatio(state.veoAspectRatio);
+    }
+    renderVeoShortcutMeta();
+    return;
+  }
+
+  veoShortcuts.hidden = true;
+  if (isComfyProvider(provider) && force) {
+    durationInput.value = "4";
+    fpsInput.value = "24";
+    resolutionSelect.value = "854x480";
+  }
+}
+
+function renderVeoShortcutMeta() {
+  const resolution = document.getElementById("resolution").value;
+  veoShortcutMeta.textContent = `当前画幅：${state.veoAspectRatio}，当前分辨率：${resolution}`;
+}
+
+function onVeoLandscapeClick() {
+  setVeoAspectRatio("16:9");
+}
+
+function onVeoPortraitClick() {
+  setVeoAspectRatio("9:16");
+}
+
+function setVeoAspectRatio(aspectRatio) {
+  state.veoAspectRatio = aspectRatio;
+  localStorage.setItem(VEO_ASPECT_STORAGE_KEY, aspectRatio);
+  if (isVeoProvider(getSelectedProvider())) {
+    document.getElementById("resolution").value = preferredResolutionForAspectRatio(aspectRatio);
+  }
+  renderVeoShortcutMeta();
+}
+
+function preferredResolutionForAspectRatio(aspectRatio) {
+  if (aspectRatio === "9:16") {
+    return "720x1280";
+  }
+  return "1280x720";
+}
+
+function hydrateVeoAspectRatio() {
+  const value = localStorage.getItem(VEO_ASPECT_STORAGE_KEY);
+  if (value === "16:9" || value === "9:16") {
+    state.veoAspectRatio = value;
+  }
+}
+
+function applyProviderPayloadDefaults(payload, provider) {
+  if (!isGeminiVeoProvider(provider)) {
+    return;
+  }
+
+  const providerOptions = payload.provider_options || {};
+  const existingExtraBody = isPlainObject(providerOptions.extra_body)
+    ? { ...providerOptions.extra_body }
+    : {};
+  const parameters = isPlainObject(existingExtraBody.parameters)
+    ? { ...existingExtraBody.parameters }
+    : {};
+
+  if (parameters.durationSeconds == null) {
+    parameters.durationSeconds = payload.duration_sec;
+  }
+  if (!isNonEmptyString(parameters.aspectRatio)) {
+    parameters.aspectRatio = inferAspectRatio(payload.resolution) || state.veoAspectRatio;
+  }
+  if (!isNonEmptyString(parameters.resolution)) {
+    parameters.resolution = veoResolutionPreset(payload.resolution);
+  }
+
+  existingExtraBody.parameters = parameters;
+  providerOptions.extra_body = existingExtraBody;
+  payload.provider_options = providerOptions;
+}
+
+function inferAspectRatio(resolution) {
+  if (typeof resolution !== "string") {
+    return null;
+  }
+  const normalized = resolution.trim().toLowerCase();
+  if (!normalized.includes("x")) {
+    return null;
+  }
+  const [widthText, heightText] = normalized.split("x");
+  const width = Number(widthText);
+  const height = Number(heightText);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  if (width > height) return "16:9";
+  if (height > width) return "9:16";
+  return "1:1";
+}
+
+function veoResolutionPreset(resolution) {
+  const normalized = String(resolution || "").toLowerCase();
+  if (normalized === "1280x720" || normalized === "720x1280") {
+    return "720p";
+  }
+  return "720p";
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function getGatewayHeaders() {

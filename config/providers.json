@@ -57,6 +57,25 @@
           "default": true
         }
       ]
+    },
+    {
+      "id": "veo31_rightcodes",
+      "display_name": "Veo 3.1 (Right Codes)",
+      "type": "gemini_veo_compatible",
+      "enabled": true,
+      "base_url": "https://right.codes/gemini/v1beta",
+      "api_path": "/models/{model}:predictLongRunning",
+      "auth_env": "RIGHT_CODES_API_KEY",
+      "api_key_header": "x-goog-api-key",
+      "default_timeout_sec": 1200,
+      "default_poll_interval_sec": 10,
+      "models": [
+        {
+          "name": "veo-3.1-generate-preview",
+          "display_name": "Veo 3.1 Generate Preview",
+          "default": true
+        }
+      ]
     }
   ]
 }

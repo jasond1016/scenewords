@@ -14,6 +14,7 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
 - 支持按请求覆盖 `base_url`、`api_path`、`model`
 - 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo）
 - ComfyUI 支持 `public_base_url`（对外播放地址）、后端默认 workflow 与前端缓存 workflow JSON
+- 前端支持按 Provider 自动套用初始参数，并提供 Veo 竖屏/横屏快捷切换
 - 可选网关 `Bearer Token` 鉴权
 
 ## 目录
@@ -42,6 +43,7 @@ uv sync --python 3.11
 ```bash
 export OPENAI_API_KEY="..."
 export GOOGLE_API_KEY="..."
+export RIGHT_CODES_API_KEY="..."
 export VIDEO_GATEWAY_BEARER_TOKEN="your-token"
 ```
 
@@ -69,7 +71,7 @@ http://<Windows-PC-IP>:8000
 关键字段：
 
 - `id`: provider 唯一标识（前端选择值）
-- `type`: `comfyui` / `openai_compatible` / `vertex_veo`
+- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible`
 - `base_url`, `api_path`: 默认上游地址
 - `auth_env`: 默认 API Key 的环境变量名
 - `models`: 可选模型列表（前端可切换）
@@ -137,6 +139,37 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   - `base_url`: 网关访问 ComfyUI 的地址（同机可用 `http://127.0.0.1:8188`）
   - `public_base_url`: 返回给客户端播放视频的地址（如 `http://192.168.1.20:8188`）
 - 前端“高级设置”新增 `Workflow JSON`，可直接粘贴 ComfyUI workflow，浏览器会本地缓存，后续提交无需重复粘贴。
+
+## 第三方 Veo (Gemini-Compatible) 使用说明
+
+- 适用接口：`/models/{model}:predictLongRunning` + 轮询 operation。
+- 前端切换到 `gemini_veo_compatible` / `vertex_veo` 时，会自动设置推荐初始值：
+  - `duration_sec = 4`
+  - `fps = 24`
+  - `resolution = 1280x720`（横屏）或 `720x1280`（竖屏）
+- 可用“Veo 画幅快捷”按钮在 `16:9` 与 `9:16` 间快速切换（会记住上次选择）。
+- 推荐配置示例（已内置在 `config/providers.json`）：
+
+```json
+{
+  "id": "veo31_rightcodes",
+  "type": "gemini_veo_compatible",
+  "base_url": "https://right.codes/gemini/v1beta",
+  "api_path": "/models/{model}:predictLongRunning",
+  "auth_env": "RIGHT_CODES_API_KEY",
+  "api_key_header": "x-goog-api-key",
+  "default_timeout_sec": 1200,
+  "default_poll_interval_sec": 10
+}
+```
+
+- 请求级可覆盖字段（`provider_options`）：
+  - `api_key`, `api_key_header`
+  - `base_url`, `api_path`, `model`
+  - `timeout_sec`, `poll_interval_sec`
+  - `operation_base_url`, `operation_path`
+  - `extra_body`（用于透传第三方特定参数）
+- API Key 读取优先级：`provider_options.api_key` > `providers.json` 中 `api_key` > `auth_env` 环境变量。
 
 ## 注意事项
 

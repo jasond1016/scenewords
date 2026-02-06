@@ -123,6 +123,21 @@ button {
   padding: 8px 14px;
 }
 
+.veo-shortcuts {
+  margin-top: 10px;
+}
+
+#veo-landscape-button,
+#veo-portrait-button {
+  width: 100%;
+}
+
+.shortcut-meta {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 #task-list {
   list-style: none;
   margin: 0;
