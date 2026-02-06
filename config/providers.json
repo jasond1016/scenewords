@@ -6,8 +6,14 @@
       "type": "comfyui",
       "enabled": true,
       "base_url": "http://127.0.0.1:8188",
+      "public_base_url": "http://192.168.50.139:8188",
       "api_path": "/prompt",
-      "models": [
+      "default_timeout_sec": 900,
+      "latent_node_id": "55",
+      "fps_node_id": "57",
+      "length_mode": "duration_fps_plus_one",
+      "default_workflow_path": "workflows/video_wan2_2_5B_ti2v.json",
+       "models": [
         {
           "name": "wan2.2-5b-lowmem",
           "display_name": "WAN2.2 5B (Low VRAM)",

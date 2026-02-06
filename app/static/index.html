@@ -49,11 +49,47 @@
             <label for="base_url">Base URL</label>
             <input id="base_url" type="text" placeholder="https://api.example.com" />
 
+            <label for="public_base_url">Public Base URL (ComfyUI)</label>
+            <input
+              id="public_base_url"
+              type="text"
+              placeholder="http://192.168.x.x:8188（用于返回可访问视频链接）"
+            />
+
             <label for="api_path">API Path</label>
             <input id="api_path" type="text" placeholder="/v1/video/generations" />
 
             <label for="model_override">Model Override</label>
             <input id="model_override" type="text" placeholder="自定义模型名" />
+
+            <label for="workflow">Workflow JSON (ComfyUI)</label>
+            <textarea
+              id="workflow"
+              rows="6"
+              placeholder='{"6":{"inputs":{"text":"..."},"class_type":"CLIPTextEncode"}}'
+            ></textarea>
+
+            <div class="row">
+              <div>
+                <label for="prompt_node_id">Prompt Node ID</label>
+                <input id="prompt_node_id" type="text" value="6" />
+              </div>
+              <div>
+                <label for="prompt_input_key">Prompt Input Key</label>
+                <input id="prompt_input_key" type="text" value="text" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div>
+                <label for="timeout_sec">Timeout (s)</label>
+                <input id="timeout_sec" type="number" min="10" value="900" />
+              </div>
+              <div>
+                <label for="poll_interval_sec">Poll Interval (s)</label>
+                <input id="poll_interval_sec" type="number" min="0.2" step="0.2" value="2" />
+              </div>
+            </div>
 
             <label for="api_key">API Key</label>
             <input id="api_key" type="password" placeholder="可留空使用服务端环境变量" />

@@ -13,6 +13,7 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
 - 前端支持切换 `Provider` 和 `Model`
 - 支持按请求覆盖 `base_url`、`api_path`、`model`
 - 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo）
+- ComfyUI 支持 `public_base_url`（对外播放地址）、后端默认 workflow 与前端缓存 workflow JSON
 - 可选网关 `Bearer Token` 鉴权
 
 ## 目录
@@ -95,11 +96,47 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
 
 ## ComfyUI 使用说明
 
-- 若请求不传 `provider_options.workflow`，系统会走模拟模式（仅用于联调）。
-- 若要真实调用 ComfyUI，需在请求里传 `workflow` JSON：
+- workflow 来源优先级：
+  - `provider_options.workflow`（请求级，优先级最高）
+  - `providers.json` 中 `default_workflow`
+  - `providers.json` 中 `default_workflow_path`
+- 若以上都未提供，系统会走模拟模式（仅用于联调）。
+- 若要真实调用 ComfyUI，可在请求中传：
   - `provider_options.workflow`: ComfyUI workflow 对象
   - `provider_options.prompt_node_id`: prompt 节点 ID（默认 `6`）
   - `provider_options.prompt_input_key`: prompt 输入字段（默认 `text`）
+  - `provider_options.timeout_sec`: 任务超时秒数（默认 `900`）
+  - `provider_options.poll_interval_sec`: 轮询间隔秒数（默认 `2.0`）
+  - `provider_options.auto_apply_video_params`: 是否自动把请求中的 `resolution` / `fps` / `duration_sec` 写入 workflow（默认 `true`）
+  - `provider_options.latent_node_id`: 指定写入分辨率/帧数的节点 ID（可选）
+  - `provider_options.fps_node_id`: 指定写入 FPS 的节点 ID（可选）
+  - `provider_options.length_mode`: `duration_fps` 或 `duration_fps_plus_one`（可选）
+- 也可在服务端配置默认 workflow（推荐同机部署时使用）：
+
+```json
+{
+  "id": "local_comfy",
+  "type": "comfyui",
+  "base_url": "http://127.0.0.1:8188",
+  "public_base_url": "http://192.168.1.20:8188",
+  "default_timeout_sec": 900,
+  "latent_node_id": "55",
+  "fps_node_id": "57",
+  "length_mode": "duration_fps_plus_one",
+  "default_workflow_path": "config/workflows/wan2.2-5b.json"
+}
+```
+
+- `default_workflow_path` 支持相对路径（相对 `config/providers.json` 所在目录）或绝对路径。
+
+### 内网同机部署建议（网关与 ComfyUI 在同一台机器）
+
+- ComfyUI 监听内网：`python main.py --listen 0.0.0.0 --port 8188`
+- 网关监听内网：`uv run uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- `config/providers.json` 里建议将 ComfyUI 配置为：
+  - `base_url`: 网关访问 ComfyUI 的地址（同机可用 `http://127.0.0.1:8188`）
+  - `public_base_url`: 返回给客户端播放视频的地址（如 `http://192.168.1.20:8188`）
+- 前端“高级设置”新增 `Workflow JSON`，可直接粘贴 ComfyUI workflow，浏览器会本地缓存，后续提交无需重复粘贴。
 
 ## 注意事项
 
