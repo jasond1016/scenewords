@@ -28,15 +28,19 @@
     },
     {
       "id": "sora2",
-      "display_name": "Sora API",
-      "type": "openai_compatible",
+      "display_name": "Sora 2 (Tuzi)",
+      "type": "tuzi_sora",
       "enabled": true,
-      "base_url": "https://api.openai.com",
-      "api_path": "/v1/video/generations",
-      "auth_env": "OPENAI_API_KEY",
+      "base_url": "https://api.tu-zi.com",
+      "api_path": "/v1/videos",
+      "query_path": "/v1/videos/{task_id}",
+      "download_path": "/v1/videos/{task_id}/content",
+      "auth_env": "TUZI_API_KEY",
+      "default_timeout_sec": 1200,
+      "default_poll_interval_sec": 5,
       "models": [
         {
-          "name": "sora-2",
+          "name": "sora2",
           "display_name": "Sora 2",
           "default": true
         }
@@ -44,16 +48,19 @@
     },
     {
       "id": "veo31",
-      "display_name": "Veo 3.1",
-      "type": "vertex_veo",
+      "display_name": "Veo 3.1 (Tuzi)",
+      "type": "tuzi_veo",
       "enabled": true,
-      "base_url": "https://us-central1-aiplatform.googleapis.com",
-      "api_path": "/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predictLongRunning",
-      "auth_env": "GOOGLE_API_KEY",
+      "base_url": "https://api.tu-zi.com",
+      "api_path": "/v1/videos",
+      "query_path": "/v1/videos/{task_id}",
+      "auth_env": "TUZI_API_KEY",
+      "default_timeout_sec": 1200,
+      "default_poll_interval_sec": 5,
       "models": [
         {
-          "name": "veo-3.1-generate-preview",
-          "display_name": "Veo 3.1 Generate Preview",
+          "name": "veo3.1",
+          "display_name": "Veo 3.1",
           "default": true
         }
       ]

@@ -12,7 +12,7 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
   - `GET /v1/models`
 - 前端支持切换 `Provider` 和 `Model`
 - 支持按请求覆盖 `base_url`、`api_path`、`model`
-- 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo）
+- 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo / Tuzi）
 - ComfyUI 支持 `public_base_url`（对外播放地址）、后端默认 workflow 与前端缓存 workflow JSON
 - 前端支持按 Provider 自动套用初始参数，并提供 Veo 竖屏/横屏快捷切换
 - 可选网关 `Bearer Token` 鉴权
@@ -44,6 +44,7 @@ uv sync --python 3.11
 export OPENAI_API_KEY="..."
 export GOOGLE_API_KEY="..."
 export RIGHT_CODES_API_KEY="..."
+export TUZI_API_KEY="..."
 export VIDEO_GATEWAY_BEARER_TOKEN="your-token"
 ```
 
@@ -71,7 +72,7 @@ http://<Windows-PC-IP>:8000
 关键字段：
 
 - `id`: provider 唯一标识（前端选择值）
-- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible`
+- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible` / `tuzi_veo` / `tuzi_sora`
 - `base_url`, `api_path`: 默认上游地址
 - `auth_env`: 默认 API Key 的环境变量名
 - `models`: 可选模型列表（前端可切换）
@@ -84,17 +85,36 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   -H "Authorization: Bearer your-token" \
   -d '{
     "provider": "sora2",
-    "model": "sora-2",
+    "model": "sora2",
     "prompt": "cinematic drone shot of a snowy mountain at sunrise",
     "duration_sec": 4,
     "resolution": "854x480",
     "fps": 24,
     "provider_options": {
-      "base_url": "https://api.openai.com",
-      "api_path": "/v1/video/generations"
+      "base_url": "https://api.tu-zi.com",
+      "api_path": "/v1/videos"
     }
   }'
 ```
+
+## Tuzi Veo/Sora 使用说明
+
+- Tuzi 接口是异步任务模式：
+  - 提交：`POST /v1/videos`
+  - 查询：`GET /v1/videos/{task_id}`
+  - Sora 下载兜底：`GET /v1/videos/{task_id}/content`
+- `veo31` 与 `sora2` 默认都已切到 Tuzi（ID 不变，便于前端继续使用原选项）。
+- 请求字段映射（网关 -> Tuzi multipart）：
+  - `model` -> `model`
+  - `prompt` -> `prompt`
+  - `duration_sec` -> `seconds`
+  - `resolution` -> `size`
+- Sora 返回结果时，网关优先使用查询接口中的 `video_url`；若缺失会自动尝试 `/content` 下载接口兜底。
+- 请求级可覆盖字段（`provider_options`）：
+  - `api_key`, `auth_header`
+  - `base_url`, `api_path`, `query_path`, `download_path`
+  - `submit_timeout_sec`, `timeout_sec`, `poll_interval_sec`, `download_timeout_sec`
+  - `extra_body`（透传 Tuzi 特定字段，按 multipart 表单发送）
 
 ## ComfyUI 使用说明
 

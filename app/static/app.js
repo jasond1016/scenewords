@@ -422,7 +422,11 @@ function isComfyProvider(provider) {
 }
 
 function isVeoProvider(provider) {
-  return provider?.type === "gemini_veo_compatible" || provider?.type === "vertex_veo";
+  return (
+    provider?.type === "gemini_veo_compatible" ||
+    provider?.type === "vertex_veo" ||
+    provider?.type === "tuzi_veo"
+  );
 }
 
 function isGeminiVeoProvider(provider) {
