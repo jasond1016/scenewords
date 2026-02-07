@@ -477,25 +477,35 @@ export function CreatePage(props: Props) {
           <section className="prompt-presets">
             <div className="prompt-presets-header">
               <h4>{t("create.promptPresets")}</h4>
-              <button
-                type="button"
-                onClick={() => {
-                  const promptValue = (values[fieldKey(promptField)] ?? "").trim();
-                  if (!promptValue) {
-                    setHint(t("create.hintPromptEmpty"));
-                    return;
-                  }
-                  const added = appendPromptPreset(promptValue);
-                  if (!added) {
-                    setHint(t("create.hintPresetExists"));
-                    return;
-                  }
-                  setPresetVersion((current) => current + 1);
-                  setHint(t("create.hintPresetSaved"));
-                }}
-              >
-                {t("create.saveCurrentPreset")}
-              </button>
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFieldChanged(promptField, "");
+                  }}
+                >
+                  {t("create.clearPrompt")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const promptValue = (values[fieldKey(promptField)] ?? "").trim();
+                    if (!promptValue) {
+                      setHint(t("create.hintPromptEmpty"));
+                      return;
+                    }
+                    const added = appendPromptPreset(promptValue);
+                    if (!added) {
+                      setHint(t("create.hintPresetExists"));
+                      return;
+                    }
+                    setPresetVersion((current) => current + 1);
+                    setHint(t("create.hintPresetSaved"));
+                  }}
+                >
+                  {t("create.saveCurrentPreset")}
+                </button>
+              </div>
             </div>
             <div className="prompt-preset-list">
               {promptPresets.map((preset) => (
