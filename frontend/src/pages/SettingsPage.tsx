@@ -55,6 +55,19 @@ export function SettingsPage(props: Props) {
         </label>
       </div>
 
+      <h3>{t("settings.gateway")}</h3>
+      <div className="grid-2">
+        <label>
+          {t("settings.gatewayToken")}
+          <input
+            type="password"
+            value={settings.gatewayToken}
+            onChange={(event) => settings.setSettings({ gatewayToken: event.target.value })}
+            placeholder={t("settings.gatewayTokenPlaceholder")}
+          />
+        </label>
+      </div>
+
       <h3>{t("settings.generationDefaults")}</h3>
       <div className="grid-2">
         <label>

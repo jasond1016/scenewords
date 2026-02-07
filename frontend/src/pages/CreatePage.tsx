@@ -414,16 +414,6 @@ export function CreatePage(props: Props) {
           void submitMutation.mutateAsync();
         }}
       >
-        <label>
-          {t("create.gatewayToken")}
-          <input
-            type="password"
-            value={settings.gatewayToken}
-            onChange={(event) => settings.setSettings({ gatewayToken: event.target.value })}
-            placeholder={t("create.gatewayTokenPlaceholder")}
-          />
-        </label>
-
         <div className="grid-3">
           <label>
             {t("create.provider")}
