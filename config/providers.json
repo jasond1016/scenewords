@@ -64,6 +64,18 @@
           "display_name": "Veo 3.1",
           "default": true,
           "duration_options": [8]
+        },
+        {
+          "name": "veo3.1-4k",
+          "display_name": "Veo 3.1 4K",
+          "default": false,
+          "duration_options": [8]
+        },
+        {
+          "name": "veo3.1-components",
+          "display_name": "Veo 3.1 Components",
+          "default": false,
+          "duration_options": [8]
         }
       ]
     },
