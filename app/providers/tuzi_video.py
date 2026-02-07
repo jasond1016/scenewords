@@ -477,8 +477,17 @@ def _build_create_character_form(
             message="character_from_task is required for create_character",
         )
 
+    character_model = _string_or_none(request.provider_options.get("character_model"))
+    if not character_model:
+        character_model = "sora-2-character"
+    if character_model not in {"sora-2-character", "sora-2-pro-character"}:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="character_model must be one of: sora-2-character, sora-2-pro-character",
+        )
+
     payload: dict[str, Any] = {
-        "model": "sora-2-character",
+        "model": character_model,
         "character_from_task": source_task_id,
     }
     timestamps = request.provider_options.get("character_timestamps")

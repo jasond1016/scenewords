@@ -77,3 +77,22 @@ def test_build_model_operations_uses_model_duration_options() -> None:
     assert duration_field.default == 10
     assert [option.value for option in duration_field.options] == ["10", "15"]
     assert [option.label for option in duration_field.options] == ["10s", "15s"]
+
+
+def test_tuzi_sora_create_character_exposes_character_model_options() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_sora",
+        model_name="sora-2",
+    )
+
+    operations = build_model_operations(provider, "sora-2")
+    create_character = next(item for item in operations if item.id == "create_character")
+    character_model_field = next(
+        field for field in create_character.fields if field.key == "character_model"
+    )
+
+    assert character_model_field.default == "sora-2-character"
+    assert [option.value for option in character_model_field.options] == [
+        "sora-2-character",
+        "sora-2-pro-character",
+    ]

@@ -374,6 +374,17 @@ def _tuzi_sora_operations(
             description="从已有视频任务提取角色（无视频输出）",
             fields=[
                 _field(
+                    "character_model",
+                    "角色模型",
+                    target="provider_options",
+                    input_type="select",
+                    default="sora-2-character",
+                    options=[
+                        _option("sora-2-character", "Sora 2 Character"),
+                        _option("sora-2-pro-character", "Sora 2 Pro Character"),
+                    ],
+                ),
+                _field(
                     "character_from_task",
                     "来源任务 ID",
                     target="provider_options",

@@ -5,6 +5,56 @@
   "entries": [
     {
       "provider": "sora2",
+      "model": "sora-2",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 10,
+      "fixed_cost": 0.0,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "sora2",
+      "model": "sora-2-pro",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 10,
+      "fixed_cost": 0.0,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "sora2",
+      "model": "sora-2-4s",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 4,
+      "fixed_cost": 0.0,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "sora2",
+      "model": "sora-2-8s",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 8,
+      "fixed_cost": 0.0,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "sora2",
+      "model": "sora-2-12s",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 12,
+      "fixed_cost": 0.0,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "sora2",
       "model": "sora2",
       "quality": "standard",
       "resolution": "1280x720",

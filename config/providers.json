@@ -40,9 +40,39 @@
       "default_poll_interval_sec": 5,
       "models": [
         {
-          "name": "sora2",
+          "name": "sora-2",
           "display_name": "Sora 2",
           "default": true,
+          "duration_options": [10, 15]
+        },
+        {
+          "name": "sora-2-pro",
+          "display_name": "Sora 2 Pro",
+          "default": false,
+          "duration_options": [10, 15]
+        },
+        {
+          "name": "sora-2-4s",
+          "display_name": "Sora 2 (4s)",
+          "default": false,
+          "duration_options": [4]
+        },
+        {
+          "name": "sora-2-8s",
+          "display_name": "Sora 2 (8s)",
+          "default": false,
+          "duration_options": [8]
+        },
+        {
+          "name": "sora-2-12s",
+          "display_name": "Sora 2 (12s)",
+          "default": false,
+          "duration_options": [12]
+        },
+        {
+          "name": "sora2",
+          "display_name": "Sora 2 (Legacy Alias)",
+          "default": false,
           "duration_options": [10, 15]
         }
       ]
