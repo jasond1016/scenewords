@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.config import ProviderConfig
@@ -37,7 +38,7 @@ class TuziSoraProvider(Provider):
 class _SubmitRequest:
     endpoint: str
     timeout_sec: float
-    files: list[tuple[str, tuple[None, str]]] | None = None
+    files: list[tuple[str, Any]] | None = None
     json_body: dict[str, Any] | None = None
     should_poll: bool = True
 
@@ -176,7 +177,7 @@ class _TuziAsyncVideoProvider:
         self,
         endpoint: str,
         headers: dict[str, str],
-        files: list[tuple[str, tuple[None, str]]] | None,
+        files: list[tuple[str, Any]] | None,
         json_body: dict[str, Any] | None,
         timeout_sec: float,
     ) -> dict[str, Any]:
@@ -390,7 +391,7 @@ def _build_submit_request(
 
 def _build_generation_form(
     request: VideoGenerationRequest, operation: str
-) -> list[tuple[str, tuple[None, str]]]:
+) -> list[tuple[str, Any]]:
     model_name = _choose_value(
         configured=request.model,
         override=request.provider_options.get("model"),
@@ -425,7 +426,7 @@ def _build_generation_form(
 
     form_payload.update(_safe_dict(request.provider_options.get("extra_body")))
 
-    form_parts: list[tuple[str, tuple[None, str]]] = []
+    form_parts: list[tuple[str, Any]] = []
     for key, value in form_payload.items():
         if value is None:
             continue
@@ -441,6 +442,7 @@ def _build_generation_form(
 
     for reference in _collect_input_references(request.provider_options):
         form_parts.append(("input_reference", (None, reference)))
+    form_parts.extend(_collect_input_reference_file_parts(request.provider_options))
 
     return form_parts
 
@@ -486,6 +488,44 @@ def _collect_input_references(provider_options: dict[str, Any]) -> list[str]:
                 values.append(item.strip())
         return values
     return []
+
+
+def _collect_input_reference_file_parts(provider_options: dict[str, Any]) -> list[tuple[str, Any]]:
+    raw = provider_options.get("__resolved_input_reference_file_ids")
+    if not isinstance(raw, list):
+        return []
+
+    parts: list[tuple[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path_text = entry.get("path")
+        if not isinstance(path_text, str) or not path_text.strip():
+            continue
+        file_path = Path(path_text)
+        if not file_path.exists():
+            raise ProviderError(
+                code="file_not_found",
+                message=f"Uploaded file not found: {file_path}",
+                raw_error={"path": str(file_path)},
+            )
+        try:
+            content = file_path.read_bytes()
+        except OSError as error:
+            raise ProviderError(
+                code="file_read_failed",
+                message=f"Failed to read uploaded file: {file_path}",
+                raw_error=str(error),
+            ) from error
+
+        filename = entry.get("original_name")
+        if not isinstance(filename, str) or not filename.strip():
+            filename = file_path.name
+        mime_type = entry.get("mime_type")
+        if not isinstance(mime_type, str) or not mime_type.strip():
+            mime_type = "application/octet-stream"
+        parts.append(("input_reference", (filename, content, mime_type)))
+    return parts
 
 
 def _normalize_operation(request: VideoGenerationRequest) -> str:

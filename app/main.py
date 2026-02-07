@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
+import mimetypes
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +26,8 @@ from app.schemas import (
     ProviderCatalogResponse,
     ProviderInfo,
     ProviderModelInfo,
+    ProviderModelOperationInfo,
+    UploadedFileResponse,
     VideoGenerationRequest,
     VideoTaskDetail,
     VideoTaskResponse,
@@ -31,6 +35,16 @@ from app.schemas import (
 from app.worker import TaskWorker, build_provider_clients
 
 STATIC_DIR = Path(__file__).parent / "static"
+ALLOWED_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+MIME_TO_EXTENSION = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
 
 
 def create_app() -> FastAPI:
@@ -48,6 +62,7 @@ def create_app() -> FastAPI:
     async def on_startup() -> None:
         app_config = load_app_config()
         app_config.output_dir.mkdir(parents=True, exist_ok=True)
+        app_config.upload_dir.mkdir(parents=True, exist_ok=True)
         app_config.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         provider_configs = load_provider_configs(app_config.provider_config_path)
@@ -150,6 +165,21 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(error),
             ) from error
+        operation = next(
+            (item for item in operations if item.id == payload.operation),
+            None,
+        )
+        if not operation:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported operation: {payload.operation}",
+            )
+        _resolve_uploaded_files(
+            request_payload=payload,
+            operation=operation,
+            store=app.state.store,
+            app_config=app.state.config,
+        )
 
         task_id = str(uuid4())
         prompt_text = payload.prompt or ""
@@ -198,6 +228,76 @@ def create_app() -> FastAPI:
             )
         return {"task_id": task_id, "result": task["result"]}
 
+    @app.post("/v1/files", response_model=UploadedFileResponse)
+    async def upload_file(
+        file: UploadFile = File(...), _: None = Depends(require_auth)
+    ) -> UploadedFileResponse:
+        app_config: AppConfig = app.state.config
+        max_size_bytes = max(1, app_config.max_upload_mb) * 1024 * 1024
+        file_bytes = await file.read(max_size_bytes + 1)
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        if len(file_bytes) > max_size_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds max size: {app_config.max_upload_mb}MB",
+            )
+
+        original_name = (file.filename or "").strip() or "upload"
+        mime_type = _resolve_upload_mime_type(
+            content_type=file.content_type,
+            filename=original_name,
+        )
+        extension = MIME_TO_EXTENSION[mime_type]
+        file_id = str(uuid4())
+        stored_name = f"{file_id}{extension}"
+        target_path = app_config.upload_dir / stored_name
+
+        try:
+            with target_path.open("wb") as target:
+                target.write(file_bytes)
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="Failed to persist uploaded file") from error
+
+        sha256 = hashlib.sha256(file_bytes).hexdigest()
+        file_record = app.state.store.create_file(
+            file_id=file_id,
+            original_name=original_name,
+            stored_name=stored_name,
+            mime_type=mime_type,
+            size_bytes=len(file_bytes),
+            sha256=sha256,
+        )
+        return UploadedFileResponse(
+            file_id=file_record["file_id"],
+            original_name=file_record["original_name"],
+            mime_type=file_record["mime_type"],
+            size_bytes=file_record["size_bytes"],
+            sha256=file_record["sha256"],
+            created_at=_as_datetime(file_record["created_at"]),
+            url=f"/v1/files/{file_record['file_id']}",
+        )
+
+    @app.get("/v1/files/{file_id}")
+    async def get_uploaded_file(
+        file_id: str, _: None = Depends(require_auth)
+    ) -> FileResponse:
+        try:
+            file_record = app.state.store.get_file(file_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="File not found") from error
+
+        app.state.store.touch_file(file_id)
+        file_path = app.state.config.upload_dir / file_record["stored_name"]
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File content not found on disk")
+
+        return FileResponse(
+            str(file_path),
+            media_type=file_record["mime_type"],
+            filename=file_record["original_name"],
+        )
+
     return app
 
 
@@ -209,6 +309,102 @@ def require_auth(request: Request) -> None:
     expected = f"Bearer {app_config.bearer_token}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _resolve_uploaded_files(
+    request_payload: VideoGenerationRequest,
+    operation: ProviderModelOperationInfo,
+    store: TaskStore,
+    app_config: AppConfig,
+) -> None:
+    for field in operation.fields:
+        if field.input_type not in {"file", "file_list"}:
+            continue
+
+        if field.target != "provider_options":
+            continue
+        raw_value = request_payload.provider_options.get(field.key)
+        if raw_value is None:
+            continue
+
+        file_ids = _normalize_file_ids(
+            raw_value=raw_value,
+            expect_list=field.input_type == "file_list",
+            field_key=field.key,
+        )
+        if not file_ids:
+            continue
+
+        resolved_entries: list[dict[str, Any]] = []
+        for file_id in file_ids:
+            try:
+                file_record = store.get_file(file_id)
+            except KeyError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown uploaded file: {file_id}",
+                ) from error
+
+            file_path = app_config.upload_dir / file_record["stored_name"]
+            if not file_path.exists():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Uploaded file content missing: {file_id}",
+                )
+            store.touch_file(file_id)
+            resolved_entries.append(
+                {
+                    "file_id": file_record["file_id"],
+                    "path": str(file_path),
+                    "original_name": file_record["original_name"],
+                    "mime_type": file_record["mime_type"],
+                    "size_bytes": file_record["size_bytes"],
+                }
+            )
+
+        request_payload.provider_options[f"__resolved_{field.key}"] = resolved_entries
+
+
+def _normalize_file_ids(raw_value: Any, expect_list: bool, field_key: str) -> list[str]:
+    if expect_list:
+        if isinstance(raw_value, str) and raw_value.strip():
+            return [raw_value.strip()]
+        if isinstance(raw_value, list):
+            normalized = []
+            for item in raw_value:
+                if isinstance(item, str) and item.strip():
+                    normalized.append(item.strip())
+            return normalized
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_key} must be a list of file ids",
+        )
+
+    if isinstance(raw_value, str) and raw_value.strip():
+        return [raw_value.strip()]
+    raise HTTPException(
+        status_code=400,
+        detail=f"{field_key} must be a file id",
+    )
+
+
+def _resolve_upload_mime_type(content_type: str | None, filename: str) -> str:
+    normalized = ""
+    if isinstance(content_type, str) and content_type.strip():
+        normalized = content_type.split(";")[0].strip().lower()
+    if normalized in ALLOWED_IMAGE_MIME_TYPES:
+        return normalized
+
+    guessed_type, _ = mimetypes.guess_type(filename)
+    if isinstance(guessed_type, str):
+        guessed_type = guessed_type.lower()
+        if guessed_type in ALLOWED_IMAGE_MIME_TYPES:
+            return guessed_type
+
+    raise HTTPException(
+        status_code=400,
+        detail="Unsupported file type; only jpg/png/webp are allowed",
+    )
 
 
 def _to_task_response(task: dict[str, Any]) -> VideoTaskResponse:

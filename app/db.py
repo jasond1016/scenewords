@@ -34,6 +34,20 @@ class TaskStore:
                 );
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS files (
+                    file_id TEXT PRIMARY KEY,
+                    original_name TEXT NOT NULL,
+                    stored_name TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL
+                );
+                """
+            )
             self._connection.commit()
 
     def create_task(
@@ -110,6 +124,61 @@ class TaskStore:
             ).fetchall()
         return [_row_to_dict(row) for row in rows]
 
+    def create_file(
+        self,
+        file_id: str,
+        original_name: str,
+        stored_name: str,
+        mime_type: str,
+        size_bytes: int,
+        sha256: str,
+    ) -> dict[str, Any]:
+        now_iso = _now_iso()
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO files (
+                    file_id,
+                    original_name,
+                    stored_name,
+                    mime_type,
+                    size_bytes,
+                    sha256,
+                    created_at,
+                    last_used_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    file_id,
+                    original_name,
+                    stored_name,
+                    mime_type,
+                    size_bytes,
+                    sha256,
+                    now_iso,
+                    now_iso,
+                ),
+            )
+            self._connection.commit()
+        return self.get_file(file_id)
+
+    def get_file(self, file_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM files WHERE file_id = ?", (file_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(file_id)
+        return _file_row_to_dict(row)
+
+    def touch_file(self, file_id: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                "UPDATE files SET last_used_at = ? WHERE file_id = ?",
+                (_now_iso(), file_id),
+            )
+            self._connection.commit()
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     request_payload = json.loads(row["request_json"])
@@ -126,6 +195,19 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "error": error_payload,
         "created_at": _parse_iso(row["created_at"]),
         "updated_at": _parse_iso(row["updated_at"]),
+    }
+
+
+def _file_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "file_id": row["file_id"],
+        "original_name": row["original_name"],
+        "stored_name": row["stored_name"],
+        "mime_type": row["mime_type"],
+        "size_bytes": int(row["size_bytes"]),
+        "sha256": row["sha256"],
+        "created_at": _parse_iso(row["created_at"]),
+        "last_used_at": _parse_iso(row["last_used_at"]),
     }
 
 

@@ -214,6 +214,16 @@ function createFieldInput(field, fieldId) {
       input.type = "password";
       break;
     }
+    case "file":
+    case "file_list": {
+      input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/jpeg,image/png,image/webp";
+      if (field.input_type === "file_list") {
+        input.multiple = true;
+      }
+      break;
+    }
     default: {
       input = document.createElement("input");
       input.type = "text";
@@ -233,6 +243,9 @@ function createFieldInput(field, fieldId) {
 
 function applyFieldValue(input, field, value) {
   if (value == null) {
+    return;
+  }
+  if (field.input_type === "file" || field.input_type === "file_list") {
     return;
   }
   if (field.input_type === "boolean") {
@@ -258,7 +271,7 @@ async function onSubmit(event) {
 
   try {
     persistToken();
-    const payload = buildPayloadFromForm();
+    const payload = await buildPayloadFromForm();
     const response = await fetch("/v1/video/generations", {
       method: "POST",
       headers: { ...getGatewayHeaders(), "Content-Type": "application/json" },
@@ -278,7 +291,7 @@ async function onSubmit(event) {
   }
 }
 
-function buildPayloadFromForm() {
+async function buildPayloadFromForm() {
   const operation = getSelectedOperation();
   if (!operation) {
     throw new Error("当前模型未配置可用操作");
@@ -295,7 +308,13 @@ function buildPayloadFromForm() {
     const input = document.getElementById(buildFieldElementId(field));
     if (!input) continue;
 
-    const parsedValue = parseFieldValue(field, input);
+    let parsedValue;
+    if (field.input_type === "file" || field.input_type === "file_list") {
+      const fileIds = await uploadFilesForField(field, input);
+      parsedValue = field.input_type === "file" ? fileIds[0] || null : fileIds;
+    } else {
+      parsedValue = parseFieldValue(field, input);
+    }
     const isBoolean = field.input_type === "boolean";
     const shouldSkip = !isBoolean && isEmptyFieldValue(parsedValue);
     if (shouldSkip) {
@@ -356,6 +375,37 @@ function parseFieldValue(field, input) {
   }
 }
 
+async function uploadFilesForField(field, input) {
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    return [];
+  }
+
+  const uploadedIds = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const current = files[index];
+    formHint.textContent = `上传文件中 (${index + 1}/${files.length}): ${current.name}`;
+    const uploaded = await uploadFileToGateway(current);
+    uploadedIds.push(uploaded.file_id);
+  }
+  return uploadedIds;
+}
+
+async function uploadFileToGateway(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/v1/files", {
+    method: "POST",
+    headers: getGatewayHeaders(),
+    body: formData,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
+  }
+  return data;
+}
+
 function isIntegerNumberField(field) {
   return field.target === "request" && ["duration_sec", "fps", "seed"].includes(field.key);
 }
@@ -378,7 +428,7 @@ function fieldStorageKey(field) {
 }
 
 function persistFieldValue(field, input) {
-  if (field.input_type === "password") {
+  if (["password", "file", "file_list"].includes(field.input_type)) {
     return;
   }
   const key = fieldStorageKey(field);
@@ -395,6 +445,9 @@ function persistFieldValue(field, input) {
 }
 
 function hydrateFieldValue(field) {
+  if (field.input_type === "file" || field.input_type === "file_list") {
+    return null;
+  }
   const key = fieldStorageKey(field);
   const value = localStorage.getItem(key);
   if (value == null) {

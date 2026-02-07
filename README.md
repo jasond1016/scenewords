@@ -6,6 +6,8 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
 
 - 统一 API：
   - `POST /v1/video/generations`
+  - `POST /v1/files`
+  - `GET /v1/files/{file_id}`
   - `GET /v1/video/tasks`
   - `GET /v1/video/tasks/{task_id}`
   - `GET /v1/video/tasks/{task_id}/result`
@@ -46,6 +48,8 @@ export GOOGLE_API_KEY="..."
 export RIGHT_CODES_API_KEY="..."
 export TUZI_API_KEY="..."
 export VIDEO_GATEWAY_BEARER_TOKEN="your-token"
+export VIDEO_GATEWAY_UPLOAD_DIR="data/uploads"
+export VIDEO_GATEWAY_MAX_UPLOAD_MB="10"
 ```
 
 3. 启动服务
@@ -112,6 +116,8 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   - `duration_sec` -> `seconds`
   - `resolution` -> `size`
 - `input_references` 会映射为多条 `input_reference` 表单字段。
+- Tuzi 的 `input_reference` 采用文件上传：前端会先调用网关 `POST /v1/files`，再在生成请求里传 `input_reference_file_ids`。
+- 上传限制默认仅允许 `jpg/png/webp`，单文件最大 `10MB`（可通过环境变量调整）。
 - `remix` 使用 `source_video_id` 调用 `/v1/videos/{video_id}/remix`。
 - `create_character` 使用 `model=sora-2-character` + `character_from_task`（无视频输出）。
 - Sora 返回结果时，网关优先使用查询接口中的 `video_url`；若缺失会自动尝试 `/content` 下载接口兜底。

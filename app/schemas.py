@@ -71,6 +71,8 @@ class ProviderOperationField(BaseModel):
         "password",
         "json",
         "string_list",
+        "file",
+        "file_list",
     ] = "text"
     required: bool = False
     default: Any | None = None
@@ -88,3 +90,13 @@ class ProviderModelOperationInfo(BaseModel):
     description: str | None = None
     is_default: bool = False
     fields: list[ProviderOperationField] = Field(default_factory=list)
+
+
+class UploadedFileResponse(BaseModel):
+    file_id: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    created_at: datetime
+    url: str

@@ -33,9 +33,11 @@ class AppConfig:
     provider_config_path: Path
     db_path: Path
     output_dir: Path
+    upload_dir: Path
     bearer_token: str | None
     allow_endpoint_override: bool
     max_recent_tasks: int
+    max_upload_mb: int
 
 
 def load_app_config() -> AppConfig:
@@ -46,19 +48,23 @@ def load_app_config() -> AppConfig:
     output_dir = Path(
         os.getenv("VIDEO_GATEWAY_OUTPUT_DIR", "data/outputs")
     ).resolve()
+    upload_dir = Path(os.getenv("VIDEO_GATEWAY_UPLOAD_DIR", "data/uploads")).resolve()
     bearer_token = os.getenv("VIDEO_GATEWAY_BEARER_TOKEN")
     allow_endpoint_override = (
         os.getenv("VIDEO_GATEWAY_ALLOW_ENDPOINT_OVERRIDE", "true").lower() == "true"
     )
     max_recent_tasks = int(os.getenv("VIDEO_GATEWAY_MAX_RECENT_TASKS", "50"))
+    max_upload_mb = int(os.getenv("VIDEO_GATEWAY_MAX_UPLOAD_MB", "10"))
 
     return AppConfig(
         provider_config_path=provider_config_path,
         db_path=db_path,
         output_dir=output_dir,
+        upload_dir=upload_dir,
         bearer_token=bearer_token,
         allow_endpoint_override=allow_endpoint_override,
         max_recent_tasks=max_recent_tasks,
+        max_upload_mb=max_upload_mb,
     )
 
 

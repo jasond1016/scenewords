@@ -178,11 +178,11 @@ def _tuzi_sora_operations(
         ),
         _resolution_field(),
         _field(
-            "input_references",
-            "参考图 URL",
+            "input_reference_file_ids",
+            "参考图文件",
             target="provider_options",
-            input_type="string_list",
-            placeholder="每行一个 URL，可留空",
+            input_type="file_list",
+            help_text="支持多张图片，网关会以 multipart 文件形式转发给 Tuzi",
         ),
         _field(
             "watermark",
@@ -349,11 +349,11 @@ def _tuzi_veo_operations(
                 ),
                 _resolution_field(),
                 _field(
-                    "input_references",
-                    "参考图 URL",
+                    "input_reference_file_ids",
+                    "参考图文件",
                     target="provider_options",
-                    input_type="string_list",
-                    placeholder="每行一个 URL，可留空",
+                    input_type="file_list",
+                    help_text="支持多张图片，网关会以 multipart 文件形式转发给 Tuzi",
                 ),
                 _field(
                     "watermark",
