@@ -1,5 +1,9 @@
 const providerSelect = document.getElementById("provider");
 const modelSelect = document.getElementById("model");
+const operationRow = document.getElementById("operation-row");
+const operationSelect = document.getElementById("operation");
+const dynamicFields = document.getElementById("dynamic-fields");
+const gatewayTokenInput = document.getElementById("gateway_token");
 const form = document.getElementById("generate-form");
 const taskList = document.getElementById("task-list");
 const refreshButton = document.getElementById("refresh-button");
@@ -11,26 +15,9 @@ const playerSwitchButton = document.getElementById("player-switch-button");
 const playerOpenLink = document.getElementById("player-open-link");
 const playerMeta = document.getElementById("player-meta");
 const playerHint = document.getElementById("player-hint");
-const veoShortcuts = document.getElementById("veo-shortcuts");
-const veoLandscapeButton = document.getElementById("veo-landscape-button");
-const veoPortraitButton = document.getElementById("veo-portrait-button");
-const veoShortcutMeta = document.getElementById("veo-shortcut-meta");
 
-const ADVANCED_OPTION_IDS = [
-  "base_url",
-  "public_base_url",
-  "api_path",
-  "model_override",
-  "api_key",
-  "workflow",
-  "prompt_node_id",
-  "prompt_input_key",
-  "timeout_sec",
-  "poll_interval_sec",
-  "extra_body",
-];
-const STORAGE_PREFIX = "video_gateway_opt_";
-const VEO_ASPECT_STORAGE_KEY = "video_gateway_veo_aspect_ratio";
+const TOKEN_STORAGE_KEY = "video_gateway_token";
+const FIELD_STORAGE_PREFIX = "video_gateway_field_";
 const POLL_INTERVAL_MS = 4000;
 
 const state = {
@@ -43,15 +30,12 @@ const state = {
     pendingUrl: null,
     pendingTaskId: null,
   },
-  veoAspectRatio: "16:9",
 };
 
 let taskPollTimer = null;
 
 async function init() {
   hydrateToken();
-  hydrateAdvancedOptions();
-  hydrateVeoAspectRatio();
   await loadCatalog();
   bindEvents();
   await refreshTasks();
@@ -60,24 +44,14 @@ async function init() {
 
 function bindEvents() {
   providerSelect.addEventListener("change", onProviderChanged);
+  modelSelect.addEventListener("change", onModelChanged);
+  operationSelect.addEventListener("change", onOperationChanged);
   refreshButton.addEventListener("click", refreshTasks);
   form.addEventListener("submit", onSubmit);
   taskList.addEventListener("click", onTaskListClick);
   playLatestButton.addEventListener("click", onPlayLatest);
   playerSwitchButton.addEventListener("click", onSwitchPlayerVersion);
-  if (veoLandscapeButton) {
-    veoLandscapeButton.addEventListener("click", onVeoLandscapeClick);
-  }
-  if (veoPortraitButton) {
-    veoPortraitButton.addEventListener("click", onVeoPortraitClick);
-  }
-
-  for (const id of ADVANCED_OPTION_IDS) {
-    const element = document.getElementById(id);
-    if (!element) continue;
-    element.addEventListener("input", persistAdvancedOptions);
-    element.addEventListener("change", persistAdvancedOptions);
-  }
+  gatewayTokenInput.addEventListener("input", persistToken);
 }
 
 async function loadCatalog() {
@@ -87,6 +61,7 @@ async function loadCatalog() {
   }
   const data = await response.json();
   state.catalog = data.providers || [];
+
   providerSelect.innerHTML = "";
   for (const provider of state.catalog) {
     const option = document.createElement("option");
@@ -94,20 +69,34 @@ async function loadCatalog() {
     option.textContent = `${provider.display_name} (${provider.type})`;
     providerSelect.appendChild(option);
   }
+
   if (state.catalog.length > 0) {
     providerSelect.value = state.catalog[0].id;
-    populateModels(state.catalog[0].id);
-    applyProviderFormDefaults(getSelectedProvider(), { force: true });
+    populateModels(providerSelect.value);
   }
 }
 
+function onProviderChanged() {
+  populateModels(providerSelect.value);
+}
+
+function onModelChanged() {
+  populateOperations(getSelectedModel());
+}
+
+function onOperationChanged() {
+  renderDynamicFields();
+}
+
 function populateModels(providerId) {
-  const provider = state.catalog.find((item) => item.id === providerId);
+  const provider = getProviderById(providerId);
   modelSelect.innerHTML = "";
   if (!provider) {
+    populateOperations(null);
     return;
   }
-  for (const model of provider.models) {
+
+  for (const model of provider.models || []) {
     const option = document.createElement("option");
     option.value = model.name;
     option.textContent = model.display_name;
@@ -116,50 +105,149 @@ function populateModels(providerId) {
       modelSelect.value = model.name;
     }
   }
+  if (!modelSelect.value && modelSelect.options.length > 0) {
+    modelSelect.value = modelSelect.options[0].value;
+  }
+  populateOperations(getSelectedModel());
 }
 
-function buildProviderOptions() {
-  const baseUrl = document.getElementById("base_url").value.trim();
-  const publicBaseUrl = document.getElementById("public_base_url").value.trim();
-  const apiPath = document.getElementById("api_path").value.trim();
-  const modelOverride = document.getElementById("model_override").value.trim();
-  const workflowRaw = document.getElementById("workflow").value.trim();
-  const promptNodeId = document.getElementById("prompt_node_id").value.trim();
-  const promptInputKey = document.getElementById("prompt_input_key").value.trim();
-  const timeoutRaw = document.getElementById("timeout_sec").value.trim();
-  const pollIntervalRaw = document.getElementById("poll_interval_sec").value.trim();
-  const apiKey = document.getElementById("api_key").value.trim();
-  const extraBody = document.getElementById("extra_body").value.trim();
-
-  const providerOptions = {};
-  if (baseUrl) providerOptions.base_url = baseUrl;
-  if (publicBaseUrl) providerOptions.public_base_url = publicBaseUrl;
-  if (apiPath) providerOptions.api_path = apiPath;
-  if (modelOverride) providerOptions.model = modelOverride;
-  if (promptNodeId) providerOptions.prompt_node_id = promptNodeId;
-  if (promptInputKey) providerOptions.prompt_input_key = promptInputKey;
-  if (timeoutRaw) providerOptions.timeout_sec = parsePositiveInteger(timeoutRaw, "Timeout");
-  if (pollIntervalRaw) {
-    providerOptions.poll_interval_sec = parsePositiveNumber(pollIntervalRaw, "Poll Interval");
+function populateOperations(model) {
+  operationSelect.innerHTML = "";
+  const operations = model?.operations || [];
+  for (const operation of operations) {
+    const option = document.createElement("option");
+    option.value = operation.id;
+    option.textContent = operation.display_name;
+    operationSelect.appendChild(option);
+    if (operation.is_default) {
+      operationSelect.value = operation.id;
+    }
   }
-  if (apiKey) providerOptions.api_key = apiKey;
+  if (!operationSelect.value && operationSelect.options.length > 0) {
+    operationSelect.value = operationSelect.options[0].value;
+  }
+  operationRow.hidden = operations.length <= 1;
+  renderDynamicFields();
+}
 
-  if (workflowRaw) {
-    try {
-      providerOptions.workflow = JSON.parse(workflowRaw);
-    } catch {
-      throw new Error("Workflow JSON 不是合法 JSON");
+function renderDynamicFields() {
+  dynamicFields.innerHTML = "";
+  const operation = getSelectedOperation();
+  if (!operation) {
+    return;
+  }
+
+  for (const field of operation.fields || []) {
+    const wrapper = document.createElement("div");
+    wrapper.className = field.input_type === "boolean" ? "field field-boolean" : "field";
+
+    const fieldId = buildFieldElementId(field);
+    const label = document.createElement("label");
+    label.setAttribute("for", fieldId);
+    label.textContent = field.label;
+
+    const input = createFieldInput(field, fieldId);
+    input.dataset.fieldKey = field.key;
+    input.dataset.fieldTarget = field.target;
+    input.dataset.fieldType = field.input_type;
+
+    const hydratedValue = hydrateFieldValue(field);
+    const defaultValue = hydratedValue !== null ? hydratedValue : field.default;
+    applyFieldValue(input, field, defaultValue);
+
+    if (field.input_type === "boolean") {
+      wrapper.appendChild(input);
+      wrapper.appendChild(label);
+    } else {
+      wrapper.appendChild(label);
+      wrapper.appendChild(input);
+    }
+
+    if (field.help_text) {
+      const help = document.createElement("p");
+      help.className = "field-help";
+      help.textContent = field.help_text;
+      wrapper.appendChild(help);
+    }
+
+    dynamicFields.appendChild(wrapper);
+    input.addEventListener("input", () => persistFieldValue(field, input));
+    input.addEventListener("change", () => persistFieldValue(field, input));
+  }
+}
+
+function createFieldInput(field, fieldId) {
+  let input;
+  switch (field.input_type) {
+    case "textarea":
+    case "json":
+    case "string_list": {
+      input = document.createElement("textarea");
+      input.rows = field.input_type === "json" ? 6 : 4;
+      break;
+    }
+    case "select": {
+      input = document.createElement("select");
+      for (const optionItem of field.options || []) {
+        const option = document.createElement("option");
+        option.value = optionItem.value;
+        option.textContent = optionItem.label;
+        input.appendChild(option);
+      }
+      break;
+    }
+    case "number": {
+      input = document.createElement("input");
+      input.type = "number";
+      if (field.min != null) input.min = String(field.min);
+      if (field.max != null) input.max = String(field.max);
+      if (field.step != null) input.step = String(field.step);
+      break;
+    }
+    case "boolean": {
+      input = document.createElement("input");
+      input.type = "checkbox";
+      break;
+    }
+    case "password": {
+      input = document.createElement("input");
+      input.type = "password";
+      break;
+    }
+    default: {
+      input = document.createElement("input");
+      input.type = "text";
+      break;
     }
   }
 
-  if (extraBody) {
-    try {
-      providerOptions.extra_body = JSON.parse(extraBody);
-    } catch {
-      throw new Error("Extra Body 不是合法 JSON");
-    }
+  input.id = fieldId;
+  if (field.required) {
+    input.required = true;
   }
-  return providerOptions;
+  if (field.placeholder && input.type !== "checkbox") {
+    input.placeholder = field.placeholder;
+  }
+  return input;
+}
+
+function applyFieldValue(input, field, value) {
+  if (value == null) {
+    return;
+  }
+  if (field.input_type === "boolean") {
+    input.checked = toBoolean(value);
+    return;
+  }
+  if (field.input_type === "json" && typeof value !== "string") {
+    input.value = JSON.stringify(value, null, 2);
+    return;
+  }
+  if (field.input_type === "string_list" && Array.isArray(value)) {
+    input.value = value.join("\n");
+    return;
+  }
+  input.value = String(value);
 }
 
 async function onSubmit(event) {
@@ -167,20 +255,10 @@ async function onSubmit(event) {
   formHint.textContent = "";
   submitButton.disabled = true;
   submitButton.textContent = "提交中...";
+
   try {
-    const providerOptions = buildProviderOptions();
     persistToken();
-    persistAdvancedOptions();
-    const payload = {
-      provider: providerSelect.value,
-      model: modelSelect.value,
-      prompt: document.getElementById("prompt").value.trim(),
-      duration_sec: Number(document.getElementById("duration_sec").value),
-      fps: Number(document.getElementById("fps").value),
-      resolution: document.getElementById("resolution").value,
-      provider_options: providerOptions,
-    };
-    applyProviderPayloadDefaults(payload, getSelectedProvider());
+    const payload = buildPayloadFromForm();
     const response = await fetch("/v1/video/generations", {
       method: "POST",
       headers: { ...getGatewayHeaders(), "Content-Type": "application/json" },
@@ -191,16 +269,6 @@ async function onSubmit(event) {
       throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
     }
     formHint.textContent = `任务已创建: ${data.task_id}`;
-    const selectedProvider = providerSelect.value;
-    const selectedModel = modelSelect.value;
-    const currentToken = document.getElementById("gateway_token").value;
-    form.reset();
-    document.getElementById("gateway_token").value = currentToken;
-    hydrateAdvancedOptions();
-    providerSelect.value = selectedProvider;
-    populateModels(selectedProvider);
-    applyProviderFormDefaults(getSelectedProvider(), { force: true });
-    modelSelect.value = selectedModel;
     await refreshTasks();
   } catch (error) {
     formHint.textContent = `提交失败: ${error.message}`;
@@ -208,6 +276,178 @@ async function onSubmit(event) {
     submitButton.disabled = false;
     submitButton.textContent = "提交生成";
   }
+}
+
+function buildPayloadFromForm() {
+  const operation = getSelectedOperation();
+  if (!operation) {
+    throw new Error("当前模型未配置可用操作");
+  }
+
+  const payload = {
+    provider: providerSelect.value,
+    model: modelSelect.value,
+    operation: operation.id,
+    provider_options: {},
+  };
+
+  for (const field of operation.fields || []) {
+    const input = document.getElementById(buildFieldElementId(field));
+    if (!input) continue;
+
+    const parsedValue = parseFieldValue(field, input);
+    const isBoolean = field.input_type === "boolean";
+    const shouldSkip = !isBoolean && isEmptyFieldValue(parsedValue);
+    if (shouldSkip) {
+      continue;
+    }
+
+    if (field.target === "provider_options") {
+      payload.provider_options[field.key] = parsedValue;
+    } else {
+      payload[field.key] = parsedValue;
+    }
+  }
+
+  return payload;
+}
+
+function parseFieldValue(field, input) {
+  switch (field.input_type) {
+    case "boolean":
+      return Boolean(input.checked);
+    case "number": {
+      const raw = String(input.value || "").trim();
+      if (!raw) return null;
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric)) {
+        throw new Error(`${field.label} 必须是数字`);
+      }
+      if (isIntegerNumberField(field)) {
+        if (!Number.isInteger(numeric)) {
+          throw new Error(`${field.label} 必须是整数`);
+        }
+        return numeric;
+      }
+      return numeric;
+    }
+    case "json": {
+      const raw = String(input.value || "").trim();
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        throw new Error(`${field.label} 不是合法 JSON`);
+      }
+    }
+    case "string_list": {
+      const raw = String(input.value || "").trim();
+      if (!raw) return [];
+      return raw
+        .replaceAll("\r", "")
+        .split(/\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    default: {
+      const raw = String(input.value || "").trim();
+      return raw || null;
+    }
+  }
+}
+
+function isIntegerNumberField(field) {
+  return field.target === "request" && ["duration_sec", "fps", "seed"].includes(field.key);
+}
+
+function isEmptyFieldValue(value) {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+function buildFieldElementId(field) {
+  return `field_${field.target}_${field.key}`;
+}
+
+function fieldStorageKey(field) {
+  const operation = getSelectedOperation();
+  const operationId = operation?.id || "";
+  return `${FIELD_STORAGE_PREFIX}${providerSelect.value}__${modelSelect.value}__${operationId}__${field.target}__${field.key}`;
+}
+
+function persistFieldValue(field, input) {
+  if (field.input_type === "password") {
+    return;
+  }
+  const key = fieldStorageKey(field);
+  if (field.input_type === "boolean") {
+    localStorage.setItem(key, input.checked ? "true" : "false");
+    return;
+  }
+  const raw = String(input.value || "");
+  if (raw.trim()) {
+    localStorage.setItem(key, raw);
+  } else {
+    localStorage.removeItem(key);
+  }
+}
+
+function hydrateFieldValue(field) {
+  const key = fieldStorageKey(field);
+  const value = localStorage.getItem(key);
+  if (value == null) {
+    return null;
+  }
+  if (field.input_type === "boolean") {
+    return value === "true";
+  }
+  if (field.input_type === "number") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (field.input_type === "json") {
+    return value;
+  }
+  if (field.input_type === "string_list") {
+    return value
+      .replaceAll("\r", "")
+      .split(/\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return value;
+}
+
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return ["1", "true", "yes", "on"].includes(normalized);
+  }
+  return Boolean(value);
+}
+
+function getProviderById(providerId) {
+  return state.catalog.find((item) => item.id === providerId) || null;
+}
+
+function getSelectedProvider() {
+  return getProviderById(providerSelect.value);
+}
+
+function getSelectedModel() {
+  const provider = getSelectedProvider();
+  if (!provider) return null;
+  return (provider.models || []).find((item) => item.name === modelSelect.value) || null;
+}
+
+function getSelectedOperation() {
+  const model = getSelectedModel();
+  if (!model) return null;
+  const operations = model.operations || [];
+  return operations.find((item) => item.id === operationSelect.value) || operations[0] || null;
 }
 
 async function refreshTasks() {
@@ -408,157 +648,8 @@ function formatTime(value) {
   }
 }
 
-function onProviderChanged() {
-  populateModels(providerSelect.value);
-  applyProviderFormDefaults(getSelectedProvider(), { force: true });
-}
-
-function getSelectedProvider() {
-  return state.catalog.find((item) => item.id === providerSelect.value) || null;
-}
-
-function isComfyProvider(provider) {
-  return provider?.type === "comfyui";
-}
-
-function isVeoProvider(provider) {
-  return (
-    provider?.type === "gemini_veo_compatible" ||
-    provider?.type === "vertex_veo" ||
-    provider?.type === "tuzi_veo"
-  );
-}
-
-function isGeminiVeoProvider(provider) {
-  return provider?.type === "gemini_veo_compatible";
-}
-
-function applyProviderFormDefaults(provider, options = {}) {
-  const force = Boolean(options.force);
-  const durationInput = document.getElementById("duration_sec");
-  const fpsInput = document.getElementById("fps");
-  const resolutionSelect = document.getElementById("resolution");
-
-  if (isVeoProvider(provider)) {
-    veoShortcuts.hidden = false;
-    if (force) {
-      durationInput.value = "4";
-      fpsInput.value = "24";
-      resolutionSelect.value = preferredResolutionForAspectRatio(state.veoAspectRatio);
-    }
-    renderVeoShortcutMeta();
-    return;
-  }
-
-  veoShortcuts.hidden = true;
-  if (isComfyProvider(provider) && force) {
-    durationInput.value = "4";
-    fpsInput.value = "24";
-    resolutionSelect.value = "854x480";
-  }
-}
-
-function renderVeoShortcutMeta() {
-  const resolution = document.getElementById("resolution").value;
-  veoShortcutMeta.textContent = `当前画幅：${state.veoAspectRatio}，当前分辨率：${resolution}`;
-}
-
-function onVeoLandscapeClick() {
-  setVeoAspectRatio("16:9");
-}
-
-function onVeoPortraitClick() {
-  setVeoAspectRatio("9:16");
-}
-
-function setVeoAspectRatio(aspectRatio) {
-  state.veoAspectRatio = aspectRatio;
-  localStorage.setItem(VEO_ASPECT_STORAGE_KEY, aspectRatio);
-  if (isVeoProvider(getSelectedProvider())) {
-    document.getElementById("resolution").value = preferredResolutionForAspectRatio(aspectRatio);
-  }
-  renderVeoShortcutMeta();
-}
-
-function preferredResolutionForAspectRatio(aspectRatio) {
-  if (aspectRatio === "9:16") {
-    return "720x1280";
-  }
-  return "1280x720";
-}
-
-function hydrateVeoAspectRatio() {
-  const value = localStorage.getItem(VEO_ASPECT_STORAGE_KEY);
-  if (value === "16:9" || value === "9:16") {
-    state.veoAspectRatio = value;
-  }
-}
-
-function applyProviderPayloadDefaults(payload, provider) {
-  if (!isGeminiVeoProvider(provider)) {
-    return;
-  }
-
-  const providerOptions = payload.provider_options || {};
-  const existingExtraBody = isPlainObject(providerOptions.extra_body)
-    ? { ...providerOptions.extra_body }
-    : {};
-  const parameters = isPlainObject(existingExtraBody.parameters)
-    ? { ...existingExtraBody.parameters }
-    : {};
-
-  if (parameters.durationSeconds == null) {
-    parameters.durationSeconds = payload.duration_sec;
-  }
-  if (!isNonEmptyString(parameters.aspectRatio)) {
-    parameters.aspectRatio = inferAspectRatio(payload.resolution) || state.veoAspectRatio;
-  }
-  if (!isNonEmptyString(parameters.resolution)) {
-    parameters.resolution = veoResolutionPreset(payload.resolution);
-  }
-
-  existingExtraBody.parameters = parameters;
-  providerOptions.extra_body = existingExtraBody;
-  payload.provider_options = providerOptions;
-}
-
-function inferAspectRatio(resolution) {
-  if (typeof resolution !== "string") {
-    return null;
-  }
-  const normalized = resolution.trim().toLowerCase();
-  if (!normalized.includes("x")) {
-    return null;
-  }
-  const [widthText, heightText] = normalized.split("x");
-  const width = Number(widthText);
-  const height = Number(heightText);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-  if (width > height) return "16:9";
-  if (height > width) return "9:16";
-  return "1:1";
-}
-
-function veoResolutionPreset(resolution) {
-  const normalized = String(resolution || "").toLowerCase();
-  if (normalized === "1280x720" || normalized === "720x1280") {
-    return "720p";
-  }
-  return "720p";
-}
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 function getGatewayHeaders() {
-  const token = document.getElementById("gateway_token").value.trim();
+  const token = gatewayTokenInput.value.trim();
   if (!token) {
     return {};
   }
@@ -566,58 +657,18 @@ function getGatewayHeaders() {
 }
 
 function persistToken() {
-  const token = document.getElementById("gateway_token").value.trim();
+  const token = gatewayTokenInput.value.trim();
   if (token) {
-    localStorage.setItem("video_gateway_token", token);
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
     return;
   }
-  localStorage.removeItem("video_gateway_token");
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 function hydrateToken() {
-  const token = localStorage.getItem("video_gateway_token");
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
   if (token) {
-    document.getElementById("gateway_token").value = token;
-  }
-}
-
-function parsePositiveNumber(value, label) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} 必须是正数`);
-  }
-  return parsed;
-}
-
-function parsePositiveInteger(value, label) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${label} 必须是正整数`);
-  }
-  return parsed;
-}
-
-function persistAdvancedOptions() {
-  for (const id of ADVANCED_OPTION_IDS) {
-    const element = document.getElementById(id);
-    if (!element) continue;
-    const value = element.value;
-    if (value && value.trim()) {
-      localStorage.setItem(`${STORAGE_PREFIX}${id}`, value);
-      continue;
-    }
-    localStorage.removeItem(`${STORAGE_PREFIX}${id}`);
-  }
-}
-
-function hydrateAdvancedOptions() {
-  for (const id of ADVANCED_OPTION_IDS) {
-    const element = document.getElementById(id);
-    if (!element) continue;
-    const value = localStorage.getItem(`${STORAGE_PREFIX}${id}`);
-    if (value !== null) {
-      element.value = value;
-    }
+    gatewayTokenInput.value = token;
   }
 }
 

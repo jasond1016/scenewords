@@ -13,6 +13,9 @@ class GeminiVeoCompatibleProvider(Provider):
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
     ) -> dict[str, Any]:
+        prompt = _require_prompt(request.prompt)
+        duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 4
+        resolution = request.resolution or "1280x720"
         base_url = _choose_value(
             configured=provider_config.base_url,
             override=request.provider_options.get("base_url"),
@@ -53,7 +56,12 @@ class GeminiVeoCompatibleProvider(Provider):
         submit_endpoint = _join_url(base_url, rendered_path)
 
         headers = _build_headers(provider_config, request.provider_options)
-        payload = _build_payload(request)
+        payload = _build_payload(
+            prompt=prompt,
+            duration_sec=duration_sec,
+            resolution=resolution,
+            negative_prompt=request.negative_prompt,
+        )
         payload.update(_safe_dict(request.provider_options.get("extra_body")))
 
         submit_timeout_sec = _coerce_positive_float(
@@ -243,16 +251,22 @@ def _resolve_api_key_header(provider_config: ProviderConfig, provider_options: d
     return "x-goog-api-key"
 
 
-def _build_payload(request: VideoGenerationRequest) -> dict[str, Any]:
+def _build_payload(
+    *,
+    prompt: str,
+    duration_sec: int,
+    resolution: str,
+    negative_prompt: str | None,
+) -> dict[str, Any]:
     payload = {
-        "instances": [{"prompt": request.prompt}],
+        "instances": [{"prompt": prompt}],
         "parameters": {
-            "durationSeconds": request.duration_sec,
-            "aspectRatio": _resolution_to_aspect_ratio(request.resolution),
+            "durationSeconds": duration_sec,
+            "aspectRatio": _resolution_to_aspect_ratio(resolution),
         },
     }
-    if request.negative_prompt:
-        payload["parameters"]["negativePrompt"] = request.negative_prompt
+    if negative_prompt:
+        payload["parameters"]["negativePrompt"] = negative_prompt
     return payload
 
 
@@ -384,3 +398,9 @@ def _coerce_positive_float(value: Any, fallback: float, field_name: str) -> floa
             raw_error={field_name: value},
         )
     return parsed
+
+
+def _require_prompt(value: str | None) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ProviderError(code="invalid_prompt", message="prompt is required")

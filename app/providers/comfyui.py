@@ -18,6 +18,10 @@ class ComfyUIProvider(Provider):
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
     ) -> dict[str, Any]:
+        prompt = _require_prompt(request.prompt)
+        duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 4
+        fps = request.fps if isinstance(request.fps, int) else 24
+        resolution = request.resolution or "854x480"
         workflow = _resolve_workflow(
             provider_options=request.provider_options,
             provider_config=provider_config,
@@ -60,14 +64,16 @@ class ComfyUIProvider(Provider):
 
         _inject_prompt(
             workflow=workflow,
-            prompt=request.prompt,
+            prompt=prompt,
             negative_prompt=request.negative_prompt,
             prompt_node_id=prompt_node_id,
             prompt_input_key=prompt_input_key,
         )
         _apply_video_request_settings(
             workflow=workflow,
-            request=request,
+            duration_sec=duration_sec,
+            fps=fps,
+            resolution=resolution,
             provider_options=request.provider_options,
             provider_config=provider_config,
         )
@@ -343,7 +349,9 @@ def _coerce_positive_float(value: Any, fallback: float, field_name: str) -> floa
 
 def _apply_video_request_settings(
     workflow: dict[str, Any],
-    request: VideoGenerationRequest,
+    duration_sec: int,
+    fps: int,
+    resolution: str,
     provider_options: dict[str, Any],
     provider_config: ProviderConfig,
 ) -> None:
@@ -358,9 +366,7 @@ def _apply_video_request_settings(
     if not auto_apply:
         return
 
-    width, height = _parse_resolution(request.resolution)
-    fps = request.fps
-    duration_sec = request.duration_sec
+    width, height = _parse_resolution(resolution)
 
     latent_node_id = _pick_node_id_option(
         provider_options=provider_options,
@@ -617,3 +623,9 @@ def _extract_video_url(base_url: str, history: dict[str, Any]) -> str | None:
                     f"?filename={filename}&type={file_type}&subfolder={subfolder}"
                 )
     return None
+
+
+def _require_prompt(value: str | None) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ProviderError(code="invalid_prompt", message="prompt is required")

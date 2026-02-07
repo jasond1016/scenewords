@@ -79,6 +79,11 @@ textarea {
   resize: vertical;
 }
 
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}
+
 button {
   cursor: pointer;
 }
@@ -98,6 +103,30 @@ button {
   min-height: 20px;
   margin: 8px 0 0;
   color: var(--muted);
+}
+
+.dynamic-fields {
+  margin-top: 8px;
+}
+
+.field {
+  margin-top: 8px;
+}
+
+.field-boolean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-boolean label {
+  margin: 0;
+}
+
+.field-help {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .row {
@@ -121,21 +150,6 @@ button {
 #play-latest-button {
   width: auto;
   padding: 8px 14px;
-}
-
-.veo-shortcuts {
-  margin-top: 10px;
-}
-
-#veo-landscape-button,
-#veo-portrait-button {
-  width: 100%;
-}
-
-.shortcut-meta {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 #task-list {

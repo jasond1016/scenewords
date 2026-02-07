@@ -10,11 +10,11 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
   - `GET /v1/video/tasks/{task_id}`
   - `GET /v1/video/tasks/{task_id}/result`
   - `GET /v1/models`
-- 前端支持切换 `Provider` 和 `Model`
+  - 模型能力描述（`operations` 与字段定义）
+- 前端支持按 `Provider / Model / Operation` 动态切换参数（仅显示接口支持项）
 - 支持按请求覆盖 `base_url`、`api_path`、`model`
 - 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo / Tuzi）
-- ComfyUI 支持 `public_base_url`（对外播放地址）、后端默认 workflow 与前端缓存 workflow JSON
-- 前端支持按 Provider 自动套用初始参数，并提供 Veo 竖屏/横屏快捷切换
+- ComfyUI 支持后端默认 workflow 与请求级 workflow JSON
 - 可选网关 `Bearer Token` 鉴权
 
 ## 目录
@@ -86,13 +86,12 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   -d '{
     "provider": "sora2",
     "model": "sora2",
+    "operation": "generate",
     "prompt": "cinematic drone shot of a snowy mountain at sunrise",
     "duration_sec": 4,
-    "resolution": "854x480",
-    "fps": 24,
+    "resolution": "1280x720",
     "provider_options": {
-      "base_url": "https://api.tu-zi.com",
-      "api_path": "/v1/videos"
+      "api_key": "YOUR_API_KEY"
     }
   }'
 ```
@@ -104,11 +103,17 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   - 查询：`GET /v1/videos/{task_id}`
   - Sora 下载兜底：`GET /v1/videos/{task_id}/content`
 - `veo31` 与 `sora2` 默认都已切到 Tuzi（ID 不变，便于前端继续使用原选项）。
+- 网关已支持下列 operation（前端会按模型动态展示）：
+  - `tuzi_veo`: `generate`
+  - `tuzi_sora`: `generate` / `storyboard` / `remix` / `create_character`
 - 请求字段映射（网关 -> Tuzi multipart）：
   - `model` -> `model`
   - `prompt` -> `prompt`
   - `duration_sec` -> `seconds`
   - `resolution` -> `size`
+- `input_references` 会映射为多条 `input_reference` 表单字段。
+- `remix` 使用 `source_video_id` 调用 `/v1/videos/{video_id}/remix`。
+- `create_character` 使用 `model=sora-2-character` + `character_from_task`（无视频输出）。
 - Sora 返回结果时，网关优先使用查询接口中的 `video_url`；若缺失会自动尝试 `/content` 下载接口兜底。
 - 请求级可覆盖字段（`provider_options`）：
   - `api_key`, `auth_header`
@@ -158,16 +163,12 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
 - `config/providers.json` 里建议将 ComfyUI 配置为：
   - `base_url`: 网关访问 ComfyUI 的地址（同机可用 `http://127.0.0.1:8188`）
   - `public_base_url`: 返回给客户端播放视频的地址（如 `http://192.168.1.20:8188`）
-- 前端“高级设置”新增 `Workflow JSON`，可直接粘贴 ComfyUI workflow，浏览器会本地缓存，后续提交无需重复粘贴。
+- 前端会按当前 `provider/model/operation` 动态显示可配置字段（包含 ComfyUI `workflow`）。
 
 ## 第三方 Veo (Gemini-Compatible) 使用说明
 
 - 适用接口：`/models/{model}:predictLongRunning` + 轮询 operation。
-- 前端切换到 `gemini_veo_compatible` / `vertex_veo` 时，会自动设置推荐初始值：
-  - `duration_sec = 4`
-  - `fps = 24`
-  - `resolution = 1280x720`（横屏）或 `720x1280`（竖屏）
-- 可用“Veo 画幅快捷”按钮在 `16:9` 与 `9:16` 间快速切换（会记住上次选择）。
+- 前端参数由后端 capabilities 驱动，按 provider/model 自动显示支持字段与默认值。
 - 推荐配置示例（已内置在 `config/providers.json`）：
 
 ```json

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from app.config import ProviderConfig
@@ -32,6 +33,15 @@ class TuziSoraProvider(Provider):
         ).generate(provider_config=provider_config, request=request)
 
 
+@dataclass(slots=True)
+class _SubmitRequest:
+    endpoint: str
+    timeout_sec: float
+    files: list[tuple[str, tuple[None, str]]] | None = None
+    json_body: dict[str, Any] | None = None
+    should_poll: bool = True
+
+
 class _TuziAsyncVideoProvider:
     def __init__(self, provider: Provider, mode_name: str, enable_download_fallback: bool) -> None:
         self.provider = provider
@@ -41,6 +51,7 @@ class _TuziAsyncVideoProvider:
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
     ) -> dict[str, Any]:
+        operation = _normalize_operation(request)
         base_url = _choose_value(
             configured=provider_config.base_url,
             override=request.provider_options.get("base_url"),
@@ -52,7 +63,8 @@ class _TuziAsyncVideoProvider:
             allow_override=self.provider.app_config.allow_endpoint_override,
         )
         query_path = _choose_value(
-            configured=_string_or_none(provider_config.extra.get("query_path")) or "/v1/videos/{task_id}",
+            configured=_string_or_none(provider_config.extra.get("query_path"))
+            or "/v1/videos/{task_id}",
             override=request.provider_options.get("query_path"),
             allow_override=self.provider.app_config.allow_endpoint_override,
         )
@@ -64,16 +76,20 @@ class _TuziAsyncVideoProvider:
 
         headers = _build_headers(provider_config=provider_config, provider_options=request.provider_options)
         submit_url = _join_url(base_url, api_path)
-        submit_timeout_sec = _coerce_positive_float(
-            request.provider_options.get("submit_timeout_sec"),
-            fallback=120.0,
-            field_name="submit_timeout_sec",
+        submit_request = _build_submit_request(
+            operation=operation,
+            submit_url=submit_url,
+            base_url=base_url,
+            provider_config=provider_config,
+            request=request,
         )
+
         submit_json = await self._submit(
-            endpoint=submit_url,
+            endpoint=submit_request.endpoint,
             headers=headers,
-            form_parts=_build_submit_form(request),
-            timeout_sec=submit_timeout_sec,
+            files=submit_request.files,
+            json_body=submit_request.json_body,
+            timeout_sec=submit_request.timeout_sec,
         )
 
         task_id = _extract_task_id(submit_json)
@@ -83,6 +99,21 @@ class _TuziAsyncVideoProvider:
                 message="Tuzi submit response missing task id",
                 raw_error=submit_json,
             )
+
+        raw_response: dict[str, Any] = {
+            "operation": operation,
+            "submit": submit_json,
+            "submit_endpoint": submit_request.endpoint,
+        }
+
+        if not submit_request.should_poll:
+            return {
+                "mode": self.mode_name,
+                "operation": operation,
+                "provider_job_id": task_id,
+                "video_url": _find_video_url(submit_json),
+                "raw_response": raw_response,
+            }
 
         query_url = _render_task_url(base_url=base_url, path_template=query_path, task_id=task_id)
         poll_timeout_sec = _coerce_positive_float(
@@ -109,15 +140,11 @@ class _TuziAsyncVideoProvider:
             timeout_sec=poll_timeout_sec,
             poll_interval_sec=poll_interval_sec,
         )
-
-        raw_response: dict[str, Any] = {
-            "submit": submit_json,
-            "query": query_json,
-            "query_endpoint": query_url,
-        }
+        raw_response["query"] = query_json
+        raw_response["query_endpoint"] = query_url
 
         video_url = _find_video_url(query_json)
-        if not video_url and self.enable_download_fallback:
+        if not video_url and self.enable_download_fallback and operation in {"generate", "storyboard", "remix"}:
             fallback_url, download_meta = await self._download_fallback(
                 provider_config=provider_config,
                 request=request,
@@ -130,7 +157,7 @@ class _TuziAsyncVideoProvider:
             if fallback_url:
                 video_url = fallback_url
 
-        if not video_url:
+        if operation in {"generate", "storyboard", "remix"} and not video_url:
             raise ProviderError(
                 code="missing_video_url",
                 message="Tuzi task completed but no playable video_url was found",
@@ -139,6 +166,7 @@ class _TuziAsyncVideoProvider:
 
         return {
             "mode": self.mode_name,
+            "operation": operation,
             "provider_job_id": task_id,
             "video_url": video_url,
             "raw_response": raw_response,
@@ -148,14 +176,20 @@ class _TuziAsyncVideoProvider:
         self,
         endpoint: str,
         headers: dict[str, str],
-        form_parts: list[tuple[str, tuple[None, str]]],
+        files: list[tuple[str, tuple[None, str]]] | None,
+        json_body: dict[str, Any] | None,
         timeout_sec: float,
     ) -> dict[str, Any]:
+        request_headers = {**headers}
+        if files is not None:
+            request_headers.pop("Content-Type", None)
+
         try:
             response = await self.provider.http_client.post(
                 endpoint,
-                headers=headers,
-                files=form_parts,
+                headers=request_headers,
+                files=files,
+                json=json_body,
                 timeout=timeout_sec,
             )
             payload = _safe_json(response)
@@ -286,27 +320,109 @@ class _TuziAsyncVideoProvider:
         return None, download_meta
 
 
-def _build_submit_form(request: VideoGenerationRequest) -> list[tuple[str, tuple[None, str]]]:
+def _build_submit_request(
+    operation: str,
+    submit_url: str,
+    base_url: str,
+    provider_config: ProviderConfig,
+    request: VideoGenerationRequest,
+) -> _SubmitRequest:
+    submit_timeout_sec = _coerce_positive_float(
+        request.provider_options.get("submit_timeout_sec"),
+        fallback=120.0,
+        field_name="submit_timeout_sec",
+    )
+
+    if operation in {"generate", "storyboard"}:
+        return _SubmitRequest(
+            endpoint=submit_url,
+            timeout_sec=submit_timeout_sec,
+            files=_build_generation_form(request=request, operation=operation),
+            should_poll=True,
+        )
+
+    if operation == "remix":
+        source_video_id = _string_or_none(request.provider_options.get("source_video_id"))
+        if not source_video_id:
+            raise ProviderError(
+                code="invalid_provider_option",
+                message="source_video_id is required for remix",
+            )
+        remix_path = _choose_value(
+            configured=_string_or_none(provider_config.extra.get("remix_path"))
+            or "/v1/videos/{video_id}/remix",
+            override=request.provider_options.get("remix_path"),
+            allow_override=True,
+        )
+        if not remix_path:
+            raise ProviderError(code="missing_endpoint", message="missing remix_path")
+        endpoint = _render_task_url(
+            base_url=base_url,
+            path_template=remix_path,
+            task_id=source_video_id,
+        )
+        prompt = _string_or_none(request.prompt)
+        if not prompt:
+            raise ProviderError(code="invalid_prompt", message="prompt is required for remix")
+        remix_body = {"prompt": prompt}
+        remix_body.update(_safe_dict(request.provider_options.get("extra_body")))
+        return _SubmitRequest(
+            endpoint=endpoint,
+            timeout_sec=submit_timeout_sec,
+            json_body=remix_body,
+            should_poll=True,
+        )
+
+    if operation == "create_character":
+        return _SubmitRequest(
+            endpoint=submit_url,
+            timeout_sec=submit_timeout_sec,
+            files=_build_create_character_form(request=request),
+            should_poll=False,
+        )
+
+    raise ProviderError(
+        code="unsupported_operation",
+        message=f"Unsupported Tuzi operation: {operation}",
+        raw_error={"operation": operation},
+    )
+
+
+def _build_generation_form(
+    request: VideoGenerationRequest, operation: str
+) -> list[tuple[str, tuple[None, str]]]:
     model_name = _choose_value(
         configured=request.model,
         override=request.provider_options.get("model"),
         allow_override=True,
     )
+    prompt = _string_or_none(request.prompt)
     if not model_name:
         raise ProviderError(code="invalid_model", message="model is required")
+    if not prompt:
+        raise ProviderError(code="invalid_prompt", message="prompt is required")
 
+    duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 10
     form_payload: dict[str, Any] = {
         "model": model_name,
-        "prompt": request.prompt,
-        "seconds": request.duration_sec,
+        "prompt": prompt,
+        "seconds": duration_sec,
         "size": _resolution_to_tuzi_size(request.resolution),
     }
-    if request.negative_prompt:
-        form_payload["negative_prompt"] = request.negative_prompt
+
+    watermark = request.provider_options.get("watermark")
+    if watermark is not None:
+        form_payload["watermark"] = bool(watermark)
+
+    character_create = request.provider_options.get("character_create")
+    if character_create is not None:
+        form_payload["character_create"] = bool(character_create)
+    elif operation == "storyboard":
+        form_payload["character_create"] = True
+
     if request.seed is not None:
         form_payload["seed"] = request.seed
 
-    # Keep gateway behavior flexible for vendor-specific multipart fields.
     form_payload.update(_safe_dict(request.provider_options.get("extra_body")))
 
     form_parts: list[tuple[str, tuple[None, str]]] = []
@@ -322,7 +438,63 @@ def _build_submit_form(request: VideoGenerationRequest) -> list[tuple[str, tuple
         coerced = _to_form_value(value)
         if coerced is not None:
             form_parts.append((key, (None, coerced)))
+
+    for reference in _collect_input_references(request.provider_options):
+        form_parts.append(("input_reference", (None, reference)))
+
     return form_parts
+
+
+def _build_create_character_form(
+    request: VideoGenerationRequest,
+) -> list[tuple[str, tuple[None, str]]]:
+    source_task_id = _string_or_none(request.provider_options.get("character_from_task"))
+    if not source_task_id:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="character_from_task is required for create_character",
+        )
+
+    payload: dict[str, Any] = {
+        "model": "sora-2-character",
+        "character_from_task": source_task_id,
+    }
+    timestamps = request.provider_options.get("character_timestamps")
+    if timestamps is not None:
+        payload["character_timestamps"] = timestamps
+    payload.update(_safe_dict(request.provider_options.get("extra_body")))
+
+    parts: list[tuple[str, tuple[None, str]]] = []
+    for key, value in payload.items():
+        coerced = _to_form_value(value)
+        if coerced is not None:
+            parts.append((key, (None, coerced)))
+    return parts
+
+
+def _collect_input_references(provider_options: dict[str, Any]) -> list[str]:
+    raw_value = provider_options.get("input_references", provider_options.get("input_reference"))
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, str):
+        normalized = [item.strip() for item in raw_value.replace("\n", ",").split(",")]
+        return [item for item in normalized if item]
+    if isinstance(raw_value, list):
+        values: list[str] = []
+        for item in raw_value:
+            if isinstance(item, str) and item.strip():
+                values.append(item.strip())
+        return values
+    return []
+
+
+def _normalize_operation(request: VideoGenerationRequest) -> str:
+    if isinstance(request.operation, str) and request.operation.strip():
+        return request.operation.strip().lower()
+    explicit = request.provider_options.get("operation")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip().lower()
+    return "generate"
 
 
 def _to_form_value(value: Any) -> str | None:
@@ -337,7 +509,7 @@ def _to_form_value(value: Any) -> str | None:
     return str(value)
 
 
-def _resolution_to_tuzi_size(raw_resolution: str) -> str:
+def _resolution_to_tuzi_size(raw_resolution: str | None) -> str:
     normalized = str(raw_resolution or "").strip().lower()
     if normalized in {"360p", "540p", "720p", "1080p"}:
         return normalized
@@ -351,10 +523,8 @@ def _resolution_to_tuzi_size(raw_resolution: str) -> str:
         return "720p"
     if width <= 0 or height <= 0:
         return "720p"
-    longest_edge = max(width, height)
-    if longest_edge >= 1920:
-        return "1080p"
-    return "720p"
+    # Keep explicit WxH to preserve orientation (landscape vs portrait).
+    return f"{width}x{height}"
 
 
 def _build_headers(provider_config: ProviderConfig, provider_options: dict[str, Any]) -> dict[str, str]:

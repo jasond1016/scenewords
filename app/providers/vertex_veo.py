@@ -12,6 +12,10 @@ class VertexVeoProvider(Provider):
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
     ) -> dict[str, Any]:
+        prompt = _require_prompt(request.prompt)
+        duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 4
+        resolution = request.resolution or "1280x720"
+        fps = request.fps if isinstance(request.fps, int) else 24
         base_url = _choose_endpoint(
             configured=provider_config.base_url,
             override=request.provider_options.get("base_url"),
@@ -49,11 +53,11 @@ class VertexVeoProvider(Provider):
             headers["Authorization"] = f"Bearer {auth_token}"
 
         payload = {
-            "instances": [{"prompt": request.prompt}],
+            "instances": [{"prompt": prompt}],
             "parameters": {
-                "durationSeconds": request.duration_sec,
-                "fps": request.fps,
-                "resolution": request.resolution,
+                "durationSeconds": duration_sec,
+                "fps": fps,
+                "resolution": resolution,
             },
         }
         if request.negative_prompt:
@@ -119,3 +123,9 @@ def _resolve_auth_token(
     if provider_config.auth_env:
         return os.getenv(provider_config.auth_env)
     return None
+
+
+def _require_prompt(value: str | None) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ProviderError(code="invalid_prompt", message="prompt is required")

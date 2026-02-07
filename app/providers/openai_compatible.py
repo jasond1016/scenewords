@@ -12,6 +12,10 @@ class OpenAICompatibleProvider(Provider):
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
     ) -> dict[str, Any]:
+        prompt = _require_prompt(request.prompt)
+        duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 4
+        resolution = request.resolution or "1280x720"
+        fps = request.fps if isinstance(request.fps, int) else 24
         base_url = _choose_value(
             configured_value=provider_config.base_url,
             override_value=request.provider_options.get("base_url"),
@@ -46,10 +50,10 @@ class OpenAICompatibleProvider(Provider):
 
         payload: dict[str, Any] = {
             "model": model_name,
-            "prompt": request.prompt,
-            "duration": request.duration_sec,
-            "resolution": request.resolution,
-            "fps": request.fps,
+            "prompt": prompt,
+            "duration": duration_sec,
+            "resolution": resolution,
+            "fps": fps,
             "seed": request.seed,
         }
         if request.negative_prompt:
@@ -85,6 +89,12 @@ class OpenAICompatibleProvider(Provider):
             "video_url": _find_video_url(response_json),
             "raw_response": response_json,
         }
+
+
+def _require_prompt(value: str | None) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ProviderError(code="invalid_prompt", message="prompt is required")
 
 
 def _resolve_auth_token(

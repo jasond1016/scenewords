@@ -11,6 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.capabilities import (
+    CapabilityValidationError,
+    apply_operation_defaults_and_validate,
+    build_model_operations,
+)
 from app.config import AppConfig, ProviderConfig, load_app_config, load_provider_configs
 from app.db import TaskStore
 from app.providers import PROVIDER_TYPE_REGISTRY
@@ -100,6 +105,9 @@ def create_app() -> FastAPI:
                             name=model.name,
                             display_name=model.display_name,
                             is_default=model.is_default,
+                            operations=build_model_operations(
+                                provider_config=provider, model_name=model.name
+                            ),
                         )
                         for model in provider.models
                     ],
@@ -122,13 +130,34 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Provider disabled: {payload.provider}",
             )
+        provider_config = provider_configs[payload.provider]
+        model_config = next(
+            (model for model in provider_config.models if model.name == payload.model),
+            None,
+        )
+        if not model_config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown model for provider {payload.provider}: {payload.model}",
+            )
+        operations = build_model_operations(
+            provider_config=provider_config, model_name=model_config.name
+        )
+        try:
+            apply_operation_defaults_and_validate(request=payload, operations=operations)
+        except CapabilityValidationError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
 
         task_id = str(uuid4())
+        prompt_text = payload.prompt or ""
         task = app.state.store.create_task(
             task_id=task_id,
             provider=payload.provider,
             model=payload.model,
-            prompt=payload.prompt,
+            prompt=prompt_text,
             request_payload=payload.model_dump(mode="json"),
         )
         await app.state.worker.submit(task_id)
