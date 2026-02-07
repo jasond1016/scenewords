@@ -31,6 +31,7 @@ class ProviderConfig:
 @dataclass(slots=True)
 class AppConfig:
     provider_config_path: Path
+    pricing_config_path: Path
     db_path: Path
     output_dir: Path
     upload_dir: Path
@@ -43,6 +44,9 @@ class AppConfig:
 def load_app_config() -> AppConfig:
     provider_config_path = Path(
         os.getenv("VIDEO_GATEWAY_CONFIG", "config/providers.json")
+    ).resolve()
+    pricing_config_path = Path(
+        os.getenv("VIDEO_GATEWAY_PRICING_CONFIG", "config/pricing.json")
     ).resolve()
     db_path = Path(os.getenv("VIDEO_GATEWAY_DB_PATH", "data/tasks.db")).resolve()
     output_dir = Path(
@@ -58,6 +62,7 @@ def load_app_config() -> AppConfig:
 
     return AppConfig(
         provider_config_path=provider_config_path,
+        pricing_config_path=pricing_config_path,
         db_path=db_path,
         output_dir=output_dir,
         upload_dir=upload_dir,

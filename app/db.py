@@ -25,10 +25,15 @@ class TaskStore:
                     status TEXT NOT NULL,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
+                    operation TEXT,
                     prompt TEXT NOT NULL,
                     request_json TEXT NOT NULL,
                     result_json TEXT,
                     error_json TEXT,
+                    estimated_cost REAL,
+                    actual_cost REAL,
+                    currency TEXT,
+                    cost_source TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -48,26 +53,41 @@ class TaskStore:
                 );
                 """
             )
+            _ensure_task_columns(self._connection)
             self._connection.commit()
 
     def create_task(
-        self, task_id: str, provider: str, model: str, prompt: str, request_payload: dict[str, Any]
+        self,
+        task_id: str,
+        provider: str,
+        model: str,
+        operation: str | None,
+        prompt: str,
+        request_payload: dict[str, Any],
+        estimated_cost: float | None = None,
+        currency: str | None = None,
+        cost_source: str | None = None,
     ) -> dict[str, Any]:
         now_iso = _now_iso()
         with self._lock:
             self._connection.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, status, provider, model, prompt, request_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    task_id, status, provider, model, operation, prompt, request_json,
+                    estimated_cost, currency, cost_source, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
                     "queued",
                     provider,
                     model,
+                    operation,
                     prompt,
                     json.dumps(request_payload, ensure_ascii=False),
+                    estimated_cost,
+                    currency,
+                    cost_source,
                     now_iso,
                     now_iso,
                 ),
@@ -83,15 +103,29 @@ class TaskStore:
             )
             self._connection.commit()
 
-    def set_result(self, task_id: str, result: dict[str, Any]) -> None:
+    def set_result(
+        self,
+        task_id: str,
+        result: dict[str, Any],
+        actual_cost: float | None = None,
+        cost_source: str | None = None,
+    ) -> None:
         with self._lock:
             self._connection.execute(
                 """
                 UPDATE tasks
-                SET status = ?, result_json = ?, error_json = NULL, updated_at = ?
+                SET status = ?, result_json = ?, error_json = NULL, actual_cost = ?,
+                    cost_source = COALESCE(?, cost_source), updated_at = ?
                 WHERE task_id = ?
                 """,
-                ("succeeded", json.dumps(result, ensure_ascii=False), _now_iso(), task_id),
+                (
+                    "succeeded",
+                    json.dumps(result, ensure_ascii=False),
+                    actual_cost,
+                    cost_source,
+                    _now_iso(),
+                    task_id,
+                ),
             )
             self._connection.commit()
 
@@ -121,6 +155,17 @@ class TaskStore:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+    def list_active_tasks(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM tasks
+                WHERE status IN ('queued', 'running')
+                ORDER BY created_at ASC
+                """
             ).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -189,10 +234,15 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "provider": row["provider"],
         "model": row["model"],
+        "operation": row["operation"] if "operation" in row.keys() else None,
         "prompt": row["prompt"],
         "request": request_payload,
         "result": result_payload,
         "error": error_payload,
+        "estimated_cost": _as_float(row["estimated_cost"]) if "estimated_cost" in row.keys() else None,
+        "actual_cost": _as_float(row["actual_cost"]) if "actual_cost" in row.keys() else None,
+        "currency": row["currency"] if "currency" in row.keys() else None,
+        "cost_source": row["cost_source"] if "cost_source" in row.keys() else None,
         "created_at": _parse_iso(row["created_at"]),
         "updated_at": _parse_iso(row["updated_at"]),
     }
@@ -217,3 +267,30 @@ def _now_iso() -> str:
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ensure_task_columns(connection: sqlite3.Connection) -> None:
+    existing = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+    }
+    expected_columns: dict[str, str] = {
+        "operation": "TEXT",
+        "estimated_cost": "REAL",
+        "actual_cost": "REAL",
+        "currency": "TEXT",
+        "cost_source": "TEXT",
+    }
+    for column, definition in expected_columns.items():
+        if column in existing:
+            continue
+        connection.execute(f"ALTER TABLE tasks ADD COLUMN {column} {definition}")

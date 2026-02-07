@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import random
 from datetime import datetime
 import mimetypes
 from pathlib import Path
@@ -20,13 +21,19 @@ from app.capabilities import (
 )
 from app.config import AppConfig, ProviderConfig, load_app_config, load_provider_configs
 from app.db import TaskStore
+from app.pricing import PricingCatalog
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider
 from app.schemas import (
+    PricingCatalogResponse,
+    PricingEntryResponse,
+    PricingEstimateRequest,
+    PricingEstimateResponse,
     ProviderCatalogResponse,
     ProviderInfo,
     ProviderModelInfo,
     ProviderModelOperationInfo,
+    RetryTaskRequest,
     UploadedFileResponse,
     VideoGenerationRequest,
     VideoTaskDetail,
@@ -64,8 +71,10 @@ def create_app() -> FastAPI:
         app_config.output_dir.mkdir(parents=True, exist_ok=True)
         app_config.upload_dir.mkdir(parents=True, exist_ok=True)
         app_config.db_path.parent.mkdir(parents=True, exist_ok=True)
+        app_config.pricing_config_path.parent.mkdir(parents=True, exist_ok=True)
 
         provider_configs = load_provider_configs(app_config.provider_config_path)
+        pricing_catalog = PricingCatalog.load(app_config.pricing_config_path)
         store = TaskStore(app_config.db_path)
         http_client = httpx.AsyncClient()
         providers_by_type: dict[str, Provider] = {
@@ -83,6 +92,7 @@ def create_app() -> FastAPI:
 
         app.state.config = app_config
         app.state.provider_configs = provider_configs
+        app.state.pricing_catalog = pricing_catalog
         app.state.store = store
         app.state.http_client = http_client
         app.state.worker = worker
@@ -130,10 +140,21 @@ def create_app() -> FastAPI:
             )
         return ProviderCatalogResponse(providers=providers)
 
-    @app.post("/v1/video/generations", response_model=VideoTaskResponse)
-    async def create_video_task(
-        payload: VideoGenerationRequest, _: None = Depends(require_auth)
-    ) -> VideoTaskResponse:
+    def _build_queue_position_map() -> dict[str, int]:
+        active_tasks = app.state.store.list_active_tasks()
+        running_tasks = [task for task in active_tasks if task["status"] == "running"]
+        queued_tasks = [task for task in active_tasks if task["status"] == "queued"]
+
+        queue_map: dict[str, int] = {}
+        for task in running_tasks:
+            queue_map[task["task_id"]] = 0
+        for index, task in enumerate(queued_tasks, start=1):
+            queue_map[task["task_id"]] = index
+        return queue_map
+
+    def _validate_generation_payload(
+        payload: VideoGenerationRequest,
+    ) -> tuple[ProviderConfig, ProviderModelOperationInfo]:
         provider_configs: dict[str, ProviderConfig] = app.state.provider_configs
         if payload.provider not in provider_configs:
             raise HTTPException(
@@ -174,24 +195,73 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported operation: {payload.operation}",
             )
+        return provider_config, operation
+
+    def _estimate_cost_for_request(
+        payload: VideoGenerationRequest,
+    ) -> tuple[float | None, str | None, str]:
+        pricing_catalog: PricingCatalog = app.state.pricing_catalog
+        quality = payload.provider_options.get("quality")
+        quality_text = quality.strip() if isinstance(quality, str) and quality.strip() else None
+        return pricing_catalog.estimate(
+            provider=payload.provider,
+            model=payload.model,
+            duration_sec=payload.duration_sec,
+            resolution=payload.resolution,
+            quality=quality_text,
+        )
+
+    async def _enqueue_video_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
+        _, operation = _validate_generation_payload(payload)
         _resolve_uploaded_files(
             request_payload=payload,
             operation=operation,
             store=app.state.store,
             app_config=app.state.config,
         )
-
+        estimated_cost, currency, cost_source = _estimate_cost_for_request(payload)
         task_id = str(uuid4())
         prompt_text = payload.prompt or ""
         task = app.state.store.create_task(
             task_id=task_id,
             provider=payload.provider,
             model=payload.model,
+            operation=payload.operation,
             prompt=prompt_text,
             request_payload=payload.model_dump(mode="json"),
+            estimated_cost=estimated_cost,
+            currency=currency,
+            cost_source=cost_source,
         )
         await app.state.worker.submit(task_id)
-        return _to_task_response(task)
+        return _to_task_response(task, queue_map=_build_queue_position_map())
+
+    @app.post("/v1/video/generations", response_model=VideoTaskResponse)
+    async def create_video_task(
+        payload: VideoGenerationRequest, _: None = Depends(require_auth)
+    ) -> VideoTaskResponse:
+        return await _enqueue_video_task(payload)
+
+    @app.post("/v1/video/tasks/{task_id}/retry", response_model=VideoTaskResponse)
+    async def retry_video_task(
+        task_id: str,
+        retry_payload: RetryTaskRequest,
+        _: None = Depends(require_auth),
+    ) -> VideoTaskResponse:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+
+        source_request = VideoGenerationRequest.model_validate(task["request"])
+        source_request.provider_options = _strip_internal_provider_options(
+            source_request.provider_options
+        )
+        if retry_payload.prompt is not None:
+            source_request.prompt = retry_payload.prompt
+        if retry_payload.retry_mode == "new_seed":
+            source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        return await _enqueue_video_task(source_request)
 
     @app.get("/v1/video/tasks", response_model=list[VideoTaskDetail])
     async def list_video_tasks(
@@ -200,7 +270,8 @@ def create_app() -> FastAPI:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
         tasks = app.state.store.list_tasks(limit=bounded_limit)
-        return [_to_task_detail(task) for task in tasks]
+        queue_map = _build_queue_position_map()
+        return [_to_task_detail(task, queue_map=queue_map) for task in tasks]
 
     @app.get("/v1/video/tasks/{task_id}", response_model=VideoTaskDetail)
     async def get_video_task(
@@ -210,7 +281,53 @@ def create_app() -> FastAPI:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
-        return _to_task_detail(task)
+        return _to_task_detail(task, queue_map=_build_queue_position_map())
+
+    @app.get("/v1/pricing", response_model=PricingCatalogResponse)
+    async def get_pricing(_: None = Depends(require_auth)) -> PricingCatalogResponse:
+        pricing_catalog: PricingCatalog = app.state.pricing_catalog
+        entries = [
+            PricingEntryResponse(
+                provider=entry.provider,
+                model=entry.model,
+                quality=entry.quality,
+                resolution=entry.resolution,
+                duration_sec=entry.duration_sec,
+                fixed_cost=entry.fixed_cost,
+                cost_per_second=entry.cost_per_second,
+                currency=entry.currency,
+                effective_from=entry.effective_from,
+            )
+            for entry in pricing_catalog.entries
+        ]
+        return PricingCatalogResponse(
+            mode="local_config",
+            currency=pricing_catalog.currency,
+            pricing_version=pricing_catalog.pricing_version,
+            entries=entries,
+        )
+
+    @app.post("/v1/pricing/estimate", response_model=PricingEstimateResponse)
+    async def estimate_pricing(
+        payload: PricingEstimateRequest,
+        _: None = Depends(require_auth),
+    ) -> PricingEstimateResponse:
+        pricing_catalog: PricingCatalog = app.state.pricing_catalog
+        estimated_cost, currency, cost_source = pricing_catalog.estimate(
+            provider=payload.provider,
+            model=payload.model,
+            duration_sec=payload.duration_sec,
+            resolution=payload.resolution,
+            quality=payload.quality,
+        )
+        return PricingEstimateResponse(
+            provider=payload.provider,
+            model=payload.model,
+            estimated_cost=estimated_cost,
+            currency=currency,
+            cost_source=cost_source,  # type: ignore[arg-type]
+            pricing_version=pricing_catalog.pricing_version,
+        )
 
     @app.get("/v1/video/tasks/{task_id}/result")
     async def get_video_result(
@@ -423,29 +540,79 @@ def _resolve_upload_mime_type(content_type: str | None, filename: str) -> str:
     )
 
 
-def _to_task_response(task: dict[str, Any]) -> VideoTaskResponse:
+def _to_task_response(
+    task: dict[str, Any],
+    *,
+    queue_map: dict[str, int] | None = None,
+) -> VideoTaskResponse:
+    queue_position = None
+    if queue_map is not None:
+        queue_position = queue_map.get(task["task_id"])
     return VideoTaskResponse(
         task_id=task["task_id"],
         status=task["status"],
         provider=task["provider"],
         model=task["model"],
+        queue_position=queue_position,
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
     )
 
 
-def _to_task_detail(task: dict[str, Any]) -> VideoTaskDetail:
+def _to_task_detail(
+    task: dict[str, Any],
+    *,
+    queue_map: dict[str, int] | None = None,
+) -> VideoTaskDetail:
+    request_payload = task.get("request") or {}
+    provider_options = request_payload.get("provider_options")
+    safe_provider_options = (
+        _strip_internal_provider_options(provider_options)
+        if isinstance(provider_options, dict)
+        else {}
+    )
+    cost_source = task.get("cost_source") or "unknown"
+    if cost_source not in {"provider_api", "local_config", "unknown"}:
+        cost_source = "unknown"
+    queue_position = None
+    if queue_map is not None:
+        queue_position = queue_map.get(task["task_id"])
+
     return VideoTaskDetail(
         task_id=task["task_id"],
         status=task["status"],
         provider=task["provider"],
         model=task["model"],
+        operation=task.get("operation") or request_payload.get("operation"),
         prompt=task["prompt"],
+        negative_prompt=request_payload.get("negative_prompt"),
+        duration_sec=request_payload.get("duration_sec"),
+        resolution=request_payload.get("resolution"),
+        fps=request_payload.get("fps"),
+        seed=request_payload.get("seed"),
+        provider_options=safe_provider_options,
+        queue_position=queue_position,
+        estimated_cost=task.get("estimated_cost"),
+        actual_cost=task.get("actual_cost"),
+        currency=task.get("currency"),
+        cost_source=cost_source,  # type: ignore[arg-type]
         result=task["result"],
         error=task["error"],
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
     )
+
+
+def _strip_internal_provider_options(options: dict[str, Any]) -> dict[str, Any]:
+    safe_options: dict[str, Any] = {}
+    for key, value in options.items():
+        normalized = key.strip().lower()
+        if key.startswith("__resolved_"):
+            continue
+        if "api_key" in normalized or "token" in normalized or "secret" in normalized:
+            continue
+        safe_options[key] = value
+    return safe_options
 
 
 def _as_datetime(value: datetime | str) -> datetime:

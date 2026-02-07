@@ -24,12 +24,24 @@ class VideoTaskResponse(BaseModel):
     status: str
     provider: str
     model: str
+    queue_position: int | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class VideoTaskDetail(VideoTaskResponse):
+    operation: str | None = None
     prompt: str
+    negative_prompt: str | None = None
+    duration_sec: int | None = None
+    resolution: str | None = None
+    fps: int | None = None
+    seed: int | None = None
+    provider_options: dict[str, Any] = Field(default_factory=dict)
+    estimated_cost: float | None = None
+    actual_cost: float | None = None
+    currency: str | None = None
+    cost_source: Literal["provider_api", "local_config", "unknown"] = "unknown"
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
 
@@ -100,3 +112,44 @@ class UploadedFileResponse(BaseModel):
     sha256: str
     created_at: datetime
     url: str
+
+
+class RetryTaskRequest(BaseModel):
+    retry_mode: Literal["same_seed", "new_seed"] = "same_seed"
+    prompt: str | None = None
+
+
+class PricingEstimateRequest(BaseModel):
+    provider: str
+    model: str
+    duration_sec: int | None = None
+    resolution: str | None = None
+    quality: str | None = None
+
+
+class PricingEstimateResponse(BaseModel):
+    provider: str
+    model: str
+    estimated_cost: float | None = None
+    currency: str | None = None
+    cost_source: Literal["provider_api", "local_config", "unknown"] = "unknown"
+    pricing_version: str | None = None
+
+
+class PricingEntryResponse(BaseModel):
+    provider: str
+    model: str
+    quality: str | None = None
+    resolution: str | None = None
+    duration_sec: int | None = None
+    fixed_cost: float | None = None
+    cost_per_second: float | None = None
+    currency: str = "USD"
+    effective_from: str | None = None
+
+
+class PricingCatalogResponse(BaseModel):
+    mode: Literal["provider_api", "local_config"] = "local_config"
+    currency: str = "USD"
+    pricing_version: str | None = None
+    entries: list[PricingEntryResponse] = Field(default_factory=list)

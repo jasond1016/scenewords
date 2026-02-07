@@ -6,11 +6,14 @@ SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本�
 
 - 统一 API：
   - `POST /v1/video/generations`
+  - `POST /v1/video/tasks/{task_id}/retry`
   - `POST /v1/files`
   - `GET /v1/files/{file_id}`
   - `GET /v1/video/tasks`
   - `GET /v1/video/tasks/{task_id}`
   - `GET /v1/video/tasks/{task_id}/result`
+  - `GET /v1/pricing`
+  - `POST /v1/pricing/estimate`
   - `GET /v1/models`
   - 模型能力描述（`operations` 与字段定义）
 - 前端支持按 `Provider / Model / Operation` 动态切换参数（仅显示接口支持项）
@@ -26,10 +29,13 @@ app/
   main.py                 # FastAPI 入口
   worker.py               # 后台任务队列
   db.py                   # SQLite 任务存储
+  pricing.py              # 本地价格表与估算逻辑
   config.py               # 配置加载
   providers/              # Provider 适配器
-  static/                 # iPad 前端页面
+  static/                 # 前端构建产物
+frontend/                 # React + TypeScript + Vite 前端源码
 config/providers.json     # Provider 与模型配置
+config/pricing.json       # 本地价格配置（无 provider 计费接口时）
 ```
 
 ## 快速启动
@@ -64,9 +70,35 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 http://<Windows-PC-IP>:8000
 ```
 
+## 前端开发
+
+前端统一使用 `pnpm` 作为包管理器。
+
+1. 安装依赖
+
+```bash
+cd frontend
+pnpm install
+```
+
+2. 本地开发
+
+```bash
+pnpm dev
+```
+
+3. 构建到网关静态目录（`app/static`）
+
+```bash
+pnpm build
+```
+
+构建后继续按原方式启动 FastAPI 即可。
+
 ## Provider 配置
 
 默认读取 `config/providers.json`，可通过 `VIDEO_GATEWAY_CONFIG` 指向其他文件。
+价格配置默认读取 `config/pricing.json`，可通过 `VIDEO_GATEWAY_PRICING_CONFIG` 覆盖。
 
 依赖管理改为 `uv`：
 

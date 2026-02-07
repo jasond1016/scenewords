@@ -1,0 +1,27 @@
+{
+  "mode": "local_config",
+  "currency": "USD",
+  "pricing_version": "2026-02-07",
+  "entries": [
+    {
+      "provider": "sora2",
+      "model": "sora2",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 10,
+      "fixed_cost": 0.0,
+      "currency": "USD",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "veo31",
+      "model": "veo3.1",
+      "quality": "standard",
+      "resolution": "1280x720",
+      "duration_sec": 8,
+      "fixed_cost": 0.0,
+      "currency": "USD",
+      "effective_from": "2026-02-07"
+    }
+  ]
+}

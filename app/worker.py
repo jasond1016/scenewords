@@ -86,7 +86,13 @@ class TaskWorker:
         request = VideoGenerationRequest.model_validate(task["request"])
         try:
             result = await provider.generate(provider_config=provider_config, request=request)
-            self.store.set_result(task_id=task_id, result=result)
+            actual_cost = _extract_actual_cost(result)
+            self.store.set_result(
+                task_id=task_id,
+                result=result,
+                actual_cost=actual_cost,
+                cost_source="provider_api" if actual_cost is not None else None,
+            )
         except ProviderError as error:
             self.store.set_error(
                 task_id=task_id,
@@ -116,3 +122,20 @@ def build_provider_clients(
 
 def supported_provider_types() -> set[str]:
     return set(PROVIDER_TYPE_REGISTRY.keys())
+
+
+def _extract_actual_cost(result: dict[str, object]) -> float | None:
+    direct = result.get("cost")
+    if isinstance(direct, (int, float)):
+        return float(direct)
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        nested = usage.get("total_cost")
+        if isinstance(nested, (int, float)):
+            return float(nested)
+    billing = result.get("billing")
+    if isinstance(billing, dict):
+        nested = billing.get("amount")
+        if isinstance(nested, (int, float)):
+            return float(nested)
+    return None
