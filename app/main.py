@@ -364,6 +364,8 @@ def _resolve_uploaded_files(
 
         request_payload.provider_options[f"__resolved_{field.key}"] = resolved_entries
 
+    _validate_file_dependencies(request_payload.provider_options)
+
 
 def _normalize_file_ids(raw_value: Any, expect_list: bool, field_key: str) -> list[str]:
     if expect_list:
@@ -386,6 +388,20 @@ def _normalize_file_ids(raw_value: Any, expect_list: bool, field_key: str) -> li
         status_code=400,
         detail=f"{field_key} must be a file id",
     )
+
+
+def _validate_file_dependencies(provider_options: dict[str, Any]) -> None:
+    has_start = isinstance(provider_options.get("start_frame_file_id"), str) and bool(
+        provider_options.get("start_frame_file_id", "").strip()
+    )
+    has_end = isinstance(provider_options.get("end_frame_file_id"), str) and bool(
+        provider_options.get("end_frame_file_id", "").strip()
+    )
+    if has_end and not has_start:
+        raise HTTPException(
+            status_code=400,
+            detail="end_frame_file_id requires start_frame_file_id",
+        )
 
 
 def _resolve_upload_mime_type(content_type: str | None, filename: str) -> str:

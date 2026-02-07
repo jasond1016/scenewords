@@ -440,6 +440,26 @@ def _build_generation_form(
         if coerced is not None:
             form_parts.append((key, (None, coerced)))
 
+    start_frame_part = _collect_optional_single_file_part(
+        provider_options=request.provider_options,
+        resolved_key="__resolved_start_frame_file_id",
+        target_field_name="input_reference",
+    )
+    end_frame_part = _collect_optional_single_file_part(
+        provider_options=request.provider_options,
+        resolved_key="__resolved_end_frame_file_id",
+        target_field_name="input_reference",
+    )
+    if end_frame_part is not None and start_frame_part is None:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="end_frame_file_id requires start_frame_file_id",
+        )
+    if start_frame_part is not None:
+        form_parts.append(start_frame_part)
+    if end_frame_part is not None:
+        form_parts.append(end_frame_part)
+
     for reference in _collect_input_references(request.provider_options):
         form_parts.append(("input_reference", (None, reference)))
     form_parts.extend(_collect_input_reference_file_parts(request.provider_options))
@@ -499,33 +519,74 @@ def _collect_input_reference_file_parts(provider_options: dict[str, Any]) -> lis
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        path_text = entry.get("path")
-        if not isinstance(path_text, str) or not path_text.strip():
-            continue
-        file_path = Path(path_text)
-        if not file_path.exists():
-            raise ProviderError(
-                code="file_not_found",
-                message=f"Uploaded file not found: {file_path}",
-                raw_error={"path": str(file_path)},
-            )
-        try:
-            content = file_path.read_bytes()
-        except OSError as error:
-            raise ProviderError(
-                code="file_read_failed",
-                message=f"Failed to read uploaded file: {file_path}",
-                raw_error=str(error),
-            ) from error
-
-        filename = entry.get("original_name")
-        if not isinstance(filename, str) or not filename.strip():
-            filename = file_path.name
-        mime_type = entry.get("mime_type")
-        if not isinstance(mime_type, str) or not mime_type.strip():
-            mime_type = "application/octet-stream"
-        parts.append(("input_reference", (filename, content, mime_type)))
+        parts.append(
+            _file_entry_to_multipart_part(entry=entry, target_field_name="input_reference")
+        )
     return parts
+
+
+def _collect_optional_single_file_part(
+    provider_options: dict[str, Any],
+    resolved_key: str,
+    target_field_name: str,
+) -> tuple[str, Any] | None:
+    raw = provider_options.get(resolved_key)
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ProviderError(
+            code="invalid_provider_option",
+            message=f"{resolved_key} must be a resolved file entry list",
+        )
+    if len(raw) == 0:
+        return None
+    if len(raw) > 1:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message=f"{resolved_key} only supports one file",
+        )
+    entry = raw[0]
+    if not isinstance(entry, dict):
+        raise ProviderError(
+            code="invalid_provider_option",
+            message=f"{resolved_key} has invalid file metadata",
+        )
+    return _file_entry_to_multipart_part(entry=entry, target_field_name=target_field_name)
+
+
+def _file_entry_to_multipart_part(
+    entry: dict[str, Any], target_field_name: str
+) -> tuple[str, Any]:
+    path_text = entry.get("path")
+    if not isinstance(path_text, str) or not path_text.strip():
+        raise ProviderError(
+            code="file_not_found",
+            message="Uploaded file path is missing",
+            raw_error={"entry": entry},
+        )
+    file_path = Path(path_text)
+    if not file_path.exists():
+        raise ProviderError(
+            code="file_not_found",
+            message=f"Uploaded file not found: {file_path}",
+            raw_error={"path": str(file_path)},
+        )
+    try:
+        content = file_path.read_bytes()
+    except OSError as error:
+        raise ProviderError(
+            code="file_read_failed",
+            message=f"Failed to read uploaded file: {file_path}",
+            raw_error=str(error),
+        ) from error
+
+    filename = entry.get("original_name")
+    if not isinstance(filename, str) or not filename.strip():
+        filename = file_path.name
+    mime_type = entry.get("mime_type")
+    if not isinstance(mime_type, str) or not mime_type.strip():
+        mime_type = "application/octet-stream"
+    return (target_field_name, (filename, content, mime_type))
 
 
 def _normalize_operation(request: VideoGenerationRequest) -> str:

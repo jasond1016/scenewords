@@ -349,6 +349,20 @@ def _tuzi_veo_operations(
                 ),
                 _resolution_field(),
                 _field(
+                    "start_frame_file_id",
+                    "首帧图片",
+                    target="provider_options",
+                    input_type="file",
+                    help_text="可选。用于首尾帧模式中的起始帧",
+                ),
+                _field(
+                    "end_frame_file_id",
+                    "尾帧图片",
+                    target="provider_options",
+                    input_type="file",
+                    help_text="可选。仅在已提供首帧时生效",
+                ),
+                _field(
                     "input_reference_file_ids",
                     "参考图文件",
                     target="provider_options",

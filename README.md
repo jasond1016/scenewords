@@ -117,6 +117,10 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   - `resolution` -> `size`
 - `input_references` 会映射为多条 `input_reference` 表单字段。
 - Tuzi 的 `input_reference` 采用文件上传：前端会先调用网关 `POST /v1/files`，再在生成请求里传 `input_reference_file_ids`。
+- `tuzi_veo` 额外支持首尾帧文件：
+  - `start_frame_file_id`（可选，单文件）
+  - `end_frame_file_id`（可选，单文件；要求已提供 `start_frame_file_id`）
+  - 网关会按顺序把首帧/尾帧映射为 `input_reference` multipart 文件字段。
 - 上传限制默认仅允许 `jpg/png/webp`，单文件最大 `10MB`（可通过环境变量调整）。
 - `remix` 使用 `source_video_id` 调用 `/v1/videos/{video_id}/remix`。
 - `create_character` 使用 `model=sora-2-character` + `character_from_task`（无视频输出）。
