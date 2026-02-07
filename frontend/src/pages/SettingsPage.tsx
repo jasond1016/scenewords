@@ -12,11 +12,11 @@ export function SettingsPage(props: Props) {
   const [hint, setHint] = useState("");
 
   useEffect(() => {
-    if (!props.pricingVersion) {
+    if (!props.pricingVersion || props.pricingVersion === settings.pricingVersion) {
       return;
     }
     settings.setSettings({ pricingVersion: props.pricingVersion });
-  }, [props.pricingVersion, settings]);
+  }, [props.pricingVersion, settings.pricingVersion, settings.setSettings]);
 
   return (
     <section className="panel settings-page">
