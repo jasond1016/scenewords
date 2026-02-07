@@ -42,6 +42,7 @@ from app.schemas import (
 from app.worker import TaskWorker, build_provider_clients
 
 STATIC_DIR = Path(__file__).parent / "static"
+FRONTEND_BUILD_HINT = "Frontend assets not found. Run: pnpm --dir frontend build"
 ALLOWED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
@@ -55,6 +56,8 @@ MIME_TO_EXTENSION = {
 
 
 def create_app() -> FastAPI:
+    # `StaticFiles` requires the directory to exist at app creation time.
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app = FastAPI(title="Video Gateway", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -110,7 +113,13 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=FileResponse)
     async def index() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        index_path = STATIC_DIR / "index.html"
+        if not index_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=FRONTEND_BUILD_HINT,
+            )
+        return FileResponse(str(index_path))
 
     @app.get("/v1/models", response_model=ProviderCatalogResponse)
     async def list_models(_: None = Depends(require_auth)) -> ProviderCatalogResponse:
