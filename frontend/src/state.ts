@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { RetryMode } from "./types";
 
+export type LanguagePreference = "system" | "zh-CN" | "en";
+
 export interface CreateDraft {
   provider: string;
   model: string;
@@ -36,6 +38,7 @@ export interface AppSettingsState {
   pricingVersion: string;
   savePromptHistory: boolean;
   historyRetentionDays: number;
+  language: LanguagePreference;
   pendingReuseDraft: CreateDraft | null;
   setSettings: (partial: Partial<AppSettingsState>) => void;
   setPendingReuseDraft: (draft: CreateDraft | null) => void;
@@ -62,6 +65,7 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   pricingVersion: "2026-02-07",
   savePromptHistory: true,
   historyRetentionDays: 90,
+  language: "system",
   pendingReuseDraft: null,
 };
 
@@ -99,6 +103,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         pricingVersion: state.pricingVersion,
         savePromptHistory: state.savePromptHistory,
         historyRetentionDays: state.historyRetentionDays,
+        language: state.language,
       }),
     },
   ),

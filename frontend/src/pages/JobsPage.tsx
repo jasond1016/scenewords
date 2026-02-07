@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { retryVideoTask } from "../api";
+import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import type { RetryMode, VideoTaskDetail } from "../types";
 import {
   errorMessage,
   extractVideoUrl,
-  formatTaskStatus,
   formatTime,
 } from "../utils";
 
@@ -29,6 +29,7 @@ interface JobsFilterSnapshot {
 
 export function JobsPage(props: Props) {
   const { tasks, loading } = props;
+  const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -77,11 +78,11 @@ export function JobsPage(props: Props) {
         settings.gatewayToken,
       ),
     onSuccess: async (response) => {
-      setHint(`重试任务已入队：${response.task_id.slice(0, 8)}`);
+      setHint(t("jobs.retryQueued", { taskId: response.task_id.slice(0, 8) }));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
     onError: (error: Error) => {
-      setHint(`重试失败：${error.message}`);
+      setHint(t("jobs.retryFailed", { message: error.message }));
     },
   });
 
@@ -135,16 +136,32 @@ export function JobsPage(props: Props) {
 
   const playerTask = tasks.find((task) => task.task_id === playerTaskId) ?? null;
   const playerUrl = playerTask ? extractVideoUrl(playerTask) : null;
+  const mapErrorCode = (code: string): string | null => {
+    const key = `error.${code}`;
+    const translated = t(key);
+    return translated === key ? null : translated;
+  };
+  const statusLabel = (status: string): string => {
+    const key = `status.${status}`;
+    const translated = t(key);
+    return translated === key ? status : translated;
+  };
+  const formatLocalizedStatus = (task: VideoTaskDetail): string => {
+    if (task.status === "queued" && task.queue_position != null) {
+      return t("jobs.statusQueuedWithPosition", { position: task.queue_position });
+    }
+    return statusLabel(task.status);
+  };
 
   if (loading) {
-    return <section className="panel">正在加载任务...</section>;
+    return <section className="panel">{t("jobs.loading")}</section>;
   }
 
   return (
     <section className="panel jobs-layout">
       <div className="panel-header">
-        <h2>Jobs</h2>
-        <p>查看队列、历史、任务详情并执行重试。</p>
+        <h2>{t("jobs.title")}</h2>
+        <p>{t("jobs.subtitle")}</p>
       </div>
 
       <div className="segment-control">
@@ -153,14 +170,14 @@ export function JobsPage(props: Props) {
           className={segment === "in_progress" ? "segment active" : "segment"}
           onClick={() => setSegment("in_progress")}
         >
-          In Progress
+          {t("common.inProgress")}
         </button>
         <button
           type="button"
           className={segment === "history" ? "segment active" : "segment"}
           onClick={() => setSegment("history")}
         >
-          History
+          {t("common.history")}
         </button>
       </div>
 
@@ -168,7 +185,7 @@ export function JobsPage(props: Props) {
         <input
           value={searchKeyword}
           onChange={(event) => setSearchKeyword(event.target.value)}
-          placeholder="Search task id / prompt / provider"
+          placeholder={t("jobs.searchPlaceholder")}
         />
         <select
           value={providerFilter}
@@ -176,7 +193,7 @@ export function JobsPage(props: Props) {
         >
           {providerOptions.map((provider) => (
             <option key={provider} value={provider}>
-              {provider === "all" ? "All Providers" : provider}
+              {provider === "all" ? t("jobs.allProviders") : provider}
             </option>
           ))}
         </select>
@@ -184,12 +201,12 @@ export function JobsPage(props: Props) {
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
         >
-          <option value="all">All Status</option>
-          <option value="queued">queued</option>
-          <option value="running">running</option>
-          <option value="succeeded">succeeded</option>
-          <option value="failed">failed</option>
-          <option value="canceled">canceled</option>
+          <option value="all">{t("jobs.allStatus")}</option>
+          <option value="queued">{statusLabel("queued")}</option>
+          <option value="running">{statusLabel("running")}</option>
+          <option value="succeeded">{statusLabel("succeeded")}</option>
+          <option value="failed">{statusLabel("failed")}</option>
+          <option value="canceled">{statusLabel("canceled")}</option>
         </select>
         <input
           type="date"
@@ -211,7 +228,7 @@ export function JobsPage(props: Props) {
             setDateTo("");
           }}
         >
-          Clear Filters
+          {t("jobs.clearFilters")}
         </button>
       </div>
 
@@ -225,17 +242,27 @@ export function JobsPage(props: Props) {
             >
               <div className="job-head">
                 <strong>{task.task_id.slice(0, 8)}</strong>
-                <span className={`status ${task.status}`}>{formatTaskStatus(task)}</span>
+                <span className={`status ${task.status}`}>{formatLocalizedStatus(task)}</span>
               </div>
               <p className="job-meta">
                 {task.provider} / {task.model} / {task.operation ?? "generate"}
               </p>
-              <p className="job-prompt">{task.prompt || "(empty prompt)"}</p>
+              <p className="job-prompt">{task.prompt || t("jobs.emptyPrompt")}</p>
               <p className="job-meta">
-                seed {task.seed ?? "-"} · {formatTime(task.updated_at)}
+                {t("jobs.seed")} {task.seed ?? "-"} ·{" "}
+                {formatTime(task.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
               </p>
-              {task.status === "failed" && errorMessage(task) ? (
-                <p className="error-text">{errorMessage(task)}</p>
+              {task.status === "failed" &&
+              errorMessage(task, {
+                mapErrorCode,
+                fallbackMessage: t("error.defaultFailure"),
+              }) ? (
+                <p className="error-text">
+                  {errorMessage(task, {
+                    mapErrorCode,
+                    fallbackMessage: t("error.defaultFailure"),
+                  })}
+                </p>
               ) : null}
             </li>
           ))}
@@ -244,20 +271,20 @@ export function JobsPage(props: Props) {
         <aside className="job-detail">
           {selectedTask ? (
             <>
-              <h3>Task Detail</h3>
+              <h3>{t("jobs.detail")}</h3>
               <p className="job-meta">
-                {selectedTask.task_id} · {formatTaskStatus(selectedTask)}
+                {selectedTask.task_id} · {formatLocalizedStatus(selectedTask)}
               </p>
               <p className="job-meta">
-                cost{" "}
+                {t("jobs.cost")}{" "}
                 {settings.showActualCostPostDone && selectedTask.actual_cost != null
                   ? `${selectedTask.actual_cost.toFixed(3)} ${selectedTask.currency ?? settings.currency}`
                   : selectedTask.estimated_cost != null
-                    ? `${selectedTask.estimated_cost.toFixed(3)} ${selectedTask.currency ?? settings.currency} (est.)`
-                    : "N/A"}
+                    ? `${selectedTask.estimated_cost.toFixed(3)} ${selectedTask.currency ?? settings.currency} ${t("jobs.estimatedSuffix")}`
+                    : t("common.na")}
               </p>
               <label>
-                Retry Prompt
+                {t("jobs.retryPrompt")}
                 <textarea
                   rows={4}
                   value={retryPrompt}
@@ -272,7 +299,7 @@ export function JobsPage(props: Props) {
                     navigate("/create");
                   }}
                 >
-                  Reuse Settings
+                  {t("jobs.reuseSettings")}
                 </button>
                 <button
                   type="button"
@@ -281,7 +308,7 @@ export function JobsPage(props: Props) {
                     navigate("/create");
                   }}
                 >
-                  Refill In Create
+                  {t("jobs.refillInCreate")}
                 </button>
                 <button
                   type="button"
@@ -289,12 +316,12 @@ export function JobsPage(props: Props) {
                     const payload = buildTaskRequestPayload(selectedTask, retryPrompt);
                     const text = JSON.stringify(payload, null, 2);
                     void copyText(text).then(
-                      () => setHint("请求参数 JSON 已复制到剪贴板。"),
-                      () => setHint("复制失败，请手动复制。"),
+                      () => setHint(t("jobs.copyJsonSuccess")),
+                      () => setHint(t("jobs.copyJsonFailed")),
                     );
                   }}
                 >
-                  Copy Request JSON
+                  {t("jobs.copyRequestJson")}
                 </button>
                 {settings.showBothRetryActions ? (
                   <>
@@ -309,7 +336,7 @@ export function JobsPage(props: Props) {
                       }
                       disabled={retryMutation.isPending}
                     >
-                      Retry (Same Seed)
+                      {t("common.retrySameSeed")}
                     </button>
                     <button
                       type="button"
@@ -322,7 +349,7 @@ export function JobsPage(props: Props) {
                       }
                       disabled={retryMutation.isPending}
                     >
-                      Retry (New Seed)
+                      {t("common.retryNewSeed")}
                     </button>
                   </>
                 ) : (
@@ -337,25 +364,38 @@ export function JobsPage(props: Props) {
                     }
                     disabled={retryMutation.isPending}
                   >
-                    Retry ({settings.retryModeDefault === "same_seed" ? "Same Seed" : "New Seed"})
+                    {t("jobs.retry", {
+                      mode:
+                        settings.retryModeDefault === "same_seed"
+                          ? t("settings.sameSeed")
+                          : t("settings.newSeed"),
+                    })}
                   </button>
                 )}
                 {extractVideoUrl(selectedTask) ? (
                   <button type="button" onClick={() => setPlayerTaskId(selectedTask.task_id)}>
-                    Fullscreen Play
+                    {t("jobs.fullscreenPlay")}
                   </button>
                 ) : null}
               </div>
-              {errorMessage(selectedTask) ? (
-                <p className="error-text">{errorMessage(selectedTask)}</p>
+              {errorMessage(selectedTask, {
+                mapErrorCode,
+                fallbackMessage: t("error.defaultFailure"),
+              }) ? (
+                <p className="error-text">
+                  {errorMessage(selectedTask, {
+                    mapErrorCode,
+                    fallbackMessage: t("error.defaultFailure"),
+                  })}
+                </p>
               ) : null}
               <details>
-                <summary>Raw Result</summary>
+                <summary>{t("jobs.rawResult")}</summary>
                 <pre>{JSON.stringify(selectedTask.result, null, 2)}</pre>
               </details>
             </>
           ) : (
-            <p className="hint">请选择任务查看详情。</p>
+            <p className="hint">{t("jobs.selectHint")}</p>
           )}
         </aside>
       </div>
@@ -367,7 +407,7 @@ export function JobsPage(props: Props) {
           <div className="player-head">
             <strong>{playerTask.task_id.slice(0, 8)}</strong>
             <button type="button" onClick={() => setPlayerTaskId(null)}>
-              Close
+              {t("common.close")}
             </button>
           </div>
           <div className="video-shell">

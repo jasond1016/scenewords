@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
+import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
 import { useTaskNotifications } from "./useTaskNotifications";
 import { CreatePage } from "./pages/CreatePage";
@@ -10,6 +12,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 const TASK_POLL_INTERVAL_MS = 4000;
 
 export default function App() {
+  const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
   const tasksQuery = useQuery({
     queryKey: ["tasks", settings.gatewayToken],
@@ -32,22 +35,29 @@ export default function App() {
     settings.notifySound,
   );
 
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.title = t("app.documentTitle");
+  }, [locale, t]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <h1>SceneWords</h1>
-          <p>Video Gateway</p>
+          <h1>{t("app.brandTitle")}</h1>
+          <p>
+            {t("app.brandSubtitle")} · {t("app.gateway")}
+          </p>
         </div>
         <nav>
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/create">
-            Create
+            {t("nav.create")}
           </NavLink>
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/jobs">
-            Jobs
+            {t("nav.jobs")}
           </NavLink>
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/settings">
-            Settings
+            {t("nav.settings")}
           </NavLink>
         </nav>
       </aside>

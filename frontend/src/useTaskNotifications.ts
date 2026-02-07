@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useI18n } from "./i18n";
 import type { TaskStatus, VideoTaskDetail } from "./types";
 
 export function useTaskNotifications(
@@ -7,6 +8,7 @@ export function useTaskNotifications(
   enabledFailure: boolean,
   soundEnabled: boolean,
 ): void {
+  const { t } = useI18n();
   const previous = useRef<Map<string, TaskStatus>>(new Map());
   const initialized = useRef(false);
 
@@ -28,15 +30,23 @@ export function useTaskNotifications(
         continue;
       }
       if (task.status === "succeeded" && enabledSuccess) {
-        notify("Video ready", `${task.provider} / ${task.model} / ${task.task_id.slice(0, 8)}`, soundEnabled);
+        notify(
+          t("notify.videoReadyTitle"),
+          t("notify.videoReadyBody", {
+            provider: task.provider,
+            model: task.model,
+            taskId: task.task_id.slice(0, 8),
+          }),
+          soundEnabled,
+        );
       }
       if (task.status === "failed" && enabledFailure) {
-        notify("Generation failed", task.task_id.slice(0, 8), soundEnabled);
+        notify(t("notify.generationFailedTitle"), task.task_id.slice(0, 8), soundEnabled);
       }
     }
 
     previous.current = current;
-  }, [enabledFailure, enabledSuccess, soundEnabled, tasks]);
+  }, [enabledFailure, enabledSuccess, soundEnabled, t, tasks]);
 }
 
 function notify(title: string, body: string, soundEnabled: boolean): void {

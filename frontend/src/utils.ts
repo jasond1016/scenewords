@@ -34,6 +34,10 @@ export function fieldStorageKey(
 export function parseFieldValue(
   field: ProviderOperationField,
   raw: string,
+  texts?: {
+    numberRequired?: (label: string) => string;
+    invalidJson?: (label: string) => string;
+  },
 ): unknown {
   if (field.input_type === "boolean") {
     return raw === "true";
@@ -44,7 +48,9 @@ export function parseFieldValue(
     }
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) {
-      throw new Error(`${field.label} 必须是数字`);
+      throw new Error(
+        texts?.numberRequired?.(field.label) ?? `${field.label} must be a number`,
+      );
     }
     return parsed;
   }
@@ -55,7 +61,9 @@ export function parseFieldValue(
     try {
       return JSON.parse(raw);
     } catch {
-      throw new Error(`${field.label} 不是合法 JSON`);
+      throw new Error(
+        texts?.invalidJson?.(field.label) ?? `${field.label} is not valid JSON`,
+      );
     }
   }
   if (field.input_type === "string_list") {
@@ -138,31 +146,42 @@ export function findField(
   return operation.fields.find((field) => field.key === key) ?? null;
 }
 
-export function formatTaskStatus(task: VideoTaskDetail): string {
+export function formatTaskStatus(
+  task: VideoTaskDetail,
+  options?: { queuedWithPosition?: (position: number) => string },
+): string {
   if (task.status === "queued" && task.queue_position != null) {
-    return `queued (#${task.queue_position})`;
+    return (
+      options?.queuedWithPosition?.(task.queue_position) ?? `queued (#${task.queue_position})`
+    );
   }
   return task.status;
 }
 
-export function formatTime(value: string): string {
+export function formatTime(value: string, locale = "en-US"): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return parsed.toLocaleString(locale);
 }
 
-export function errorMessage(task: VideoTaskDetail): string | null {
+export function errorMessage(
+  task: VideoTaskDetail,
+  options?: {
+    mapErrorCode?: (code: string) => string | null;
+    fallbackMessage?: string;
+  },
+): string | null {
   if (!task.error) {
     return null;
   }
   const rawCode = task.error.code;
   const code = typeof rawCode === "string" ? rawCode.trim() : "";
-  const mapped = mapErrorCode(code);
+  const mapped = options?.mapErrorCode?.(code) ?? mapErrorCode(code);
   const message = typeof task.error.message === "string" ? task.error.message.trim() : "";
   if (mapped && message) {
-    return `${mapped}（${message}）`;
+    return `${mapped} (${message})`;
   }
   if (mapped) {
     return mapped;
@@ -170,7 +189,7 @@ export function errorMessage(task: VideoTaskDetail): string | null {
   if (message) {
     return message;
   }
-  return "生成失败，请稍后重试。";
+  return options?.fallbackMessage ?? "Generation failed. Please try again later.";
 }
 
 function mapErrorCode(code: string): string | null {
@@ -178,16 +197,16 @@ function mapErrorCode(code: string): string | null {
     return null;
   }
   const mappings: Record<string, string> = {
-    unknown_provider: "Provider 不存在或已被禁用",
-    provider_not_initialized: "Provider 未正确初始化",
-    timeout: "请求超时",
-    invalid_response: "上游返回格式异常",
-    unauthorized: "鉴权失败，请检查 API Key",
-    quota_exceeded: "额度不足或已超限",
-    rate_limited: "请求频率受限，请稍后再试",
-    internal_error: "网关内部错误",
-    upstream_error: "上游服务异常",
-    bad_request: "请求参数不合法",
+    unknown_provider: "Provider not found or disabled",
+    provider_not_initialized: "Provider is not initialized",
+    timeout: "Request timeout",
+    invalid_response: "Invalid upstream response",
+    unauthorized: "Unauthorized. Check API key",
+    quota_exceeded: "Quota exceeded",
+    rate_limited: "Rate limited. Please retry later",
+    internal_error: "Gateway internal error",
+    upstream_error: "Upstream service error",
+    bad_request: "Invalid request parameters",
   };
   return mappings[code] ?? null;
 }

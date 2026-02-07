@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import { SESSION_STORAGE_KEY } from "../utils";
 import type { RetryMode } from "../types";
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function SettingsPage(props: Props) {
+  const { t } = useI18n();
   const settings = useAppSettingsStore();
   const [hint, setHint] = useState("");
 
@@ -21,21 +23,38 @@ export function SettingsPage(props: Props) {
   return (
     <section className="panel settings-page">
       <div className="panel-header">
-        <h2>Settings</h2>
-        <p>默认值、通知与成本展示策略。</p>
+        <h2>{t("settings.title")}</h2>
+        <p>{t("settings.subtitle")}</p>
       </div>
 
-      <h3>Generation Defaults</h3>
+      <h3>{t("settings.language")}</h3>
       <div className="grid-2">
         <label>
-          Default Provider
+          {t("settings.language")}
+          <select
+            value={settings.language}
+            onChange={(event) =>
+              settings.setSettings({ language: event.target.value as "system" | "zh-CN" | "en" })
+            }
+          >
+            <option value="system">{t("settings.languageSystem")}</option>
+            <option value="zh-CN">{t("settings.languageZhCN")}</option>
+            <option value="en">{t("settings.languageEn")}</option>
+          </select>
+        </label>
+      </div>
+
+      <h3>{t("settings.generationDefaults")}</h3>
+      <div className="grid-2">
+        <label>
+          {t("settings.defaultProvider")}
           <input
             value={settings.defaultProvider}
             onChange={(event) => settings.setSettings({ defaultProvider: event.target.value })}
           />
         </label>
         <label>
-          Default Ratio
+          {t("settings.defaultRatio")}
           <select
             value={settings.defaultRatio}
             onChange={(event) =>
@@ -47,7 +66,7 @@ export function SettingsPage(props: Props) {
           </select>
         </label>
         <label>
-          Default Duration (s)
+          {t("settings.defaultDuration")}
           <input
             type="number"
             min={1}
@@ -59,7 +78,7 @@ export function SettingsPage(props: Props) {
           />
         </label>
         <label>
-          Default Quality
+          {t("settings.defaultQuality")}
           <input
             value={settings.defaultQuality}
             onChange={(event) => settings.setSettings({ defaultQuality: event.target.value })}
@@ -67,7 +86,7 @@ export function SettingsPage(props: Props) {
         </label>
       </div>
       <label>
-        Default Negative Prompt
+        {t("settings.defaultNegativePrompt")}
         <textarea
           rows={3}
           value={settings.defaultNegativePrompt}
@@ -84,21 +103,21 @@ export function SettingsPage(props: Props) {
             settings.setSettings({ restoreLastSession: event.target.checked })
           }
         />
-        Restore Last Session
+        {t("settings.restoreLastSession")}
       </label>
 
-      <h3>Retry Behavior</h3>
+      <h3>{t("settings.retryBehavior")}</h3>
       <div className="grid-2">
         <label>
-          Retry Default
+          {t("settings.retryDefault")}
           <select
             value={settings.retryModeDefault}
             onChange={(event) =>
               settings.setSettings({ retryModeDefault: event.target.value as RetryMode })
             }
           >
-            <option value="same_seed">Same Seed</option>
-            <option value="new_seed">New Seed</option>
+            <option value="same_seed">{t("settings.sameSeed")}</option>
+            <option value="new_seed">{t("settings.newSeed")}</option>
           </select>
         </label>
         <label className="checkbox-row">
@@ -109,11 +128,11 @@ export function SettingsPage(props: Props) {
               settings.setSettings({ showBothRetryActions: event.target.checked })
             }
           />
-          Show Both Retry Actions
+          {t("settings.showBothRetryActions")}
         </label>
       </div>
 
-      <h3>Notifications</h3>
+      <h3>{t("settings.notifications")}</h3>
       <div className="grid-2">
         <label className="checkbox-row">
           <input
@@ -121,7 +140,7 @@ export function SettingsPage(props: Props) {
             checked={settings.notifyOnSuccess}
             onChange={(event) => settings.setSettings({ notifyOnSuccess: event.target.checked })}
           />
-          Notify Success
+          {t("settings.notifySuccess")}
         </label>
         <label className="checkbox-row">
           <input
@@ -129,7 +148,7 @@ export function SettingsPage(props: Props) {
             checked={settings.notifyOnFailure}
             onChange={(event) => settings.setSettings({ notifyOnFailure: event.target.checked })}
           />
-          Notify Failure
+          {t("settings.notifyFailure")}
         </label>
         <label className="checkbox-row">
           <input
@@ -137,7 +156,7 @@ export function SettingsPage(props: Props) {
             checked={settings.notifySound}
             onChange={(event) => settings.setSettings({ notifySound: event.target.checked })}
           />
-          Notify Sound
+          {t("settings.notifySound")}
         </label>
         <label className="checkbox-row">
           <input
@@ -145,27 +164,27 @@ export function SettingsPage(props: Props) {
             checked={settings.notifyBadge}
             onChange={(event) => settings.setSettings({ notifyBadge: event.target.checked })}
           />
-          Notify Badge
+          {t("settings.notifyBadge")}
         </label>
       </div>
       <button
         type="button"
         onClick={async () => {
           if (!("Notification" in window)) {
-            setHint("当前浏览器不支持通知。");
+            setHint(t("settings.notificationUnsupported"));
             return;
           }
           const permission = await Notification.requestPermission();
-          setHint(`通知权限：${permission}`);
+          setHint(t("settings.notificationPermission", { permission }));
         }}
       >
-        Request Notification Permission
+        {t("settings.requestNotificationPermission")}
       </button>
 
-      <h3>Cost & Pricing</h3>
+      <h3>{t("settings.costPricing")}</h3>
       <div className="grid-2">
         <label>
-          Cost Mode
+          {t("settings.costMode")}
           <select
             value={settings.costMode}
             onChange={(event) =>
@@ -174,19 +193,19 @@ export function SettingsPage(props: Props) {
               })
             }
           >
-            <option value="provider_api">Provider API</option>
-            <option value="local_config">Local Config</option>
+            <option value="provider_api">{t("settings.costModeProviderApi")}</option>
+            <option value="local_config">{t("settings.costModeLocalConfig")}</option>
           </select>
         </label>
         <label>
-          Currency
+          {t("settings.currency")}
           <input
             value={settings.currency}
             onChange={(event) => settings.setSettings({ currency: event.target.value })}
           />
         </label>
         <label>
-          Pricing Version
+          {t("settings.pricingVersion")}
           <input
             value={settings.pricingVersion}
             onChange={(event) => settings.setSettings({ pricingVersion: event.target.value })}
@@ -202,7 +221,7 @@ export function SettingsPage(props: Props) {
               settings.setSettings({ showEstimatedCostPreSubmit: event.target.checked })
             }
           />
-          Show Estimated Cost Before Submit
+          {t("settings.showEstimatedBeforeSubmit")}
         </label>
         <label className="checkbox-row">
           <input
@@ -212,11 +231,11 @@ export function SettingsPage(props: Props) {
               settings.setSettings({ showActualCostPostDone: event.target.checked })
             }
           />
-          Show Actual Cost After Done
+          {t("settings.showActualAfterDone")}
         </label>
       </div>
 
-      <h3>Privacy & Storage</h3>
+      <h3>{t("settings.privacyStorage")}</h3>
       <div className="grid-2">
         <label className="checkbox-row">
           <input
@@ -224,10 +243,10 @@ export function SettingsPage(props: Props) {
             checked={settings.savePromptHistory}
             onChange={(event) => settings.setSettings({ savePromptHistory: event.target.checked })}
           />
-          Save Prompt History
+          {t("settings.savePromptHistory")}
         </label>
         <label>
-          History Retention Days
+          {t("settings.historyRetentionDays")}
           <input
             type="number"
             min={1}
@@ -244,10 +263,10 @@ export function SettingsPage(props: Props) {
           type="button"
           onClick={() => {
             localStorage.removeItem(SESSION_STORAGE_KEY);
-            setHint("已清理本地会话缓存。");
+            setHint(t("settings.clearedLocalCache"));
           }}
         >
-          Clear Local Cache
+          {t("settings.clearLocalCache")}
         </button>
       </div>
       <p className="hint">{hint}</p>

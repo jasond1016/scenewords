@@ -6,6 +6,7 @@ import {
   estimatePricing,
   uploadFile,
 } from "../api";
+import { useI18n } from "../i18n";
 import { useAppSettingsStore, type AppSettingsState } from "../state";
 import type {
   ProviderCatalogResponse,
@@ -58,6 +59,7 @@ interface RecentPromptEntry {
 
 export function CreatePage(props: Props) {
   const { catalog, loading } = props;
+  const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const settings = useAppSettingsStore();
@@ -240,7 +242,7 @@ export function CreatePage(props: Props) {
     ) {
       applyDraft(hydrated, selectedOperation, pending);
       settings.setPendingReuseDraft(null);
-      setHint("已从历史记录继承参数，可直接修改提示词后重试。");
+      setHint(t("create.hintReusedDraft"));
       navigate("/create");
     }
 
@@ -289,7 +291,7 @@ export function CreatePage(props: Props) {
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!selectedOperation) {
-        throw new Error("未找到可用 operation");
+        throw new Error(t("create.errorNoOperation"));
       }
       const payload: VideoGenerationRequest = {
         provider: providerId,
@@ -305,13 +307,18 @@ export function CreatePage(props: Props) {
           const selectedFiles = files[key] ?? [];
           if (!selectedFiles.length) {
             if (field.required) {
-              throw new Error(`缺少必填文件: ${field.label}`);
+              throw new Error(t("create.errorMissingRequiredFile", { label: field.label }));
             }
             continue;
           }
           const uploadedIds: string[] = [];
           for (let index = 0; index < selectedFiles.length; index += 1) {
-            setHint(`上传文件中 (${index + 1}/${selectedFiles.length})...`);
+            setHint(
+              t("create.hintUploading", {
+                index: index + 1,
+                total: selectedFiles.length,
+              }),
+            );
             const uploaded = await uploadFile(selectedFiles[index], settings.gatewayToken);
             uploadedIds.push(uploaded.file_id);
           }
@@ -326,7 +333,10 @@ export function CreatePage(props: Props) {
         }
 
         const raw = values[key] ?? "";
-        const parsed = parseFieldValue(field, raw);
+        const parsed = parseFieldValue(field, raw, {
+          numberRequired: (label) => t("error.numberRequired", { label }),
+          invalidJson: (label) => t("error.invalidJson", { label }),
+        });
         if (!field.required && isFieldEmpty(parsed, field)) {
           continue;
         }
@@ -339,7 +349,7 @@ export function CreatePage(props: Props) {
       return createVideoTask(payload, settings.gatewayToken);
     },
     onSuccess: async (response) => {
-      setHint(`任务已创建：${response.task_id.slice(0, 8)}`);
+      setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
       settings.setSettings({ defaultProvider: providerId });
       if (settings.savePromptHistory && promptField) {
         const promptValue = (values[fieldKey(promptField)] ?? "").trim();
@@ -364,7 +374,7 @@ export function CreatePage(props: Props) {
       });
     },
     onError: (error: Error) => {
-      setHint(`提交失败：${error.message}`);
+      setHint(t("create.hintSubmitFailed", { message: error.message }));
     },
   });
 
@@ -384,17 +394,17 @@ export function CreatePage(props: Props) {
   };
 
   if (loading) {
-    return <section className="panel">正在加载模型配置...</section>;
+    return <section className="panel">{t("create.loadingCatalog")}</section>;
   }
   if (!selectedProvider || !selectedModel || !selectedOperation) {
-    return <section className="panel">没有可用的 Provider / Model / Operation。</section>;
+    return <section className="panel">{t("create.noAvailable")}</section>;
   }
 
   return (
     <section className="panel">
       <div className="panel-header">
-        <h2>Create</h2>
-        <p>输入提示词并生成视频，参数会按 Provider/Model/Operation 自动保存。</p>
+        <h2>{t("create.title")}</h2>
+        <p>{t("create.subtitle")}</p>
       </div>
 
       <form
@@ -405,18 +415,18 @@ export function CreatePage(props: Props) {
         }}
       >
         <label>
-          Gateway Token
+          {t("create.gatewayToken")}
           <input
             type="password"
             value={settings.gatewayToken}
             onChange={(event) => settings.setSettings({ gatewayToken: event.target.value })}
-            placeholder="仅开启鉴权时需要"
+            placeholder={t("create.gatewayTokenPlaceholder")}
           />
         </label>
 
         <div className="grid-3">
           <label>
-            Provider
+            {t("create.provider")}
             <select
               value={providerId}
               onChange={(event) => setProviderId(event.target.value)}
@@ -429,7 +439,7 @@ export function CreatePage(props: Props) {
             </select>
           </label>
           <label>
-            Model
+            {t("create.model")}
             <select
               value={modelName}
               onChange={(event) => setModelName(event.target.value)}
@@ -442,7 +452,7 @@ export function CreatePage(props: Props) {
             </select>
           </label>
           <label>
-            Operation
+            {t("create.operation")}
             <select
               value={operationId}
               onChange={(event) => setOperationId(event.target.value)}
@@ -457,7 +467,7 @@ export function CreatePage(props: Props) {
         </div>
 
         <section className="core-section">
-          <h3>Core Inputs</h3>
+          <h3>{t("create.coreInputs")}</h3>
           <div className="dynamic-grid">
             {coreFields.map((field) => renderField(field, values, onFieldChanged, setFiles))}
           </div>
@@ -466,25 +476,25 @@ export function CreatePage(props: Props) {
         {promptField ? (
           <section className="prompt-presets">
             <div className="prompt-presets-header">
-              <h4>Prompt Presets</h4>
+              <h4>{t("create.promptPresets")}</h4>
               <button
                 type="button"
                 onClick={() => {
                   const promptValue = (values[fieldKey(promptField)] ?? "").trim();
                   if (!promptValue) {
-                    setHint("当前提示词为空，无法加入预设。");
+                    setHint(t("create.hintPromptEmpty"));
                     return;
                   }
                   const added = appendPromptPreset(promptValue);
                   if (!added) {
-                    setHint("该预设已存在。");
+                    setHint(t("create.hintPresetExists"));
                     return;
                   }
                   setPresetVersion((current) => current + 1);
-                  setHint("已加入 Prompt Presets。");
+                  setHint(t("create.hintPresetSaved"));
                 }}
               >
-                Save Current
+                {t("create.saveCurrentPreset")}
               </button>
             </div>
             <div className="prompt-preset-list">
@@ -495,7 +505,7 @@ export function CreatePage(props: Props) {
                     className="prompt-preset-chip"
                     onClick={() => {
                       onFieldChanged(promptField, preset);
-                      setHint("已填入预设提示词。");
+                      setHint(t("create.hintPresetApplied"));
                     }}
                   >
                     {preset}
@@ -509,7 +519,7 @@ export function CreatePage(props: Props) {
                         setPresetVersion((current) => current + 1);
                       }}
                     >
-                      Remove
+                      {t("create.removePreset")}
                     </button>
                   ) : null}
                 </div>
@@ -521,7 +531,7 @@ export function CreatePage(props: Props) {
         {promptField && settings.savePromptHistory ? (
           <section className="recent-prompts">
             <div className="recent-prompts-header">
-              <h4>Recent Prompts</h4>
+              <h4>{t("create.recentPrompts")}</h4>
               <button
                 type="button"
                 onClick={() => {
@@ -529,7 +539,7 @@ export function CreatePage(props: Props) {
                   setRecentPromptVersion((current) => current + 1);
                 }}
               >
-                Clear
+                {t("common.clear")}
               </button>
             </div>
             {recentPrompts.length ? (
@@ -544,7 +554,7 @@ export function CreatePage(props: Props) {
                       className="recent-prompt-chip"
                       onClick={() => {
                         onFieldChanged(promptField, entry.text);
-                        setHint("已填入历史提示词。");
+                        setHint(t("create.hintRecentPromptApplied"));
                       }}
                     >
                       {entry.text}
@@ -562,20 +572,20 @@ export function CreatePage(props: Props) {
                         setRecentPromptVersion((current) => current + 1);
                       }}
                     >
-                      {entry.pinned ? "Unpin" : "Pin"}
+                      {entry.pinned ? t("create.unpin") : t("create.pin")}
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="hint">暂无可用历史提示词。</p>
+              <p className="hint">{t("create.noRecentPrompts")}</p>
             )}
           </section>
         ) : null}
 
         {advancedFields.length ? (
           <details className="advanced-section">
-            <summary>Advanced Options ({advancedFields.length})</summary>
+            <summary>{t("create.advancedOptions", { count: advancedFields.length })}</summary>
             <div className="dynamic-grid">
               {advancedFields.map((field) =>
                 renderField(field, values, onFieldChanged, setFiles),
@@ -590,12 +600,15 @@ export function CreatePage(props: Props) {
             className="primary-button"
             disabled={submitMutation.isPending}
           >
-            {submitMutation.isPending ? "Submitting..." : "Generate Video"}
+            {submitMutation.isPending ? t("create.submitting") : t("create.generateVideo")}
           </button>
           <p className="hint">
             {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
-              ? `Estimated: ${estimateQuery.data.estimated_cost.toFixed(3)} ${estimateQuery.data.currency ?? settings.currency}`
-              : "Estimated cost: N/A"}
+              ? t("create.estimated", {
+                  cost: estimateQuery.data.estimated_cost.toFixed(3),
+                  currency: estimateQuery.data.currency ?? settings.currency,
+                })
+              : t("create.estimatedUnavailable")}
           </p>
           <p className="hint">{hint}</p>
         </div>
