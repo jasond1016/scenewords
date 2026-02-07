@@ -49,6 +49,10 @@ const DEFAULT_PROMPT_PRESETS = [
   "minimalist product hero shot with soft studio lighting, smooth camera orbit",
   "aerial sunrise over mountain ridge with drifting clouds, natural color grade",
 ];
+const VEO_PROMPT_GUIDE_LINK_DOCS =
+  "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide?hl=zh-cn";
+const VEO_PROMPT_GUIDE_LINK_BLOG =
+  "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1";
 
 interface RecentPromptEntry {
   text: string;
@@ -95,6 +99,11 @@ export function CreatePage(props: Props) {
       null
     );
   }, [operationId, selectedModel]);
+  const showVeoPromptGuide = useMemo(() => {
+    const providerType = selectedProvider?.type?.toLowerCase() ?? "";
+    const modelLower = modelName.toLowerCase();
+    return providerType.includes("veo") || modelLower.includes("veo");
+  }, [modelName, selectedProvider?.type]);
   const coreFields = useMemo(
     () => getCoreFields(selectedOperation),
     [selectedOperation],
@@ -464,6 +473,21 @@ export function CreatePage(props: Props) {
             {coreFields.map((field) => renderField(field, values, onFieldChanged, setFiles))}
           </div>
         </section>
+
+        {showVeoPromptGuide ? (
+          <section className="veo-guide">
+            <h4>{t("create.veoPromptGuideTitle")}</h4>
+            <p>{t("create.veoPromptGuideDesc")}</p>
+            <div className="veo-guide-links">
+              <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer">
+                {t("create.veoPromptGuideLinkDocs")}
+              </a>
+              <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer">
+                {t("create.veoPromptGuideLinkBlog")}
+              </a>
+            </div>
+          </section>
+        ) : null}
 
         {promptField ? (
           <section className="prompt-presets">
