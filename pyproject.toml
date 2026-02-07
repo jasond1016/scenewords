@@ -9,3 +9,8 @@ dependencies = [
     "python-multipart==0.0.20",
     "uvicorn[standard]==0.34.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.2",
+]

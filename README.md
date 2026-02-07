@@ -95,6 +95,12 @@ pnpm build
 
 构建后继续按原方式启动 FastAPI 即可。
 
+## 测试
+
+```bash
+uv run --group dev pytest -q
+```
+
 ## Provider 配置
 
 默认读取 `config/providers.json`，可通过 `VIDEO_GATEWAY_CONFIG` 指向其他文件。

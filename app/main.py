@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hashlib
 import random
 from datetime import datetime
@@ -58,18 +59,9 @@ MIME_TO_EXTENSION = {
 def create_app() -> FastAPI:
     # `StaticFiles` requires the directory to exist at app creation time.
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    app = FastAPI(title="Video Gateway", version="0.1.0")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    @app.on_event("startup")
-    async def on_startup() -> None:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
         app_config = load_app_config()
         app_config.output_dir.mkdir(parents=True, exist_ok=True)
         app_config.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -99,13 +91,21 @@ def create_app() -> FastAPI:
         app.state.store = store
         app.state.http_client = http_client
         app.state.worker = worker
+        try:
+            yield
+        finally:
+            await worker.stop()
+            await http_client.aclose()
 
-    @app.on_event("shutdown")
-    async def on_shutdown() -> None:
-        worker: TaskWorker = app.state.worker
-        http_client: httpx.AsyncClient = app.state.http_client
-        await worker.stop()
-        await http_client.aclose()
+    app = FastAPI(title="Video Gateway", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
