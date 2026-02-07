@@ -206,6 +206,45 @@ button:disabled {
   background: #fff;
 }
 
+.veo-guide {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #c7deff;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #f4f9ff;
+}
+
+.veo-guide h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.veo-guide p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.veo-guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.veo-guide-links a {
+  text-decoration: none;
+  color: #18407a;
+  border: 1px solid #b7cff2;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+}
+
+.veo-guide-links a:hover {
+  border-color: #8fb4e6;
+  background: #f8fbff;
+}
+
 .prompt-presets-header {
   display: flex;
   align-items: center;
@@ -401,6 +440,17 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.danger-button {
+  border-color: #d9a6ad;
+  color: var(--danger);
+  background: #fff7f8;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: #ffecef;
 }
 
 .error-text {

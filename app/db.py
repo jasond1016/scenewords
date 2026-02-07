@@ -151,6 +151,20 @@ class TaskStore:
             raise KeyError(task_id)
         return _row_to_dict(row)
 
+    def delete_task(self, task_id: str) -> None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT task_id FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            self._connection.execute(
+                "DELETE FROM tasks WHERE task_id = ?",
+                (task_id,),
+            )
+            self._connection.commit()
+
     def list_tasks(self, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._connection.execute(

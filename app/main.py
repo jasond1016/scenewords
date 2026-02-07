@@ -12,7 +12,7 @@ from uuid import uuid4
 import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.capabilities import (
@@ -271,6 +271,24 @@ def create_app() -> FastAPI:
         if retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
         return await _enqueue_video_task(source_request)
+
+    @app.delete(
+        "/v1/video/tasks/{task_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def delete_video_task(task_id: str, _: None = Depends(require_auth)) -> Response:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task["status"] in {"queued", "running"}:
+            raise HTTPException(
+                status_code=409,
+                detail="In-progress tasks cannot be deleted",
+            )
+        app.state.store.delete_task(task_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/v1/video/tasks", response_model=list[VideoTaskDetail])
     async def list_video_tasks(

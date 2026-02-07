@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { retryVideoTask } from "../api";
+import { deleteVideoTask, retryVideoTask } from "../api";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import type { RetryMode, VideoTaskDetail } from "../types";
@@ -85,6 +85,18 @@ export function JobsPage(props: Props) {
       setHint(t("jobs.retryFailed", { message: error.message }));
     },
   });
+  const deleteMutation = useMutation({
+    mutationFn: async (taskId: string) => deleteVideoTask(taskId, settings.gatewayToken),
+    onSuccess: async (_data, taskId) => {
+      setHint(t("jobs.deleteSuccess", { taskId: taskId.slice(0, 8) }));
+      setSelectedTaskId((current) => (current === taskId ? null : current));
+      setPlayerTaskId((current) => (current === taskId ? null : current));
+      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+    },
+    onError: (error: Error) => {
+      setHint(t("jobs.deleteFailed", { message: error.message }));
+    },
+  });
 
   const providerOptions = useMemo(
     () => ["all", ...Array.from(new Set(tasks.map((task) => task.provider))).sort()],
@@ -152,6 +164,10 @@ export function JobsPage(props: Props) {
     }
     return statusLabel(task.status);
   };
+  const canDeleteSelectedTask =
+    selectedTask != null &&
+    selectedTask.status !== "queued" &&
+    selectedTask.status !== "running";
 
   if (loading) {
     return <section className="panel">{t("jobs.loading")}</section>;
@@ -323,6 +339,29 @@ export function JobsPage(props: Props) {
                 >
                   {t("jobs.copyRequestJson")}
                 </button>
+                {canDeleteSelectedTask ? (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => {
+                      if (!selectedTask) {
+                        return;
+                      }
+                      const confirmed = window.confirm(
+                        t("jobs.deleteConfirm", {
+                          taskId: selectedTask.task_id.slice(0, 8),
+                        }),
+                      );
+                      if (!confirmed) {
+                        return;
+                      }
+                      deleteMutation.mutate(selectedTask.task_id);
+                    }}
+                    disabled={deleteMutation.isPending}
+                  >
+                    {t("jobs.delete")}
+                  </button>
+                ) : null}
                 {settings.showBothRetryActions ? (
                   <>
                     <button

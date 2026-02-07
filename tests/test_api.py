@@ -161,3 +161,45 @@ def test_list_video_tasks_default_empty(client_factory) -> None:
         response = client.get("/v1/video/tasks")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def _seed_task(client: TestClient) -> str:
+    task_id = str(uuid4())
+    client.app.state.store.create_task(
+        task_id=task_id,
+        provider="demo_provider",
+        model="demo-model",
+        operation="generate",
+        prompt="test prompt",
+        request_payload={
+            "provider": "demo_provider",
+            "model": "demo-model",
+            "operation": "generate",
+            "prompt": "test prompt",
+            "provider_options": {},
+        },
+    )
+    return task_id
+
+
+def test_delete_history_task(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_task(client)
+        client.app.state.store.set_error(
+            task_id=task_id,
+            code="test_error",
+            message="seed failure",
+            raw_error={},
+        )
+        delete_response = client.delete(f"/v1/video/tasks/{task_id}")
+        list_response = client.get("/v1/video/tasks?limit=50")
+    assert delete_response.status_code == 204
+    assert all(task["task_id"] != task_id for task in list_response.json())
+
+
+def test_delete_in_progress_task_rejected(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_task(client)
+        delete_response = client.delete(f"/v1/video/tasks/{task_id}")
+    assert delete_response.status_code == 409
+    assert "cannot be deleted" in delete_response.json()["detail"]

@@ -97,6 +97,16 @@ export function fetchTasks(limit: number, token: string): Promise<VideoTaskDetai
   );
 }
 
+export function deleteVideoTask(taskId: string, token: string): Promise<void> {
+  return request<void>(
+    `/v1/video/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
 export function fetchPricing(token: string): Promise<PricingCatalogResponse> {
   return request<PricingCatalogResponse>("/v1/pricing", {}, token);
 }
