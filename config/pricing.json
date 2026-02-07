@@ -1,6 +1,6 @@
 {
   "mode": "local_config",
-  "currency": "USD",
+  "currency": "RMB",
   "pricing_version": "2026-02-07",
   "entries": [
     {
@@ -10,7 +10,7 @@
       "resolution": "1280x720",
       "duration_sec": 10,
       "fixed_cost": 0.0,
-      "currency": "USD",
+      "currency": "RMB",
       "effective_from": "2026-02-07"
     },
     {
@@ -19,8 +19,8 @@
       "quality": "standard",
       "resolution": "1280x720",
       "duration_sec": 8,
-      "fixed_cost": 0.0,
-      "currency": "USD",
+      "fixed_cost": 0.7,
+      "currency": "RMB",
       "effective_from": "2026-02-07"
     }
   ]
