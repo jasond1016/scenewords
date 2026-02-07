@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import { SESSION_STORAGE_KEY } from "../utils";
-import type { RetryMode } from "../types";
+import type { ProviderInfo, RetryMode } from "../types";
 
 interface Props {
   pricingVersion: string | null;
+  providers: ProviderInfo[];
 }
 
 export function SettingsPage(props: Props) {
@@ -19,6 +20,16 @@ export function SettingsPage(props: Props) {
     }
     settings.setSettings({ pricingVersion: props.pricingVersion });
   }, [props.pricingVersion, settings.pricingVersion, settings.setSettings]);
+
+  useEffect(() => {
+    if (!settings.defaultProvider) {
+      return;
+    }
+    const exists = props.providers.some((provider) => provider.id === settings.defaultProvider);
+    if (!exists) {
+      settings.setSettings({ defaultProvider: "" });
+    }
+  }, [props.providers, settings.defaultProvider, settings.setSettings]);
 
   return (
     <section className="panel settings-page">
@@ -48,10 +59,17 @@ export function SettingsPage(props: Props) {
       <div className="grid-2">
         <label>
           {t("settings.defaultProvider")}
-          <input
+          <select
             value={settings.defaultProvider}
             onChange={(event) => settings.setSettings({ defaultProvider: event.target.value })}
-          />
+          >
+            <option value="">{t("settings.defaultProviderAuto")}</option>
+            {props.providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.display_name}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           {t("settings.defaultRatio")}

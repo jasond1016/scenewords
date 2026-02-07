@@ -77,7 +77,12 @@ export default function App() {
           />
           <Route
             path="/settings"
-            element={<SettingsPage pricingVersion={pricingQuery.data?.pricing_version ?? null} />}
+            element={
+              <SettingsPage
+                pricingVersion={pricingQuery.data?.pricing_version ?? null}
+                providers={catalogQuery.data?.providers ?? []}
+              />
+            }
           />
         </Routes>
       </main>
