@@ -15,6 +15,7 @@ def build_model_operations(
     provider_config: ProviderConfig, model_name: str
 ) -> list[ProviderModelOperationInfo]:
     provider_type = provider_config.provider_type
+    model_duration_options = _model_duration_options(provider_config, model_name)
     timeout_default = _positive_number(
         provider_config.extra.get("default_timeout_sec"), fallback=900.0
     )
@@ -23,18 +24,43 @@ def build_model_operations(
     )
 
     if provider_type == "tuzi_sora":
-        return _tuzi_sora_operations(timeout_default=timeout_default, poll_default=poll_default)
+        return _tuzi_sora_operations(
+            timeout_default=timeout_default,
+            poll_default=poll_default,
+            duration_options=model_duration_options,
+        )
     if provider_type == "tuzi_veo":
-        return _tuzi_veo_operations(timeout_default=timeout_default, poll_default=poll_default)
+        return _tuzi_veo_operations(
+            timeout_default=timeout_default,
+            poll_default=poll_default,
+            duration_options=model_duration_options,
+        )
     if provider_type == "comfyui":
-        return _comfyui_operations(timeout_default=timeout_default, poll_default=poll_default)
+        return _comfyui_operations(
+            timeout_default=timeout_default,
+            poll_default=poll_default,
+            duration_options=model_duration_options,
+        )
     if provider_type == "gemini_veo_compatible":
-        return _gemini_veo_operations(timeout_default=timeout_default, poll_default=poll_default)
+        return _gemini_veo_operations(
+            timeout_default=timeout_default,
+            poll_default=poll_default,
+            duration_options=model_duration_options,
+        )
     if provider_type == "vertex_veo":
-        return _vertex_veo_operations(timeout_default=timeout_default)
+        return _vertex_veo_operations(
+            timeout_default=timeout_default,
+            duration_options=model_duration_options,
+        )
     if provider_type == "openai_compatible":
-        return _openai_operations(timeout_default=timeout_default)
-    return _generic_operations(timeout_default=timeout_default)
+        return _openai_operations(
+            timeout_default=timeout_default,
+            duration_options=model_duration_options,
+        )
+    return _generic_operations(
+        timeout_default=timeout_default,
+        duration_options=model_duration_options,
+    )
 
 
 def apply_operation_defaults_and_validate(
@@ -161,20 +187,66 @@ def _resolution_field(default_value: str = "1280x720") -> ProviderOperationField
     )
 
 
+def _duration_field(
+    *,
+    default_value: int,
+    min_value: float,
+    max_value: float | None = None,
+    step: float = 1,
+    options: list[int] | None = None,
+) -> ProviderOperationField:
+    normalized = _normalize_duration_options(options)
+    resolved_default = default_value
+    if normalized:
+        resolved_default = default_value if default_value in normalized else normalized[0]
+    return _field(
+        "duration_sec",
+        "时长(秒)",
+        input_type="number",
+        required=True,
+        default=resolved_default,
+        min_value=min_value,
+        max_value=max_value,
+        step=step,
+        options=[_option(str(item), f"{item}s") for item in normalized],
+    )
+
+
+def _normalize_duration_options(raw: Any) -> list[int]:
+    if not isinstance(raw, list):
+        return []
+    values: list[int] = []
+    for item in raw:
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            values.append(parsed)
+    return sorted(set(values))
+
+
+def _model_duration_options(provider_config: ProviderConfig, model_name: str) -> list[int]:
+    model = next((item for item in provider_config.models if item.name == model_name), None)
+    if not model or not model.extra:
+        return []
+    for key in ("duration_options", "duration_sec_options"):
+        if key in model.extra:
+            return _normalize_duration_options(model.extra.get(key))
+    return []
+
+
 def _tuzi_sora_operations(
-    *, timeout_default: float, poll_default: float
+    *, timeout_default: float, poll_default: float, duration_options: list[int]
 ) -> list[ProviderModelOperationInfo]:
     shared_submit = [
         _field("prompt", "提示词", input_type="textarea", required=True),
-        _field(
-            "duration_sec",
-            "时长(秒)",
-            input_type="number",
-            required=True,
-            default=10,
+        _duration_field(
+            default_value=10,
             min_value=1,
             max_value=20,
             step=1,
+            options=duration_options,
         ),
         _resolution_field(),
         _field(
@@ -327,7 +399,7 @@ def _tuzi_sora_operations(
 
 
 def _tuzi_veo_operations(
-    *, timeout_default: float, poll_default: float
+    *, timeout_default: float, poll_default: float, duration_options: list[int]
 ) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
@@ -337,15 +409,12 @@ def _tuzi_veo_operations(
             is_default=True,
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=8,
+                _duration_field(
+                    default_value=8,
                     min_value=1,
                     max_value=20,
                     step=1,
+                    options=duration_options,
                 ),
                 _resolution_field(),
                 _field(
@@ -407,7 +476,7 @@ def _tuzi_veo_operations(
 
 
 def _comfyui_operations(
-    *, timeout_default: float, poll_default: float
+    *, timeout_default: float, poll_default: float, duration_options: list[int]
 ) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
@@ -417,15 +486,12 @@ def _comfyui_operations(
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
                 _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=4,
+                _duration_field(
+                    default_value=4,
                     min_value=1,
                     max_value=60,
                     step=1,
+                    options=duration_options,
                 ),
                 _field(
                     "fps",
@@ -493,7 +559,7 @@ def _comfyui_operations(
 
 
 def _gemini_veo_operations(
-    *, timeout_default: float, poll_default: float
+    *, timeout_default: float, poll_default: float, duration_options: list[int]
 ) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
@@ -503,15 +569,12 @@ def _gemini_veo_operations(
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
                 _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=4,
+                _duration_field(
+                    default_value=4,
                     min_value=1,
                     max_value=20,
                     step=1,
+                    options=duration_options,
                 ),
                 _resolution_field(),
                 _field(
@@ -543,7 +606,9 @@ def _gemini_veo_operations(
     ]
 
 
-def _vertex_veo_operations(*, timeout_default: float) -> list[ProviderModelOperationInfo]:
+def _vertex_veo_operations(
+    *, timeout_default: float, duration_options: list[int]
+) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
             id="generate",
@@ -552,15 +617,12 @@ def _vertex_veo_operations(*, timeout_default: float) -> list[ProviderModelOpera
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
                 _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=4,
+                _duration_field(
+                    default_value=4,
                     min_value=1,
                     max_value=20,
                     step=1,
+                    options=duration_options,
                 ),
                 _resolution_field(),
                 _field(
@@ -593,7 +655,9 @@ def _vertex_veo_operations(*, timeout_default: float) -> list[ProviderModelOpera
     ]
 
 
-def _openai_operations(*, timeout_default: float) -> list[ProviderModelOperationInfo]:
+def _openai_operations(
+    *, timeout_default: float, duration_options: list[int]
+) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
             id="generate",
@@ -602,15 +666,12 @@ def _openai_operations(*, timeout_default: float) -> list[ProviderModelOperation
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
                 _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=4,
+                _duration_field(
+                    default_value=4,
                     min_value=1,
                     max_value=20,
                     step=1,
+                    options=duration_options,
                 ),
                 _resolution_field(default_value="854x480"),
                 _field(
@@ -644,7 +705,9 @@ def _openai_operations(*, timeout_default: float) -> list[ProviderModelOperation
     ]
 
 
-def _generic_operations(*, timeout_default: float) -> list[ProviderModelOperationInfo]:
+def _generic_operations(
+    *, timeout_default: float, duration_options: list[int]
+) -> list[ProviderModelOperationInfo]:
     return [
         ProviderModelOperationInfo(
             id="generate",
@@ -652,14 +715,11 @@ def _generic_operations(*, timeout_default: float) -> list[ProviderModelOperatio
             is_default=True,
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
-                _field(
-                    "duration_sec",
-                    "时长(秒)",
-                    input_type="number",
-                    required=True,
-                    default=4,
+                _duration_field(
+                    default_value=4,
                     min_value=1,
                     step=1,
+                    options=duration_options,
                 ),
                 _resolution_field(default_value="1280x720"),
                 _field(

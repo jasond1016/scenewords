@@ -12,6 +12,7 @@ class ProviderModelConfig:
     name: str
     display_name: str
     is_default: bool = False
+    extra: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -84,6 +85,11 @@ def load_provider_configs(path: Path) -> dict[str, ProviderConfig]:
                 name=raw_model["name"],
                 display_name=raw_model.get("display_name", raw_model["name"]),
                 is_default=bool(raw_model.get("default", False)),
+                extra={
+                    key: value
+                    for key, value in raw_model.items()
+                    if key not in {"name", "display_name", "default"}
+                },
             )
             for raw_model in raw_provider.get("models", [])
         ]

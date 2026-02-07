@@ -118,6 +118,7 @@ uv run --group dev pytest -q
 - `base_url`, `api_path`: 默认上游地址
 - `auth_env`: 默认 API Key 的环境变量名
 - `models`: 可选模型列表（前端可切换）
+  - `duration_options`（可选）: 指定该模型允许的离散时长（秒），例如 `[8]` 或 `[10, 15]`
 
 ## 请求示例
 

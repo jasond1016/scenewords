@@ -1,4 +1,5 @@
 import type {
+  ProviderInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
   VideoTaskDetail,
@@ -109,6 +110,76 @@ export function valueToStoredString(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export function isDurationField(field: ProviderOperationField): boolean {
+  return field.target === "request" && field.key === "duration_sec";
+}
+
+export function durationOptionsFromField(field: ProviderOperationField): number[] {
+  if (!isDurationField(field)) {
+    return [];
+  }
+  const fromOptions = (field.options ?? [])
+    .map((option) => Number(option.value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (fromOptions.length) {
+    return sortUniqueNumbers(fromOptions);
+  }
+
+  const min = field.min ?? 1;
+  const max = field.max ?? min;
+  const step = field.step ?? 1;
+  if (!(Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(step)) || step <= 0) {
+    return [];
+  }
+  if (max < min) {
+    return [];
+  }
+  const count = Math.floor((max - min) / step) + 1;
+  if (count <= 0 || count > 200) {
+    return [];
+  }
+  const values: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const value = Number((min + step * index).toFixed(6));
+    if (value > 0) {
+      values.push(value);
+    }
+  }
+  return sortUniqueNumbers(values);
+}
+
+export function supportedDurationOptions(providers: ProviderInfo[]): number[] {
+  const optionSets: number[][] = [];
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      for (const operation of model.operations) {
+        const durationField = operation.fields.find(isDurationField);
+        if (!durationField) {
+          continue;
+        }
+        const options = durationOptionsFromField(durationField);
+        if (options.length) {
+          optionSets.push(options);
+        }
+      }
+    }
+  }
+  if (!optionSets.length) {
+    return [8];
+  }
+
+  const intersection = optionSets.slice(1).reduce((current, set) => {
+    const nextSet = new Set(set);
+    return current.filter((value) => nextSet.has(value));
+  }, optionSets[0]);
+  if (intersection.length) {
+    return sortUniqueNumbers(intersection);
+  }
+
+  const union = optionSets.flat();
+  return sortUniqueNumbers(union);
+}
+
 export function numberOrNull(value: string): number | null {
   const raw = value.trim();
   if (!raw) {
@@ -209,6 +280,10 @@ function mapErrorCode(code: string): string | null {
     bad_request: "Invalid request parameters",
   };
   return mappings[code] ?? null;
+}
+
+function sortUniqueNumbers(values: number[]): number[] {
+  return Array.from(new Set(values)).sort((left, right) => left - right);
 }
 
 export function saveSession(snapshot: SessionSnapshot): void {

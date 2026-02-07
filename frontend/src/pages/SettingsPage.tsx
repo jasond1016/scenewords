@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
-import { SESSION_STORAGE_KEY } from "../utils";
+import { SESSION_STORAGE_KEY, supportedDurationOptions } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
 
 interface Props {
@@ -13,6 +13,10 @@ export function SettingsPage(props: Props) {
   const { t } = useI18n();
   const settings = useAppSettingsStore();
   const [hint, setHint] = useState("");
+  const durationOptions = useMemo(
+    () => supportedDurationOptions(props.providers),
+    [props.providers],
+  );
 
   useEffect(() => {
     if (!props.pricingVersion || props.pricingVersion === settings.pricingVersion) {
@@ -30,6 +34,16 @@ export function SettingsPage(props: Props) {
       settings.setSettings({ defaultProvider: "" });
     }
   }, [props.providers, settings.defaultProvider, settings.setSettings]);
+
+  useEffect(() => {
+    if (!durationOptions.length) {
+      return;
+    }
+    if (durationOptions.includes(settings.defaultDurationSec)) {
+      return;
+    }
+    settings.setSettings({ defaultDurationSec: durationOptions[0] });
+  }, [durationOptions, settings.defaultDurationSec, settings.setSettings]);
 
   return (
     <section className="panel settings-page">
@@ -98,15 +112,18 @@ export function SettingsPage(props: Props) {
         </label>
         <label>
           {t("settings.defaultDuration")}
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={settings.defaultDurationSec}
+          <select
+            value={String(settings.defaultDurationSec)}
             onChange={(event) =>
               settings.setSettings({ defaultDurationSec: Number(event.target.value) || 8 })
             }
-          />
+          >
+            {durationOptions.map((seconds) => (
+              <option key={seconds} value={String(seconds)}>
+                {seconds}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           {t("settings.defaultQuality")}

@@ -15,9 +15,11 @@ import type {
   VideoGenerationRequest,
 } from "../types";
 import {
+  durationOptionsFromField,
   fieldKey,
   fieldStorageKey,
   findField,
+  isDurationField,
   isFieldEmpty,
   parseFieldValue,
   restoreSession,
@@ -624,6 +626,23 @@ function DynamicInput(props: {
   onFileChange: (files: File[]) => void;
 }) {
   const { field, value, onValueChange, onFileChange } = props;
+  const durationOptions = isDurationField(field) ? durationOptionsFromField(field) : [];
+
+  if (durationOptions.length) {
+    return (
+      <select
+        value={value}
+        required={field.required}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {durationOptions.map((seconds) => (
+          <option key={seconds} value={String(seconds)}>
+            {seconds}
+          </option>
+        ))}
+      </select>
+    );
+  }
 
   if (field.input_type === "textarea" || field.input_type === "json" || field.input_type === "string_list") {
     return (

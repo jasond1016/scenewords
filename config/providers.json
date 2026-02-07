@@ -42,7 +42,8 @@
         {
           "name": "sora2",
           "display_name": "Sora 2",
-          "default": true
+          "default": true,
+          "duration_options": [10, 15]
         }
       ]
     },
@@ -61,7 +62,8 @@
         {
           "name": "veo3.1",
           "display_name": "Veo 3.1",
-          "default": true
+          "default": true,
+          "duration_options": [8]
         }
       ]
     },
