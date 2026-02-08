@@ -207,6 +207,42 @@ export function extractVideoUrl(task: VideoTaskDetail): string | null {
   return null;
 }
 
+export function extractImageUrls(task: VideoTaskDetail): string[] {
+  const result = task.result;
+  if (!result || typeof result !== "object") {
+    return [];
+  }
+  const urls: string[] = [];
+
+  const pushUrl = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) {
+      urls.push(value.trim());
+    }
+  };
+
+  const direct = (result as Record<string, unknown>).image_urls;
+  if (Array.isArray(direct)) {
+    for (const item of direct) {
+      pushUrl(item);
+    }
+  }
+
+  const images = (result as Record<string, unknown>).images;
+  if (Array.isArray(images)) {
+    for (const item of images) {
+      if (item && typeof item === "object") {
+        pushUrl((item as Record<string, unknown>).url);
+      }
+    }
+  }
+
+  if (!urls.length) {
+    pushUrl((result as Record<string, unknown>).url);
+    pushUrl((result as Record<string, unknown>).download_url);
+  }
+  return Array.from(new Set(urls));
+}
+
 export function findField(
   operation: ProviderModelOperationInfo | null,
   key: string,

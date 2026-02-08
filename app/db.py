@@ -23,6 +23,7 @@ class TaskStore:
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     status TEXT NOT NULL,
+                    asset_type TEXT NOT NULL,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     operation TEXT,
@@ -64,6 +65,7 @@ class TaskStore:
         operation: str | None,
         prompt: str,
         request_payload: dict[str, Any],
+        asset_type: str = "video",
         estimated_cost: float | None = None,
         currency: str | None = None,
         cost_source: str | None = None,
@@ -73,13 +75,14 @@ class TaskStore:
             self._connection.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, status, provider, model, operation, prompt, request_json,
+                    task_id, status, asset_type, provider, model, operation, prompt, request_json,
                     estimated_cost, currency, cost_source, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
                     "queued",
+                    asset_type,
                     provider,
                     model,
                     operation,
@@ -165,22 +168,45 @@ class TaskStore:
             )
             self._connection.commit()
 
-    def list_tasks(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_tasks(self, limit: int = 20, asset_type: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self._connection.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if asset_type:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE COALESCE(asset_type, 'video') = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (asset_type, limit),
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [_row_to_dict(row) for row in rows]
 
-    def list_active_tasks(self) -> list[dict[str, Any]]:
+    def list_active_tasks(self, asset_type: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self._connection.execute(
-                """
-                SELECT * FROM tasks
-                WHERE status IN ('queued', 'running')
-                ORDER BY created_at ASC
-                """
-            ).fetchall()
+            if asset_type:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE status IN ('queued', 'running')
+                      AND COALESCE(asset_type, 'video') = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (asset_type,),
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE status IN ('queued', 'running')
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
         return [_row_to_dict(row) for row in rows]
 
     def create_file(
@@ -246,6 +272,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "task_id": row["task_id"],
         "status": row["status"],
+        "asset_type": row["asset_type"] if "asset_type" in row.keys() and row["asset_type"] else "video",
         "provider": row["provider"],
         "model": row["model"],
         "operation": row["operation"] if "operation" in row.keys() else None,
@@ -298,6 +325,7 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
         for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
     }
     expected_columns: dict[str, str] = {
+        "asset_type": "TEXT",
         "operation": "TEXT",
         "estimated_cost": "REAL",
         "actual_cost": "REAL",
@@ -308,3 +336,6 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
         if column in existing:
             continue
         connection.execute(f"ALTER TABLE tasks ADD COLUMN {column} {definition}")
+    connection.execute(
+        "UPDATE tasks SET asset_type = 'video' WHERE asset_type IS NULL OR asset_type = ''"
+    )

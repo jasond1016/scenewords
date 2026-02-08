@@ -96,3 +96,26 @@ def test_tuzi_sora_create_character_exposes_character_model_options() -> None:
         "sora-2-character",
         "sora-2-pro-character",
     ]
+
+
+def test_tuzi_image_operations_include_generate_edit_and_async() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_image",
+        model_name="gemini-3-pro-image-preview",
+    )
+
+    operations = build_model_operations(provider, "gemini-3-pro-image-preview")
+    operation_ids = [item.id for item in operations]
+
+    assert operation_ids == ["generate", "edit", "generate_async"]
+
+    edit = next(item for item in operations if item.id == "edit")
+    image_file_field = next(field for field in edit.fields if field.key == "image_file_ids")
+    mask_field = next(field for field in edit.fields if field.key == "mask_file_id")
+    assert image_file_field.input_type == "file_list"
+    assert image_file_field.required is True
+    assert mask_field.input_type == "file"
+
+    generate = next(item for item in operations if item.id == "generate")
+    format_field = next(field for field in generate.fields if field.key == "response_format")
+    assert [option.value for option in format_field.options] == ["url", "b64_json"]

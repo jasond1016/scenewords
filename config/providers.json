@@ -27,6 +27,58 @@
       ]
     },
     {
+      "id": "nano_banana2",
+      "display_name": "Nano Banana 2 (Tuzi)",
+      "type": "tuzi_image",
+      "enabled": true,
+      "base_url": "https://api.tu-zi.com",
+      "api_path": "/v1/images/generations",
+      "generate_path": "/v1/images/generations",
+      "edit_path": "/v1/images/edits",
+      "async_path": "/v1/videos",
+      "query_path": "/v1/videos/{task_id}",
+      "auth_env": "TUZI_API_KEY",
+      "default_timeout_sec": 1200,
+      "default_poll_interval_sec": 8,
+      "models": [
+        {
+          "name": "gemini-3-pro-image-preview",
+          "display_name": "Nano Banana 2 (1K)",
+          "default": true
+        },
+        {
+          "name": "gemini-3-pro-image-preview-hd",
+          "display_name": "Nano Banana 2 HD",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-2k",
+          "display_name": "Nano Banana 2 2K",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-4k",
+          "display_name": "Nano Banana 2 4K",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-async",
+          "display_name": "Nano Banana 2 Async",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-2k-async",
+          "display_name": "Nano Banana 2 2K Async",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-4k-async",
+          "display_name": "Nano Banana 2 4K Async",
+          "default": false
+        }
+      ]
+    },
+    {
       "id": "sora2",
       "display_name": "Sora 2 (Tuzi)",
       "type": "tuzi_sora",

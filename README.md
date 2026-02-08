@@ -1,24 +1,29 @@
 # 片语 / SceneWords
 
-SceneWords 是一个面向 iPad 的视频生成网关：通过统一 API 在本地模型与第三方模型之间切换并提交任务。
+SceneWords 是一个面向 iPad 的媒体生成网关：通过统一 API 在本地模型与第三方模型之间切换并提交视频/图片任务。
 
 ## 功能
 
 - 统一 API：
   - `POST /v1/video/generations`
   - `POST /v1/video/tasks/{task_id}/retry`
+  - `POST /v1/image/generations`
+  - `POST /v1/image/tasks/{task_id}/retry`
   - `POST /v1/files`
   - `GET /v1/files/{file_id}`
   - `GET /v1/video/tasks`
   - `GET /v1/video/tasks/{task_id}`
   - `GET /v1/video/tasks/{task_id}/result`
+  - `GET /v1/image/tasks`
+  - `GET /v1/image/tasks/{task_id}`
+  - `GET /v1/image/tasks/{task_id}/result`
   - `GET /v1/pricing`
   - `POST /v1/pricing/estimate`
   - `GET /v1/models`
   - 模型能力描述（`operations` 与字段定义）
 - 前端支持按 `Provider / Model / Operation` 动态切换参数（仅显示接口支持项）
 - 支持按请求覆盖 `base_url`、`api_path`、`model`
-- 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo / Tuzi）
+- 支持本地 `ComfyUI`（可注入 workflow）和第三方 API（OpenAI-compatible / Vertex Veo / Tuzi Video / Tuzi Image）
 - ComfyUI 支持后端默认 workflow 与请求级 workflow JSON
 - 可选网关 `Bearer Token` 鉴权
 
@@ -114,7 +119,7 @@ uv run --group dev pytest -q
 关键字段：
 
 - `id`: provider 唯一标识（前端选择值）
-- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible` / `tuzi_veo` / `tuzi_sora`
+- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible` / `tuzi_veo` / `tuzi_sora` / `tuzi_image`
 - `base_url`, `api_path`: 默认上游地址
 - `auth_env`: 默认 API Key 的环境变量名
 - `models`: 可选模型列表（前端可切换）

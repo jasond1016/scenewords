@@ -34,7 +34,27 @@ def _write_test_configs(
                                 "default": True,
                             }
                         ],
-                    }
+                    },
+                    {
+                        "id": "tuzi_image_demo",
+                        "display_name": "Tuzi Image Demo",
+                        "type": "tuzi_image",
+                        "enabled": True,
+                        "base_url": "https://example.com",
+                        "api_path": "/v1/images/generations",
+                        "generate_path": "/v1/images/generations",
+                        "edit_path": "/v1/images/edits",
+                        "async_path": "/v1/videos",
+                        "query_path": "/v1/videos/{task_id}",
+                        "auth_env": "DEMO_API_KEY",
+                        "models": [
+                            {
+                                "name": "gemini-3-pro-image-preview",
+                                "display_name": "Nano Banana 2",
+                                "default": True,
+                            }
+                        ],
+                    },
                 ]
             }
         ),
@@ -182,6 +202,26 @@ def _seed_task(client: TestClient) -> str:
     return task_id
 
 
+def _seed_image_task(client: TestClient) -> str:
+    task_id = str(uuid4())
+    client.app.state.store.create_task(
+        task_id=task_id,
+        provider="tuzi_image_demo",
+        model="gemini-3-pro-image-preview",
+        operation="generate",
+        prompt="test image prompt",
+        request_payload={
+            "provider": "tuzi_image_demo",
+            "model": "gemini-3-pro-image-preview",
+            "operation": "generate",
+            "prompt": "test image prompt",
+            "provider_options": {},
+        },
+        asset_type="image",
+    )
+    return task_id
+
+
 def test_delete_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_task(client)
@@ -203,3 +243,46 @@ def test_delete_in_progress_task_rejected(client_factory) -> None:
         delete_response = client.delete(f"/v1/video/tasks/{task_id}")
     assert delete_response.status_code == 409
     assert "cannot be deleted" in delete_response.json()["detail"]
+
+
+def test_image_generation_rejects_non_image_provider(client_factory) -> None:
+    with client_factory() as client:
+        response = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "test",
+                "provider_options": {},
+            },
+        )
+    assert response.status_code == 400
+    assert "not allowed for this route" in response.json()["detail"]
+
+
+def test_list_image_tasks_only_returns_image_asset_type(client_factory) -> None:
+    with client_factory() as client:
+        _seed_task(client)
+        image_task_id = _seed_image_task(client)
+        response = client.get("/v1/image/tasks?limit=20")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["task_id"] == image_task_id
+    assert payload[0]["asset_type"] == "image"
+
+
+def test_delete_image_history_task(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_image_task(client)
+        client.app.state.store.set_error(
+            task_id=task_id,
+            code="test_error",
+            message="seed failure",
+            raw_error={},
+        )
+        delete_response = client.delete(f"/v1/image/tasks/{task_id}")
+        list_response = client.get("/v1/image/tasks?limit=50")
+    assert delete_response.status_code == 204
+    assert all(task["task_id"] != task_id for task in list_response.json())

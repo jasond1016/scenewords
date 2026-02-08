@@ -357,7 +357,7 @@ export function CreatePage(props: Props) {
           payload.provider_options[field.key] = parsed;
         }
       }
-      return createVideoTask(payload, settings.gatewayToken);
+      return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
     onSuccess: async (response) => {
       setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
@@ -626,7 +626,11 @@ export function CreatePage(props: Props) {
             className="primary-button"
             disabled={submitMutation.isPending}
           >
-            {submitMutation.isPending ? t("create.submitting") : t("create.generateVideo")}
+            {submitMutation.isPending
+              ? t("create.submitting")
+              : selectedProvider?.type === "tuzi_image"
+                ? t("create.generateImage")
+                : t("create.generateVideo")}
           </button>
           <p className="hint">
             {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null

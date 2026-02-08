@@ -35,6 +35,12 @@ def build_model_operations(
             poll_default=poll_default,
             duration_options=model_duration_options,
         )
+    if provider_type == "tuzi_image":
+        return _tuzi_image_operations(
+            timeout_default=timeout_default,
+            poll_default=poll_default,
+            model_name=model_name,
+        )
     if provider_type == "comfyui":
         return _comfyui_operations(
             timeout_default=timeout_default,
@@ -209,6 +215,28 @@ def _duration_field(
         max_value=max_value,
         step=step,
         options=[_option(str(item), f"{item}s") for item in normalized],
+    )
+
+
+def _image_ratio_field(default_value: str = "16:9") -> ProviderOperationField:
+    return _field(
+        "resolution",
+        "画面比例",
+        input_type="select",
+        required=True,
+        default=default_value,
+        options=[
+            _option("1:1", "1:1"),
+            _option("2:3", "2:3"),
+            _option("3:2", "3:2"),
+            _option("3:4", "3:4"),
+            _option("4:3", "4:3"),
+            _option("4:5", "4:5"),
+            _option("5:4", "5:4"),
+            _option("9:16", "9:16"),
+            _option("16:9", "16:9"),
+            _option("21:9", "21:9"),
+        ],
     )
 
 
@@ -483,6 +511,190 @@ def _tuzi_veo_operations(
                 ),
             ],
         )
+    ]
+
+
+def _tuzi_image_operations(
+    *,
+    timeout_default: float,
+    poll_default: float,
+    model_name: str,
+) -> list[ProviderModelOperationInfo]:
+    default_operation = "generate_async" if model_name.lower().endswith("-async") else "generate"
+    return [
+        ProviderModelOperationInfo(
+            id="generate",
+            display_name="生成图片",
+            description="调用 Tuzi image/generations 同步生图",
+            is_default=default_operation == "generate",
+            fields=[
+                _field("prompt", "提示词", input_type="textarea", required=True),
+                _image_ratio_field(),
+                _field(
+                    "quality",
+                    "质量",
+                    target="provider_options",
+                    input_type="select",
+                    default="1k",
+                    options=[
+                        _option("1k", "1K"),
+                        _option("2k", "2K"),
+                        _option("4k", "4K"),
+                    ],
+                ),
+                _field(
+                    "image",
+                    "参考图 URL / Base64",
+                    target="provider_options",
+                    input_type="string_list",
+                    help_text="可选。支持 URL 或 base64，支持多条。",
+                ),
+                _field(
+                    "response_format",
+                    "返回格式",
+                    target="provider_options",
+                    input_type="select",
+                    default="url",
+                    options=[
+                        _option("url", "URL"),
+                        _option("b64_json", "Base64"),
+                    ],
+                ),
+                _field(
+                    "api_key",
+                    "API Key",
+                    target="provider_options",
+                    input_type="password",
+                    help_text="留空则使用服务端环境变量",
+                ),
+                _field(
+                    "submit_timeout_sec",
+                    "提交超时(s)",
+                    target="provider_options",
+                    input_type="number",
+                    default=timeout_default,
+                    min_value=10,
+                    step=1,
+                ),
+            ],
+        ),
+        ProviderModelOperationInfo(
+            id="edit",
+            display_name="编辑图片",
+            description="调用 Tuzi image/edits 同步编辑",
+            fields=[
+                _field("prompt", "提示词", input_type="textarea", required=True),
+                _image_ratio_field(),
+                _field(
+                    "quality",
+                    "质量",
+                    target="provider_options",
+                    input_type="select",
+                    default="1k",
+                    options=[
+                        _option("1k", "1K"),
+                        _option("2k", "2K"),
+                        _option("4k", "4K"),
+                    ],
+                ),
+                _field(
+                    "image_file_ids",
+                    "编辑图片",
+                    target="provider_options",
+                    input_type="file_list",
+                    required=True,
+                    help_text="可上传一张或多张待编辑图片",
+                ),
+                _field(
+                    "mask_file_id",
+                    "遮罩图",
+                    target="provider_options",
+                    input_type="file",
+                    help_text="可选。透明区域会被重绘",
+                ),
+                _field(
+                    "response_format",
+                    "返回格式",
+                    target="provider_options",
+                    input_type="select",
+                    default="url",
+                    options=[
+                        _option("url", "URL"),
+                        _option("b64_json", "Base64"),
+                    ],
+                ),
+                _field(
+                    "user",
+                    "终端用户标识",
+                    target="provider_options",
+                ),
+                _field(
+                    "api_key",
+                    "API Key",
+                    target="provider_options",
+                    input_type="password",
+                    help_text="留空则使用服务端环境变量",
+                ),
+                _field(
+                    "submit_timeout_sec",
+                    "提交超时(s)",
+                    target="provider_options",
+                    input_type="number",
+                    default=timeout_default,
+                    min_value=10,
+                    step=1,
+                ),
+            ],
+        ),
+        ProviderModelOperationInfo(
+            id="generate_async",
+            display_name="异步生图",
+            description="调用 Tuzi /v1/videos 异步生成图片任务",
+            is_default=default_operation == "generate_async",
+            fields=[
+                _field("prompt", "提示词", input_type="textarea", required=True),
+                _image_ratio_field(),
+                _field(
+                    "input_reference_file_ids",
+                    "参考图文件",
+                    target="provider_options",
+                    input_type="file_list",
+                    help_text="可选。支持多张参考图。",
+                ),
+                _field(
+                    "input_references",
+                    "参考图 URL",
+                    target="provider_options",
+                    input_type="string_list",
+                    help_text="可选。每行一个 URL。",
+                ),
+                _field(
+                    "api_key",
+                    "API Key",
+                    target="provider_options",
+                    input_type="password",
+                    help_text="留空则使用服务端环境变量",
+                ),
+                _field(
+                    "timeout_sec",
+                    "总超时(s)",
+                    target="provider_options",
+                    input_type="number",
+                    default=timeout_default,
+                    min_value=30,
+                    step=1,
+                ),
+                _field(
+                    "poll_interval_sec",
+                    "轮询间隔(s)",
+                    target="provider_options",
+                    input_type="number",
+                    default=poll_default,
+                    min_value=1,
+                    step=1,
+                ),
+            ],
+        ),
     ]
 
 

@@ -1,4 +1,5 @@
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
+export type AssetType = "video" | "image";
 
 export type RetryMode = "same_seed" | "new_seed";
 
@@ -77,6 +78,7 @@ export interface VideoGenerationRequest {
 export interface VideoTaskResponse {
   task_id: string;
   status: TaskStatus;
+  asset_type: AssetType;
   provider: string;
   model: string;
   queue_position: number | null;

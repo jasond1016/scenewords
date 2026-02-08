@@ -4,9 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { deleteVideoTask, retryVideoTask } from "../api";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
-import type { RetryMode, VideoTaskDetail } from "../types";
+import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
 import {
   errorMessage,
+  extractImageUrls,
   extractVideoUrl,
   formatTime,
 } from "../utils";
@@ -70,12 +71,18 @@ export function JobsPage(props: Props) {
   }, [playerTaskId]);
 
   const retryMutation = useMutation({
-    mutationFn: async (payload: { taskId: string; mode: RetryMode; prompt: string }) =>
+    mutationFn: async (payload: {
+      taskId: string;
+      mode: RetryMode;
+      prompt: string;
+      assetType: AssetType;
+    }) =>
       retryVideoTask(
         payload.taskId,
         payload.mode,
         payload.prompt.trim() || null,
         settings.gatewayToken,
+        payload.assetType,
       ),
     onSuccess: async (response) => {
       setHint(t("jobs.retryQueued", { taskId: response.task_id.slice(0, 8) }));
@@ -86,11 +93,12 @@ export function JobsPage(props: Props) {
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: async (taskId: string) => deleteVideoTask(taskId, settings.gatewayToken),
-    onSuccess: async (_data, taskId) => {
-      setHint(t("jobs.deleteSuccess", { taskId: taskId.slice(0, 8) }));
-      setSelectedTaskId((current) => (current === taskId ? null : current));
-      setPlayerTaskId((current) => (current === taskId ? null : current));
+    mutationFn: async (payload: { taskId: string; assetType: AssetType }) =>
+      deleteVideoTask(payload.taskId, settings.gatewayToken, payload.assetType),
+    onSuccess: async (_data, payload) => {
+      setHint(t("jobs.deleteSuccess", { taskId: payload.taskId.slice(0, 8) }));
+      setSelectedTaskId((current) => (current === payload.taskId ? null : current));
+      setPlayerTaskId((current) => (current === payload.taskId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
     onError: (error: Error) => {
@@ -148,6 +156,7 @@ export function JobsPage(props: Props) {
 
   const playerTask = tasks.find((task) => task.task_id === playerTaskId) ?? null;
   const playerUrl = playerTask ? extractVideoUrl(playerTask) : null;
+  const selectedTaskImageUrls = selectedTask ? extractImageUrls(selectedTask) : [];
   const mapErrorCode = (code: string): string | null => {
     const key = `error.${code}`;
     const translated = t(key);
@@ -355,7 +364,10 @@ export function JobsPage(props: Props) {
                       if (!confirmed) {
                         return;
                       }
-                      deleteMutation.mutate(selectedTask.task_id);
+                      deleteMutation.mutate({
+                        taskId: selectedTask.task_id,
+                        assetType: selectedTask.asset_type,
+                      });
                     }}
                     disabled={deleteMutation.isPending}
                   >
@@ -371,6 +383,7 @@ export function JobsPage(props: Props) {
                           taskId: selectedTask.task_id,
                           mode: "same_seed",
                           prompt: retryPrompt,
+                          assetType: selectedTask.asset_type,
                         })
                       }
                       disabled={retryMutation.isPending}
@@ -384,6 +397,7 @@ export function JobsPage(props: Props) {
                           taskId: selectedTask.task_id,
                           mode: "new_seed",
                           prompt: retryPrompt,
+                          assetType: selectedTask.asset_type,
                         })
                       }
                       disabled={retryMutation.isPending}
@@ -399,6 +413,7 @@ export function JobsPage(props: Props) {
                         taskId: selectedTask.task_id,
                         mode: settings.retryModeDefault,
                         prompt: retryPrompt,
+                        assetType: selectedTask.asset_type,
                       })
                     }
                     disabled={retryMutation.isPending}
@@ -411,12 +426,19 @@ export function JobsPage(props: Props) {
                     })}
                   </button>
                 )}
-                {extractVideoUrl(selectedTask) ? (
+                {selectedTask.asset_type === "video" && extractVideoUrl(selectedTask) ? (
                   <button type="button" onClick={() => setPlayerTaskId(selectedTask.task_id)}>
                     {t("jobs.fullscreenPlay")}
                   </button>
                 ) : null}
               </div>
+              {selectedTask.asset_type === "image" && selectedTaskImageUrls.length ? (
+                <div className="image-preview-grid">
+                  {selectedTaskImageUrls.map((url) => (
+                    <img key={url} className="image-preview-item" src={url} alt={selectedTask.task_id} />
+                  ))}
+                </div>
+              ) : null}
               {errorMessage(selectedTask, {
                 mapErrorCode,
                 fallbackMessage: t("error.defaultFailure"),

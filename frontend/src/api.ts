@@ -1,4 +1,5 @@
 import type {
+  AssetType,
   PricingCatalogResponse,
   PricingEstimateRequest,
   PricingEstimateResponse,
@@ -57,9 +58,11 @@ export function fetchCatalog(token: string): Promise<ProviderCatalogResponse> {
 export function createVideoTask(
   payload: VideoGenerationRequest,
   token: string,
+  providerType?: string,
 ): Promise<VideoTaskResponse> {
+  const assetType = resolveAssetType(providerType);
   return request<VideoTaskResponse>(
-    "/v1/video/generations",
+    generationPath(assetType),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -74,9 +77,10 @@ export function retryVideoTask(
   retryMode: RetryMode,
   prompt: string | null,
   token: string,
+  assetType: AssetType = "video",
 ): Promise<VideoTaskResponse> {
   return request<VideoTaskResponse>(
-    `/v1/video/tasks/${encodeURIComponent(taskId)}/retry`,
+    retryPath(taskId, assetType),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,16 +94,35 @@ export function retryVideoTask(
 }
 
 export function fetchTasks(limit: number, token: string): Promise<VideoTaskDetail[]> {
-  return request<VideoTaskDetail[]>(
-    `/v1/video/tasks?limit=${encodeURIComponent(String(limit))}`,
-    {},
-    token,
+  return Promise.all([
+    request<VideoTaskDetail[]>(
+      `/v1/video/tasks?limit=${encodeURIComponent(String(limit))}`,
+      {},
+      token,
+    ),
+    request<VideoTaskDetail[]>(
+      `/v1/image/tasks?limit=${encodeURIComponent(String(limit))}`,
+      {},
+      token,
+    ),
+  ]).then(([videoTasks, imageTasks]) =>
+    [...videoTasks, ...imageTasks].sort((left, right) => {
+      const leftTs = Date.parse(left.created_at);
+      const rightTs = Date.parse(right.created_at);
+      const safeLeft = Number.isFinite(leftTs) ? leftTs : 0;
+      const safeRight = Number.isFinite(rightTs) ? rightTs : 0;
+      return safeRight - safeLeft;
+    }),
   );
 }
 
-export function deleteVideoTask(taskId: string, token: string): Promise<void> {
+export function deleteVideoTask(
+  taskId: string,
+  token: string,
+  assetType: AssetType = "video",
+): Promise<void> {
   return request<void>(
-    `/v1/video/tasks/${encodeURIComponent(taskId)}`,
+    deletePath(taskId, assetType),
     {
       method: "DELETE",
     },
@@ -137,4 +160,25 @@ export async function uploadFile(file: File, token: string): Promise<UploadedFil
     },
     token,
   );
+}
+
+function resolveAssetType(providerType?: string): AssetType {
+  if (providerType?.toLowerCase() === "tuzi_image") {
+    return "image";
+  }
+  return "video";
+}
+
+function generationPath(assetType: AssetType): string {
+  return assetType === "image" ? "/v1/image/generations" : "/v1/video/generations";
+}
+
+function retryPath(taskId: string, assetType: AssetType): string {
+  const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
+  return `${root}/${encodeURIComponent(taskId)}/retry`;
+}
+
+function deletePath(taskId: string, assetType: AssetType): string {
+  const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
+  return `${root}/${encodeURIComponent(taskId)}`;
 }

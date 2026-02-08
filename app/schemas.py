@@ -22,6 +22,7 @@ class VideoGenerationRequest(BaseModel):
 class VideoTaskResponse(BaseModel):
     task_id: str
     status: str
+    asset_type: Literal["video", "image"] = "video"
     provider: str
     model: str
     queue_position: int | None = None

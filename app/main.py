@@ -149,8 +149,8 @@ def create_app() -> FastAPI:
             )
         return ProviderCatalogResponse(providers=providers)
 
-    def _build_queue_position_map() -> dict[str, int]:
-        active_tasks = app.state.store.list_active_tasks()
+    def _build_queue_position_map(asset_type: str | None = None) -> dict[str, int]:
+        active_tasks = app.state.store.list_active_tasks(asset_type=asset_type)
         running_tasks = [task for task in active_tasks if task["status"] == "running"]
         queued_tasks = [task for task in active_tasks if task["status"] == "queued"]
 
@@ -163,6 +163,8 @@ def create_app() -> FastAPI:
 
     def _validate_generation_payload(
         payload: VideoGenerationRequest,
+        *,
+        allowed_provider_types: set[str] | None = None,
     ) -> tuple[ProviderConfig, ProviderModelOperationInfo]:
         provider_configs: dict[str, ProviderConfig] = app.state.provider_configs
         if payload.provider not in provider_configs:
@@ -176,6 +178,18 @@ def create_app() -> FastAPI:
                 detail=f"Provider disabled: {payload.provider}",
             )
         provider_config = provider_configs[payload.provider]
+        if (
+            allowed_provider_types
+            and provider_config.provider_type not in allowed_provider_types
+        ):
+            accepted = ", ".join(sorted(allowed_provider_types))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Provider type {provider_config.provider_type} is not allowed for this route. "
+                    f"Allowed: {accepted}"
+                ),
+            )
         model_config = next(
             (model for model in provider_config.models if model.name == payload.model),
             None,
@@ -220,8 +234,16 @@ def create_app() -> FastAPI:
             quality=quality_text,
         )
 
-    async def _enqueue_video_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
-        _, operation = _validate_generation_payload(payload)
+    async def _enqueue_task(
+        payload: VideoGenerationRequest,
+        *,
+        asset_type: str,
+        allowed_provider_types: set[str] | None = None,
+    ) -> VideoTaskResponse:
+        _, operation = _validate_generation_payload(
+            payload,
+            allowed_provider_types=allowed_provider_types,
+        )
         _resolve_uploaded_files(
             request_payload=payload,
             operation=operation,
@@ -238,12 +260,26 @@ def create_app() -> FastAPI:
             operation=payload.operation,
             prompt=prompt_text,
             request_payload=payload.model_dump(mode="json"),
+            asset_type=asset_type,
             estimated_cost=estimated_cost,
             currency=currency,
             cost_source=cost_source,
         )
         await app.state.worker.submit(task_id)
-        return _to_task_response(task, queue_map=_build_queue_position_map())
+        return _to_task_response(
+            task,
+            queue_map=_build_queue_position_map(asset_type=asset_type),
+        )
+
+    async def _enqueue_video_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
+        return await _enqueue_task(payload, asset_type="video")
+
+    async def _enqueue_image_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
+        return await _enqueue_task(
+            payload,
+            asset_type="image",
+            allowed_provider_types={"tuzi_image"},
+        )
 
     @app.post("/v1/video/generations", response_model=VideoTaskResponse)
     async def create_video_task(
@@ -261,6 +297,8 @@ def create_app() -> FastAPI:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "video":
+            raise HTTPException(status_code=404, detail="Task not found")
 
         source_request = VideoGenerationRequest.model_validate(task["request"])
         source_request.provider_options = _strip_internal_provider_options(
@@ -282,6 +320,8 @@ def create_app() -> FastAPI:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "video":
+            raise HTTPException(status_code=404, detail="Task not found")
         if task["status"] in {"queued", "running"}:
             raise HTTPException(
                 status_code=409,
@@ -296,8 +336,8 @@ def create_app() -> FastAPI:
     ) -> list[VideoTaskDetail]:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
-        tasks = app.state.store.list_tasks(limit=bounded_limit)
-        queue_map = _build_queue_position_map()
+        tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="video")
+        queue_map = _build_queue_position_map(asset_type="video")
         return [_to_task_detail(task, queue_map=queue_map) for task in tasks]
 
     @app.get("/v1/video/tasks/{task_id}", response_model=VideoTaskDetail)
@@ -308,7 +348,9 @@ def create_app() -> FastAPI:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
-        return _to_task_detail(task, queue_map=_build_queue_position_map())
+        if task.get("asset_type", "video") != "video":
+            raise HTTPException(status_code=404, detail="Task not found")
+        return _to_task_detail(task, queue_map=_build_queue_position_map(asset_type="video"))
 
     @app.get("/v1/pricing", response_model=PricingCatalogResponse)
     async def get_pricing(_: None = Depends(require_auth)) -> PricingCatalogResponse:
@@ -364,6 +406,97 @@ def create_app() -> FastAPI:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "video":
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        if task["status"] != "succeeded":
+            raise HTTPException(
+                status_code=409,
+                detail={"status": task["status"], "error": task["error"]},
+            )
+        return {"task_id": task_id, "result": task["result"]}
+
+    @app.post("/v1/image/generations", response_model=VideoTaskResponse)
+    async def create_image_task(
+        payload: VideoGenerationRequest, _: None = Depends(require_auth)
+    ) -> VideoTaskResponse:
+        return await _enqueue_image_task(payload)
+
+    @app.post("/v1/image/tasks/{task_id}/retry", response_model=VideoTaskResponse)
+    async def retry_image_task(
+        task_id: str,
+        retry_payload: RetryTaskRequest,
+        _: None = Depends(require_auth),
+    ) -> VideoTaskResponse:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "image":
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        source_request = VideoGenerationRequest.model_validate(task["request"])
+        source_request.provider_options = _strip_internal_provider_options(
+            source_request.provider_options
+        )
+        if retry_payload.prompt is not None:
+            source_request.prompt = retry_payload.prompt
+        if retry_payload.retry_mode == "new_seed":
+            source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        return await _enqueue_image_task(source_request)
+
+    @app.delete(
+        "/v1/image/tasks/{task_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def delete_image_task(task_id: str, _: None = Depends(require_auth)) -> Response:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "image":
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task["status"] in {"queued", "running"}:
+            raise HTTPException(
+                status_code=409,
+                detail="In-progress tasks cannot be deleted",
+            )
+        app.state.store.delete_task(task_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.get("/v1/image/tasks", response_model=list[VideoTaskDetail])
+    async def list_image_tasks(
+        limit: int = 20, _: None = Depends(require_auth)
+    ) -> list[VideoTaskDetail]:
+        max_limit = app.state.config.max_recent_tasks
+        bounded_limit = min(max(limit, 1), max_limit)
+        tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="image")
+        queue_map = _build_queue_position_map(asset_type="image")
+        return [_to_task_detail(task, queue_map=queue_map) for task in tasks]
+
+    @app.get("/v1/image/tasks/{task_id}", response_model=VideoTaskDetail)
+    async def get_image_task(
+        task_id: str, _: None = Depends(require_auth)
+    ) -> VideoTaskDetail:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "image":
+            raise HTTPException(status_code=404, detail="Task not found")
+        return _to_task_detail(task, queue_map=_build_queue_position_map(asset_type="image"))
+
+    @app.get("/v1/image/tasks/{task_id}/result")
+    async def get_image_result(
+        task_id: str, _: None = Depends(require_auth)
+    ) -> dict[str, Any]:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "image":
+            raise HTTPException(status_code=404, detail="Task not found")
 
         if task["status"] != "succeeded":
             raise HTTPException(
@@ -578,6 +711,7 @@ def _to_task_response(
     return VideoTaskResponse(
         task_id=task["task_id"],
         status=task["status"],
+        asset_type=task.get("asset_type", "video"),
         provider=task["provider"],
         model=task["model"],
         queue_position=queue_position,
@@ -608,6 +742,7 @@ def _to_task_detail(
     return VideoTaskDetail(
         task_id=task["task_id"],
         status=task["status"],
+        asset_type=task.get("asset_type", "video"),
         provider=task["provider"],
         model=task["model"],
         operation=task.get("operation") or request_payload.get("operation"),
