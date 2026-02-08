@@ -630,12 +630,18 @@ def _extract_images(payload: Any) -> list[dict[str, str]]:
 
 
 def _normalize_operation(request: VideoGenerationRequest) -> str:
+    model_name = (_string_or_none(request.model) or "").lower()
     if isinstance(request.operation, str) and request.operation.strip():
-        return request.operation.strip().lower()
+        explicit_operation = request.operation.strip().lower()
+        if explicit_operation == "generate" and model_name.endswith("-async"):
+            return "generate_async"
+        return explicit_operation
     explicit = request.provider_options.get("operation")
     if isinstance(explicit, str) and explicit.strip():
-        return explicit.strip().lower()
-    model_name = _string_or_none(request.model) or ""
+        explicit_operation = explicit.strip().lower()
+        if explicit_operation == "generate" and model_name.endswith("-async"):
+            return "generate_async"
+        return explicit_operation
     if model_name.lower().endswith("-async"):
         return "generate_async"
     return "generate"

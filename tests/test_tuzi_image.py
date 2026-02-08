@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from app.providers.base import ProviderError
-from app.providers.tuzi_image import _build_edit_form, _build_generate_payload, _extract_images
+from app.providers.tuzi_image import (
+    _build_edit_form,
+    _build_generate_payload,
+    _extract_images,
+    _normalize_operation,
+)
 from app.schemas import VideoGenerationRequest
 
 
@@ -95,3 +100,14 @@ def test_extract_images_handles_nested_payload() -> None:
     assert {"url": "https://example.com/a.png"} in images
     assert {"url": "https://example.com/b.png"} in images
     assert {"b64_json": "ZmFrZQ=="} in images
+
+
+def test_async_model_maps_generate_operation_to_generate_async() -> None:
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model="gemini-3-pro-image-preview-2k-async",
+        operation="generate",
+        prompt="test prompt",
+        provider_options={},
+    )
+    assert _normalize_operation(request) == "generate_async"

@@ -42,9 +42,24 @@
       "default_poll_interval_sec": 8,
       "models": [
         {
+          "name": "gemini-3-pro-image-preview-async",
+          "display_name": "Nano Banana 2 Async",
+          "default": true
+        },
+        {
+          "name": "gemini-3-pro-image-preview-2k-async",
+          "display_name": "Nano Banana 2 2K Async",
+          "default": false
+        },
+        {
+          "name": "gemini-3-pro-image-preview-4k-async",
+          "display_name": "Nano Banana 2 4K Async",
+          "default": false
+        },
+        {
           "name": "gemini-3-pro-image-preview",
           "display_name": "Nano Banana 2 (1K)",
-          "default": true
+          "default": false
         },
         {
           "name": "gemini-3-pro-image-preview-hd",

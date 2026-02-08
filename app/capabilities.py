@@ -38,6 +38,8 @@ def build_model_operations(
     if provider_type == "tuzi_image":
         return _tuzi_image_operations(
             timeout_default=timeout_default,
+            poll_default=poll_default,
+            model_name=model_name,
         )
     if provider_type == "comfyui":
         return _comfyui_operations(
@@ -515,7 +517,61 @@ def _tuzi_veo_operations(
 def _tuzi_image_operations(
     *,
     timeout_default: float,
+    poll_default: float,
+    model_name: str,
 ) -> list[ProviderModelOperationInfo]:
+    if _is_tuzi_image_async_model(model_name):
+        return [
+            ProviderModelOperationInfo(
+                id="generate",
+                display_name="生成图片",
+                description="调用 Tuzi /v1/videos 异步生成图片任务",
+                is_default=True,
+                fields=[
+                    _field("prompt", "提示词", input_type="textarea", required=True),
+                    _image_ratio_field(),
+                    _field(
+                        "input_reference_file_ids",
+                        "参考图文件",
+                        target="provider_options",
+                        input_type="file_list",
+                        help_text="可选。支持多张参考图。",
+                    ),
+                    _field(
+                        "input_references",
+                        "参考图 URL",
+                        target="provider_options",
+                        input_type="string_list",
+                        help_text="可选。每行一个 URL。",
+                    ),
+                    _field(
+                        "api_key",
+                        "API Key",
+                        target="provider_options",
+                        input_type="password",
+                        help_text="留空则使用服务端环境变量",
+                    ),
+                    _field(
+                        "timeout_sec",
+                        "总超时(s)",
+                        target="provider_options",
+                        input_type="number",
+                        default=timeout_default,
+                        min_value=30,
+                        step=1,
+                    ),
+                    _field(
+                        "poll_interval_sec",
+                        "轮询间隔(s)",
+                        target="provider_options",
+                        input_type="number",
+                        default=poll_default,
+                        min_value=1,
+                        step=1,
+                    ),
+                ],
+            ),
+        ]
     return [
         ProviderModelOperationInfo(
             id="generate",
@@ -642,6 +698,10 @@ def _tuzi_image_operations(
             ],
         ),
     ]
+
+
+def _is_tuzi_image_async_model(model_name: str) -> bool:
+    return model_name.lower().endswith("-async")
 
 
 def _comfyui_operations(

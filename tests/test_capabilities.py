@@ -98,7 +98,7 @@ def test_tuzi_sora_create_character_exposes_character_model_options() -> None:
     ]
 
 
-def test_tuzi_image_operations_include_generate_and_edit() -> None:
+def test_tuzi_image_operations_include_generate_and_edit_for_sync_model() -> None:
     provider = _build_provider_config(
         provider_type="tuzi_image",
         model_name="gemini-3-pro-image-preview",
@@ -119,3 +119,24 @@ def test_tuzi_image_operations_include_generate_and_edit() -> None:
     generate = next(item for item in operations if item.id == "generate")
     format_field = next(field for field in generate.fields if field.key == "response_format")
     assert [option.value for option in format_field.options] == ["url", "b64_json"]
+
+
+def test_tuzi_image_async_model_exposes_async_generate_fields_only() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_image",
+        model_name="gemini-3-pro-image-preview-async",
+    )
+
+    operations = build_model_operations(provider, "gemini-3-pro-image-preview-async")
+    operation_ids = [item.id for item in operations]
+
+    assert operation_ids == ["generate"]
+    generate = operations[0]
+    field_keys = {field.key for field in generate.fields}
+    assert "prompt" in field_keys
+    assert "resolution" in field_keys
+    assert "input_reference_file_ids" in field_keys
+    assert "input_references" in field_keys
+    assert "timeout_sec" in field_keys
+    assert "poll_interval_sec" in field_keys
+    assert "response_format" not in field_keys
