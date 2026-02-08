@@ -221,8 +221,8 @@ button:disabled {
 }
 
 .create-panel {
-  width: min(100%, 1320px);
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
 }
 
 .create-flow {
@@ -451,9 +451,9 @@ button:disabled {
   gap: 10px;
 }
 
-@media (min-width: 1360px) {
+@media (min-width: 1200px) {
   .create-flow {
-    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
     grid-template-areas:
       "composer support"
       "advanced advanced";
@@ -472,6 +472,12 @@ button:disabled {
 
   .advanced-drawer {
     grid-area: advanced;
+  }
+}
+
+@media (min-width: 1600px) {
+  .create-flow {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   }
 }
 
