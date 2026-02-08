@@ -62,11 +62,6 @@
           "default": false
         },
         {
-          "name": "gemini-3-pro-image-preview-hd",
-          "display_name": "Nano Banana 2 HD",
-          "default": false
-        },
-        {
           "name": "gemini-3-pro-image-preview-2k",
           "display_name": "Nano Banana 2 2K",
           "default": false

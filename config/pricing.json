@@ -64,6 +64,48 @@
       "effective_from": "2026-02-07"
     },
     {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview-async",
+      "fixed_cost": 0.042,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview-2k-async",
+      "fixed_cost": 0.112,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview-4k-async",
+      "fixed_cost": 0.14,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview",
+      "fixed_cost": 0.196,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview-2k",
+      "fixed_cost": 0.21,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gemini-3-pro-image-preview-4k",
+      "fixed_cost": 0.21,
+      "currency": "RMB",
+      "effective_from": "2026-02-07"
+    },
+    {
       "provider": "veo31",
       "model": "veo3.1",
       "quality": "standard",
