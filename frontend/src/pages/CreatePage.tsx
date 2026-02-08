@@ -55,6 +55,11 @@ interface RecentPromptEntry {
   pinned: boolean;
 }
 
+interface AdvancedGroup {
+  id: "prompt" | "inputs" | "behavior" | "runtime" | "developer" | "misc";
+  fields: ProviderOperationField[];
+}
+
 export function CreatePage(props: Props) {
   const { catalog, loading } = props;
   const { t } = useI18n();
@@ -170,6 +175,10 @@ export function CreatePage(props: Props) {
     }
     return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
   }, [durationField, promptField, qualityField, quickMediaFields, resolutionField, selectedOperation]);
+  const advancedGroups = useMemo(
+    () => groupAdvancedFields(advancedFields),
+    [advancedFields],
+  );
   const recentPrompts = useMemo(
     () =>
       listRecentPrompts({
@@ -1041,13 +1050,28 @@ export function CreatePage(props: Props) {
               </section>
             ) : null}
 
-            {advancedFields.length ? (
-              <div className="dynamic-grid">
-                {advancedFields.map((field) =>
-                  renderField(field, values, onFieldChanged, setFiles),
-                )}
-              </div>
-            ) : null}
+            {advancedGroups.length
+              ? (
+                  <section className="advanced-groups">
+                    {advancedGroups.map((group, index) => (
+                      <details
+                        key={group.id}
+                        className="advanced-group"
+                        open={index === 0}
+                      >
+                        <summary>
+                          {t(`create.advancedGroup.${group.id}`)} ({group.fields.length})
+                        </summary>
+                        <div className="dynamic-grid">
+                          {group.fields.map((field) =>
+                            renderField(field, values, onFieldChanged, setFiles),
+                          )}
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                )
+              : null}
           </div>
         </details>
       </form>
@@ -1424,6 +1448,87 @@ function parseStringValue(
   const raw = values[fieldKey(field)] ?? "";
   const trimmed = raw.trim();
   return trimmed || null;
+}
+
+function groupAdvancedFields(fields: ProviderOperationField[]): AdvancedGroup[] {
+  const groups: AdvancedGroup[] = [
+    { id: "inputs", fields: [] },
+    { id: "prompt", fields: [] },
+    { id: "behavior", fields: [] },
+    { id: "runtime", fields: [] },
+    { id: "developer", fields: [] },
+    { id: "misc", fields: [] },
+  ];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+
+  for (const field of fields) {
+    const key = field.key.toLowerCase();
+    let id: AdvancedGroup["id"] = "misc";
+    if (isRuntimeKey(key, field)) {
+      id = "runtime";
+    } else if (isInputKey(key, field)) {
+      id = "inputs";
+    } else if (isDeveloperKey(key, field)) {
+      id = "developer";
+    } else if (isPromptControlKey(key)) {
+      id = "prompt";
+    } else if (isBehaviorKey(key, field)) {
+      id = "behavior";
+    }
+    byId.get(id)?.fields.push(field);
+  }
+
+  return groups.filter((group) => group.fields.length > 0);
+}
+
+function isRuntimeKey(key: string, field: ProviderOperationField): boolean {
+  if (field.input_type === "password") {
+    return true;
+  }
+  return (
+    key.includes("timeout") ||
+    key.includes("poll_interval") ||
+    key === "api_key"
+  );
+}
+
+function isInputKey(key: string, field: ProviderOperationField): boolean {
+  if (field.input_type === "file" || field.input_type === "file_list") {
+    return true;
+  }
+  return (
+    key.includes("reference") ||
+    key.includes("image") ||
+    key.includes("frame") ||
+    key.includes("mask") ||
+    key.includes("source_video")
+  );
+}
+
+function isDeveloperKey(key: string, field: ProviderOperationField): boolean {
+  if (field.input_type === "json") {
+    return true;
+  }
+  return (
+    key.includes("workflow") ||
+    key.includes("node_id") ||
+    key.includes("input_key")
+  );
+}
+
+function isPromptControlKey(key: string): boolean {
+  return key.includes("negative_prompt") || key === "seed";
+}
+
+function isBehaviorKey(key: string, field: ProviderOperationField): boolean {
+  return (
+    key.includes("character") ||
+    key === "watermark" ||
+    key === "response_format" ||
+    key === "user" ||
+    key === "fps" ||
+    field.input_type === "boolean"
+  );
 }
 
 function appendRecentPrompt(input: {

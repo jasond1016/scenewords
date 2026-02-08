@@ -477,6 +477,27 @@ button:disabled {
   gap: 10px;
 }
 
+.advanced-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.advanced-group {
+  border: 1px solid #dee4f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.advanced-group summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.advanced-group[open] summary {
+  margin-bottom: 8px;
+}
+
 @media (min-width: 1440px) {
   .create-flow {
     grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
