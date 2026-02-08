@@ -414,6 +414,16 @@ export function JobsPage(props: Props) {
             const thumb = imageUrls[0] ?? null;
             const videoUrl = task.asset_type === "video" ? extractVideoUrl(task) : null;
             const status = formatLocalizedStatus(task);
+            const cardMetaParts: string[] = [];
+            if (task.resolution) {
+              cardMetaParts.push(task.resolution);
+            }
+            if (task.asset_type === "video" && task.duration_sec != null) {
+              cardMetaParts.push(`${task.duration_sec}s`);
+            }
+            if (task.status !== "succeeded") {
+              cardMetaParts.push(status);
+            }
             return (
               <article
                 key={task.task_id}
@@ -465,9 +475,7 @@ export function JobsPage(props: Props) {
                 <p className="asset-meta">
                   {task.model} · {task.operation ?? "generate"}
                 </p>
-                <p className="asset-meta">
-                  {task.resolution ?? "-"} · {task.duration_sec ?? "-"}s · {status}
-                </p>
+                {cardMetaParts.length ? <p className="asset-meta">{cardMetaParts.join(" · ")}</p> : null}
                 <p className="asset-time">
                   {formatTime(task.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 </p>
@@ -484,7 +492,10 @@ export function JobsPage(props: Props) {
             <>
               <h3>{t("jobs.assetDetailTitle")}</h3>
               <p className="job-meta">
-                {selectedTask.task_id} · {formatLocalizedStatus(selectedTask)}
+                {selectedTask.task_id}
+                {selectedTask.status !== "succeeded"
+                  ? ` · ${formatLocalizedStatus(selectedTask)}`
+                  : ""}
               </p>
               <p className="job-meta">
                 {selectedTask.provider} / {selectedTask.model} / {selectedTask.operation ?? "generate"}
