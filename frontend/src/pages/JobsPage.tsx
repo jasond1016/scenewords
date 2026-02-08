@@ -149,15 +149,27 @@ export function JobsPage(props: Props) {
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: async (payload: { taskId: string; assetType: AssetType }) =>
+    mutationFn: async (payload: {
+      taskId: string;
+      assetType: AssetType;
+      action: "cancel" | "delete";
+    }) =>
       deleteVideoTask(payload.taskId, settings.gatewayToken, payload.assetType),
     onSuccess: async (_data, payload) => {
-      setHint(t("jobs.deleteSuccess", { taskId: payload.taskId.slice(0, 8) }));
+      setHint(
+        payload.action === "cancel"
+          ? t("jobs.cancelSuccess", { taskId: payload.taskId.slice(0, 8) })
+          : t("jobs.deleteSuccess", { taskId: payload.taskId.slice(0, 8) }),
+      );
       setSelectedTaskId((current) => (current === payload.taskId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
-    onError: (error: Error) => {
-      setHint(t("jobs.deleteFailed", { message: error.message }));
+    onError: (error: Error, payload) => {
+      setHint(
+        payload.action === "cancel"
+          ? t("jobs.cancelFailed", { message: error.message })
+          : t("jobs.deleteFailed", { message: error.message }),
+      );
     },
   });
 
@@ -197,6 +209,28 @@ export function JobsPage(props: Props) {
               <li key={task.task_id}>
                 <strong>{task.task_id.slice(0, 8)}</strong>
                 <span>{formatLocalizedStatus(task)}</span>
+                <button
+                  type="button"
+                  className="mini-button"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => {
+                    const confirmed = window.confirm(
+                      t("jobs.cancelConfirm", {
+                        taskId: task.task_id.slice(0, 8),
+                      }),
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                    deleteMutation.mutate({
+                      taskId: task.task_id,
+                      assetType: task.asset_type,
+                      action: "cancel",
+                    });
+                  }}
+                >
+                  {t("jobs.cancelInProgress")}
+                </button>
               </li>
             ))}
           </ul>
@@ -493,6 +527,7 @@ export function JobsPage(props: Props) {
                       deleteMutation.mutate({
                         taskId: selectedTask.task_id,
                         assetType: selectedTask.asset_type,
+                        action: "delete",
                       });
                     }}
                     disabled={deleteMutation.isPending}

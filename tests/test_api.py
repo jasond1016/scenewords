@@ -237,12 +237,13 @@ def test_delete_history_task(client_factory) -> None:
     assert all(task["task_id"] != task_id for task in list_response.json())
 
 
-def test_delete_in_progress_task_rejected(client_factory) -> None:
+def test_delete_in_progress_task_allowed(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_task(client)
         delete_response = client.delete(f"/v1/video/tasks/{task_id}")
-    assert delete_response.status_code == 409
-    assert "cannot be deleted" in delete_response.json()["detail"]
+        list_response = client.get("/v1/video/tasks?limit=50")
+    assert delete_response.status_code == 204
+    assert all(task["task_id"] != task_id for task in list_response.json())
 
 
 def test_image_generation_rejects_non_image_provider(client_factory) -> None:
@@ -282,6 +283,15 @@ def test_delete_image_history_task(client_factory) -> None:
             message="seed failure",
             raw_error={},
         )
+        delete_response = client.delete(f"/v1/image/tasks/{task_id}")
+        list_response = client.get("/v1/image/tasks?limit=50")
+    assert delete_response.status_code == 204
+    assert all(task["task_id"] != task_id for task in list_response.json())
+
+
+def test_delete_in_progress_image_task_allowed(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_image_task(client)
         delete_response = client.delete(f"/v1/image/tasks/{task_id}")
         list_response = client.get("/v1/image/tasks?limit=50")
     assert delete_response.status_code == 204
