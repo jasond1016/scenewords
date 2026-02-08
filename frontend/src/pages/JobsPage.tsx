@@ -60,6 +60,13 @@ export function JobsPage(props: Props) {
     () => tasks.filter((task) => task.status === "queued" || task.status === "running"),
     [tasks],
   );
+  const inProgressBreakdown = useMemo(
+    () => ({
+      imageCount: inProgressTasks.filter((task) => task.asset_type === "image").length,
+      videoCount: inProgressTasks.filter((task) => task.asset_type === "video").length,
+    }),
+    [inProgressTasks],
+  );
   const completedTasks = useMemo(
     () =>
       tasks
@@ -240,6 +247,34 @@ export function JobsPage(props: Props) {
     return translated === key ? status : translated;
   };
   const formatLocalizedStatus = (task: VideoTaskDetail): string => {
+    if (task.asset_type === "image") {
+      if (task.status === "queued") {
+        if (task.queue_position != null) {
+          return t("jobs.imageStatusQueuedWithPosition", { position: task.queue_position });
+        }
+        return t("jobs.imageStatusQueued");
+      }
+      if (task.status === "running") {
+        return t("jobs.imageStatusRunning");
+      }
+      if (task.status === "succeeded") {
+        return t("jobs.imageStatusSucceeded");
+      }
+    }
+    if (task.asset_type === "video") {
+      if (task.status === "queued") {
+        if (task.queue_position != null) {
+          return t("jobs.videoStatusQueuedWithPosition", { position: task.queue_position });
+        }
+        return t("jobs.videoStatusQueued");
+      }
+      if (task.status === "running") {
+        return t("jobs.videoStatusRunning");
+      }
+      if (task.status === "succeeded") {
+        return t("jobs.videoStatusSucceeded");
+      }
+    }
     if (task.status === "queued" && task.queue_position != null) {
       return t("jobs.statusQueuedWithPosition", { position: task.queue_position });
     }
@@ -260,6 +295,12 @@ export function JobsPage(props: Props) {
       {inProgressTasks.length ? (
         <details className="queue-banner">
           <summary>{t("jobs.queueBanner", { count: inProgressTasks.length })}</summary>
+          <p className="hint">
+            {t("jobs.queueMix", {
+              imageCount: inProgressBreakdown.imageCount,
+              videoCount: inProgressBreakdown.videoCount,
+            })}
+          </p>
           <ul className="queue-list">
             {inProgressTasks.map((task) => (
               <li key={task.task_id}>
