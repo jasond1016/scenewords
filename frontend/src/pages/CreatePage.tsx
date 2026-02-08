@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type Dispatch,
+  type DragEvent,
+  type SetStateAction,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -995,10 +1004,10 @@ export function CreatePage(props: Props) {
             ) : null}
           </section>
 
-          {quickMediaFields.length ? (
+              {quickMediaFields.length ? (
             <section className="quick-media-fields">
               {quickMediaFields.map((field) =>
-                renderField(field, values, onFieldChanged, setFiles, "compact"),
+                renderField(field, values, files, onFieldChanged, setFiles, "compact"),
               )}
             </section>
           ) : null}
@@ -1197,7 +1206,7 @@ export function CreatePage(props: Props) {
                         </summary>
                         <div className="dynamic-grid">
                           {group.fields.map((field) =>
-                            renderField(field, values, onFieldChanged, setFiles),
+                            renderField(field, values, files, onFieldChanged, setFiles),
                           )}
                         </div>
                       </details>
@@ -1217,11 +1226,42 @@ function DynamicInput(props: {
   value: string;
   onValueChange: (value: string) => void;
   onFileChange: (files: File[]) => void;
+  selectedFiles?: File[];
   placeholder?: string;
 }) {
-  const { field, value, onValueChange, onFileChange, placeholder } = props;
+  const { t } = useI18n();
+  const { field, value, onValueChange, onFileChange, selectedFiles = [], placeholder } = props;
   const resolvedPlaceholder = placeholder ?? field.placeholder ?? "";
   const durationOptions = isDurationField(field) ? durationOptionsFromField(field) : [];
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const filePreviews = useMemo(
+    () =>
+      selectedFiles.map((file) => ({
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    [selectedFiles],
+  );
+
+  useEffect(() => {
+    return () => {
+      for (const preview of filePreviews) {
+        URL.revokeObjectURL(preview.url);
+      }
+    };
+  }, [filePreviews]);
+
+  useEffect(() => {
+    if (previewIndex == null) {
+      return;
+    }
+    if (previewIndex >= filePreviews.length) {
+      setPreviewIndex(filePreviews.length ? filePreviews.length - 1 : null);
+    }
+  }, [filePreviews.length, previewIndex]);
 
   if (durationOptions.length) {
     return (
@@ -1275,13 +1315,193 @@ function DynamicInput(props: {
     );
   }
   if (field.input_type === "file" || field.input_type === "file_list") {
+    const isMulti = field.input_type === "file_list";
+    const hasFiles = selectedFiles.length > 0;
+    const triggerPick = () => fileInputRef.current?.click();
+    const isImageFile = (item: File): boolean => {
+      const type = item.type.toLowerCase();
+      if (type.startsWith("image/")) {
+        return true;
+      }
+      return /\.(jpg|jpeg|png|webp)$/i.test(item.name);
+    };
+    const mergeFiles = (picked: File[]) => {
+      if (!picked.length) {
+        return;
+      }
+      const nextFiles = isMulti ? [...selectedFiles, ...picked] : [picked[0]];
+      onFileChange(nextFiles);
+    };
+    const removeAt = (index: number) => {
+      onFileChange(selectedFiles.filter((_, currentIndex) => currentIndex !== index));
+    };
+    const handleFilePicked = (event: ChangeEvent<HTMLInputElement>) => {
+      const picked = Array.from(event.target.files ?? []).filter((item) => isImageFile(item));
+      mergeFiles(picked);
+      event.currentTarget.value = "";
+    };
+    const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isDragOver) {
+        setIsDragOver(true);
+      }
+    };
+    const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const nextTarget = event.relatedTarget as Node | null;
+      if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+        setIsDragOver(false);
+      }
+    };
+    const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsDragOver(false);
+      const dropped = Array.from(event.dataTransfer.files ?? []).filter((item) => isImageFile(item));
+      mergeFiles(dropped);
+    };
+
     return (
-      <input
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        multiple={field.input_type === "file_list"}
-        onChange={(event) => onFileChange(Array.from(event.target.files ?? []))}
-      />
+      <div
+        className={isDragOver ? "upload-media dragover" : "upload-media"}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          ref={fileInputRef}
+          className="upload-file-input"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          multiple={isMulti}
+          onChange={handleFilePicked}
+        />
+        <div className="upload-media-actions">
+          <button
+            type="button"
+            className="mini-button"
+            onClick={triggerPick}
+          >
+            {!hasFiles
+              ? t("create.fileUploadImage")
+              : isMulti
+                ? t("create.fileAddImage")
+                : t("create.fileReplaceImage")}
+          </button>
+          {hasFiles ? (
+            <button
+              type="button"
+              className="mini-button"
+              onClick={() => onFileChange([])}
+            >
+              {t("create.fileClearAll")}
+            </button>
+          ) : null}
+          <span className="upload-media-hint">
+            {isMulti
+              ? t("create.fileSelectedCount", { count: selectedFiles.length })
+              : t("create.fileOnlyImages")}
+          </span>
+        </div>
+
+        {hasFiles ? (
+          <div className="upload-thumb-grid">
+            {filePreviews.map((item, index) => (
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="upload-thumb-card">
+                <button
+                  type="button"
+                  className="upload-thumb-hit"
+                  onClick={() => setPreviewIndex(index)}
+                >
+                  <img className="upload-thumb-img" src={item.url} alt={item.file.name} />
+                </button>
+                <div className="upload-thumb-foot">
+                  <p className="upload-thumb-name" title={item.file.name}>{item.file.name}</p>
+                  <button
+                    type="button"
+                    className="upload-thumb-remove"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      removeAt(index);
+                    }}
+                    aria-label={t("create.fileRemove")}
+                  >
+                    {t("create.fileRemove")}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <button type="button" className="upload-empty" onClick={triggerPick}>
+            {t("create.fileOnlyImages")}
+          </button>
+        )}
+
+        {previewIndex != null && filePreviews[previewIndex] ? (
+          <div className="image-lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewIndex(null)}>
+            <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+              <div className="image-lightbox-head">
+                <p className="image-lightbox-title">
+                  {t("jobs.lightboxIndex", { index: previewIndex + 1, total: filePreviews.length })}
+                </p>
+                <button
+                  type="button"
+                  className="mini-button"
+                  onClick={() => setPreviewIndex(null)}
+                >
+                  {t("common.close")}
+                </button>
+              </div>
+              <div className="image-lightbox-body">
+                {filePreviews.length > 1 ? (
+                  <button
+                    type="button"
+                    className="image-lightbox-nav prev"
+                    onClick={() =>
+                      setPreviewIndex((current) =>
+                        current == null
+                          ? 0
+                          : current > 0
+                            ? current - 1
+                            : filePreviews.length - 1,
+                      )
+                    }
+                  >
+                    {t("jobs.lightboxPrev")}
+                  </button>
+                ) : null}
+                <img
+                  className="image-lightbox-img"
+                  src={filePreviews[previewIndex].url}
+                  alt={filePreviews[previewIndex].file.name}
+                />
+                {filePreviews.length > 1 ? (
+                  <button
+                    type="button"
+                    className="image-lightbox-nav next"
+                    onClick={() =>
+                      setPreviewIndex((current) =>
+                        current == null
+                          ? 0
+                          : current < filePreviews.length - 1
+                            ? current + 1
+                            : 0,
+                      )
+                    }
+                  >
+                    {t("jobs.lightboxNext")}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
     );
   }
   if (field.input_type === "number") {
@@ -1541,31 +1761,35 @@ function greatestCommonDivisor(left: number, right: number): number {
 function renderField(
   field: ProviderOperationField,
   values: Record<string, string>,
+  files: Record<string, File[]>,
   onFieldChanged: (field: ProviderOperationField, nextValue: string) => void,
   setFiles: Dispatch<SetStateAction<Record<string, File[]>>>,
   variant: "default" | "compact" = "default",
 ) {
   const key = fieldKey(field);
   const value = values[key] ?? "";
+  const selectedFiles = files[key] ?? [];
   const className =
     variant === "compact"
       ? "field field-compact"
       : isPromptLike(field)
         ? "field field-wide"
         : "field";
+  const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
-    <label key={key} className={className}>
+    <Wrapper key={key} className={className}>
       <span>{field.label}</span>
       <DynamicInput
         field={field}
         value={value}
+        selectedFiles={selectedFiles}
         onValueChange={(next) => onFieldChanged(field, next)}
         onFileChange={(nextFiles) =>
           setFiles((current) => ({ ...current, [key]: nextFiles }))
         }
       />
       {field.help_text ? <small>{field.help_text}</small> : null}
-    </label>
+    </Wrapper>
   );
 }
 
