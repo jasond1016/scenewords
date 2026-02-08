@@ -266,6 +266,10 @@ export function CreatePage(props: Props) {
     () => (qualityField?.options ?? []).map((option) => option.value).filter(Boolean),
     [qualityField?.options],
   );
+  const hasQuickSize = useMemo(
+    () => Boolean((qualityField && qualityChoices.length) || sizeChoices.length),
+    [qualityChoices.length, qualityField, sizeChoices.length],
+  );
   const currentRatioDisplay = useMemo(() => {
     if (!resolutionField) {
       return "-";
@@ -279,6 +283,9 @@ export function CreatePage(props: Props) {
     return "-";
   }, [resolutionField, resolutionMeta.ratio, resolutionValue]);
   const currentSizeDisplay = useMemo(() => {
+    if (!hasQuickSize) {
+      return "-";
+    }
     if (qualityField) {
       if (!qualityValue) {
         return "-";
@@ -292,11 +299,8 @@ export function CreatePage(props: Props) {
     if (resolutionMeta.size) {
       return resolutionMeta.size;
     }
-    if (resolutionValue) {
-      return resolutionValue;
-    }
     return "-";
-  }, [qualityField, qualityValue, resolutionField, resolutionMeta.size, resolutionValue]);
+  }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size]);
   const promptPlaceholder = useMemo(() => {
     if (!promptField) {
       return "";
@@ -911,39 +915,41 @@ export function CreatePage(props: Props) {
               ) : null}
             </div>
 
-            <div className={openQuickKey === "size" ? "quick-item open" : "quick-item"}>
-              <button
-                type="button"
-                className="quick-trigger"
-                onClick={() => toggleQuickItem("size")}
-              >
-                <span>{t("create.quickSize")}</span>
-                <strong>{currentSizeDisplay}</strong>
-              </button>
-              {openQuickKey === "size" ? (
-                <div className="quick-popover quick-popover-grid">
-                  {(qualityField ? qualityChoices : sizeChoices).map((size) => {
-                    const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                    const display = qualityField
-                      ? qualityField.options.find((option) => option.value === size)?.label ?? size
-                      : size;
-                    return (
-                      <button
-                        type="button"
-                        key={size}
-                        className={active ? "chip-button active" : "chip-button"}
-                        onClick={() => {
-                          onSizeChanged(size);
-                          closeQuickItem();
-                        }}
-                      >
-                        {display}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
+            {hasQuickSize ? (
+              <div className={openQuickKey === "size" ? "quick-item open" : "quick-item"}>
+                <button
+                  type="button"
+                  className="quick-trigger"
+                  onClick={() => toggleQuickItem("size")}
+                >
+                  <span>{t("create.quickSize")}</span>
+                  <strong>{currentSizeDisplay}</strong>
+                </button>
+                {openQuickKey === "size" ? (
+                  <div className="quick-popover quick-popover-grid">
+                    {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+                      const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                      const display = qualityField
+                        ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                        : size;
+                      return (
+                        <button
+                          type="button"
+                          key={size}
+                          className={active ? "chip-button active" : "chip-button"}
+                          onClick={() => {
+                            onSizeChanged(size);
+                            closeQuickItem();
+                          }}
+                        >
+                          {display}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {durationField ? (
               <div className={openQuickKey === "duration" ? "quick-item open" : "quick-item"}>

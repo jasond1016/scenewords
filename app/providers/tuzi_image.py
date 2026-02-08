@@ -250,7 +250,9 @@ def _build_generate_payload(request: VideoGenerationRequest) -> dict[str, Any]:
     if size:
         payload["size"] = size
 
-    quality = _string_or_none(request.provider_options.get("quality"))
+    quality = _string_or_none(request.provider_options.get("quality")) or _quality_from_model(
+        model_name
+    )
     if quality:
         payload["quality"] = quality
 
@@ -279,7 +281,9 @@ def _build_edit_form(request: VideoGenerationRequest) -> list[tuple[str, Any]]:
     if size:
         form_parts.append(("size", (None, size)))
 
-    quality = _string_or_none(request.provider_options.get("quality"))
+    quality = _string_or_none(request.provider_options.get("quality")) or _quality_from_model(
+        model_name
+    )
     if quality:
         form_parts.append(("quality", (None, quality)))
 
@@ -652,6 +656,19 @@ def _resolve_model_name(request: VideoGenerationRequest) -> str:
     if not model_name:
         raise ProviderError(code="invalid_model", message="model is required")
     return model_name
+
+
+def _quality_from_model(model_name: str) -> str | None:
+    normalized = model_name.strip().lower()
+    if not normalized:
+        return None
+    if "4k" in normalized:
+        return "4k"
+    if "2k" in normalized:
+        return "2k"
+    if normalized.startswith("gemini-3-pro-image-preview"):
+        return "1k"
+    return None
 
 
 def _size_from_resolution(raw_resolution: str | None, *, style: str) -> str | None:

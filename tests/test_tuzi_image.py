@@ -38,6 +38,21 @@ def test_build_generate_payload_maps_ratio_quality_and_references() -> None:
     assert payload["image"] == ["https://example.com/a.png", "https://example.com/b.png"]
 
 
+def test_build_generate_payload_infers_quality_from_model_when_missing() -> None:
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model="gemini-3-pro-image-preview-4k",
+        operation="generate",
+        prompt="test prompt",
+        resolution="16:9",
+        provider_options={"response_format": "url"},
+    )
+
+    payload = _build_generate_payload(request=request)
+
+    assert payload["quality"] == "4k"
+
+
 def test_build_edit_form_accepts_uploaded_image_and_optional_mask(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
     source.write_bytes(b"fake-image")

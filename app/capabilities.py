@@ -578,25 +578,13 @@ def _tuzi_image_operations(
             display_name="生成图片",
             description="调用 Tuzi image/generations 同步生图",
             is_default=True,
-            fields=[
-                _field("prompt", "提示词", input_type="textarea", required=True),
-                _image_ratio_field(),
-                _field(
-                    "quality",
-                    "质量",
-                    target="provider_options",
-                    input_type="select",
-                    default="1k",
-                    options=[
-                        _option("1k", "1K"),
-                        _option("2k", "2K"),
-                        _option("4k", "4K"),
-                    ],
-                ),
-                _field(
-                    "image",
-                    "参考图 URL / Base64",
-                    target="provider_options",
+                fields=[
+                    _field("prompt", "提示词", input_type="textarea", required=True),
+                    _image_ratio_field(),
+                    _field(
+                        "image",
+                        "参考图 URL / Base64",
+                        target="provider_options",
                     input_type="string_list",
                     help_text="可选。支持 URL 或 base64，支持多条。",
                 ),
@@ -636,18 +624,6 @@ def _tuzi_image_operations(
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
                 _image_ratio_field(),
-                _field(
-                    "quality",
-                    "质量",
-                    target="provider_options",
-                    input_type="select",
-                    default="1k",
-                    options=[
-                        _option("1k", "1K"),
-                        _option("2k", "2K"),
-                        _option("4k", "4K"),
-                    ],
-                ),
                 _field(
                     "image_file_ids",
                     "编辑图片",
