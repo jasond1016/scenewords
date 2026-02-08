@@ -283,9 +283,10 @@ button:disabled {
 }
 
 .quick-bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
+  align-items: start;
 }
 
 .quick-item {
@@ -293,7 +294,7 @@ button:disabled {
   border: 1px solid #d6deec;
   border-radius: 12px;
   background: #fff;
-  min-width: 118px;
+  min-width: 0;
 }
 
 .quick-trigger {
@@ -319,6 +320,8 @@ button:disabled {
   font-weight: 700;
   line-height: 1.3;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .quick-item.open {
@@ -335,6 +338,29 @@ button:disabled {
   box-shadow: 0 14px 28px rgba(33, 52, 86, 0.13);
   padding: 10px;
   min-width: 220px;
+}
+
+.quick-option-list {
+  display: grid;
+  gap: 6px;
+  min-width: 240px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.quick-option-button {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid #d8dfec;
+  background: #fff;
+  padding: 9px 10px;
+}
+
+.quick-option-button.active {
+  border-color: #b8cbef;
+  color: #1b4e9f;
+  background: #edf3ff;
 }
 
 .quick-popover-grid {
@@ -451,9 +477,9 @@ button:disabled {
   gap: 10px;
 }
 
-@media (min-width: 1200px) {
+@media (min-width: 1440px) {
   .create-flow {
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
     grid-template-areas:
       "composer support"
       "advanced advanced";
@@ -475,9 +501,15 @@ button:disabled {
   }
 }
 
-@media (min-width: 1600px) {
+@media (min-width: 1700px) {
   .create-flow {
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+    grid-template-columns: minmax(0, 1fr) minmax(380px, 460px);
+  }
+}
+
+@media (max-width: 1439px) and (min-width: 1025px) {
+  .quick-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1033,7 +1065,6 @@ details pre {
   }
 
   .quick-bar {
-    display: grid;
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1046,6 +1077,11 @@ details pre {
     margin-top: 6px;
     min-width: 0;
     box-shadow: none;
+  }
+
+  .quick-option-list {
+    min-width: 0;
+    max-height: 240px;
   }
 
   .focus-actions {

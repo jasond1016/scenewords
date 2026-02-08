@@ -156,11 +156,20 @@ export function CreatePage(props: Props) {
     if (promptField) {
       excluded.add(fieldKey(promptField));
     }
+    if (durationField) {
+      excluded.add(fieldKey(durationField));
+    }
+    if (resolutionField) {
+      excluded.add(fieldKey(resolutionField));
+    }
+    if (qualityField) {
+      excluded.add(fieldKey(qualityField));
+    }
     for (const field of quickMediaFields) {
       excluded.add(fieldKey(field));
     }
     return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
-  }, [promptField, quickMediaFields, selectedOperation]);
+  }, [durationField, promptField, qualityField, quickMediaFields, resolutionField, selectedOperation]);
   const recentPrompts = useMemo(
     () =>
       listRecentPrompts({
@@ -196,9 +205,22 @@ export function CreatePage(props: Props) {
     [selectedProvider],
   );
   const canSwitchGenerationKind = imageProviders.length > 0 && videoProviders.length > 0;
+  const providerChoices = useMemo(
+    () =>
+      providers.filter((provider) =>
+        currentGenerationKind === "image"
+          ? isImageProviderType(provider.type)
+          : !isImageProviderType(provider.type),
+      ),
+    [currentGenerationKind, providers],
+  );
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
   const qualityValue = qualityField ? values[fieldKey(qualityField)] ?? "" : "";
   const durationValue = durationField ? values[fieldKey(durationField)] ?? "" : "";
+  const durationChoices = useMemo(
+    () => (durationField ? durationOptionsFromField(durationField) : []),
+    [durationField],
+  );
   const resolutionChoices = useMemo(
     () => buildResolutionChoices(resolutionField, resolutionValue),
     [resolutionField, resolutionValue],
@@ -250,6 +272,15 @@ export function CreatePage(props: Props) {
     }
     return "-";
   }, [qualityField, qualityValue, resolutionField, resolutionMeta.size, resolutionValue]);
+  const promptPlaceholder = useMemo(() => {
+    if (!promptField) {
+      return "";
+    }
+    if (promptField.placeholder?.trim()) {
+      return promptField.placeholder;
+    }
+    return t("create.promptPlaceholder");
+  }, [promptField, t]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -567,15 +598,6 @@ export function CreatePage(props: Props) {
         }}
       >
         <section className="focus-composer">
-          <div className="focus-head">
-            <p className="focus-kicker">{t("create.title")}</p>
-            <h2>{t("create.subtitle")}</h2>
-            <p className="model-context">
-              {selectedProvider.display_name} · {selectedModel.display_name} ·{" "}
-              {selectedOperation.display_name}
-            </p>
-          </div>
-
           {promptField ? (
             <label
               className="prompt-editor"
@@ -619,6 +641,7 @@ export function CreatePage(props: Props) {
                 value={values[fieldKey(promptField)] ?? ""}
                 onValueChange={(next) => onFieldChanged(promptField, next)}
                 onFileChange={() => undefined}
+                placeholder={promptPlaceholder}
               />
               {promptField.help_text ? <small>{promptField.help_text}</small> : null}
             </label>
@@ -668,6 +691,40 @@ export function CreatePage(props: Props) {
               ) : null}
             </div>
 
+            <div className={openQuickKey === "provider" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("provider")}
+              >
+                <span>{t("create.provider")}</span>
+                <strong>{selectedProvider.display_name}</strong>
+              </button>
+              {openQuickKey === "provider" ? (
+                <div className="quick-popover">
+                  <div className="quick-option-list">
+                    {providerChoices.map((provider) => (
+                      <button
+                        type="button"
+                        key={provider.id}
+                        className={
+                          provider.id === providerId
+                            ? "quick-option-button active"
+                            : "quick-option-button"
+                        }
+                        onClick={() => {
+                          setProviderId(provider.id);
+                          closeQuickItem();
+                        }}
+                      >
+                        <strong>{provider.display_name}</strong>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className={openQuickKey === "model" ? "quick-item open" : "quick-item"}>
               <button
                 type="button"
@@ -679,19 +736,23 @@ export function CreatePage(props: Props) {
               </button>
               {openQuickKey === "model" ? (
                 <div className="quick-popover">
-                  <select
-                    value={modelName}
-                    onChange={(event) => {
-                      setModelName(event.target.value);
-                      closeQuickItem();
-                    }}
-                  >
+                  <div className="quick-option-list">
                     {selectedProvider.models.map((model) => (
-                      <option key={model.name} value={model.name}>
-                        {model.display_name}
-                      </option>
+                      <button
+                        type="button"
+                        key={model.name}
+                        className={
+                          model.name === modelName ? "quick-option-button active" : "quick-option-button"
+                        }
+                        onClick={() => {
+                          setModelName(model.name);
+                          closeQuickItem();
+                        }}
+                      >
+                        <strong>{model.display_name}</strong>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -707,19 +768,25 @@ export function CreatePage(props: Props) {
               </button>
               {openQuickKey === "mode" ? (
                 <div className="quick-popover">
-                  <select
-                    value={operationId}
-                    onChange={(event) => {
-                      setOperationId(event.target.value);
-                      closeQuickItem();
-                    }}
-                  >
+                  <div className="quick-option-list">
                     {selectedModel.operations.map((operation) => (
-                      <option key={operation.id} value={operation.id}>
-                        {operation.display_name}
-                      </option>
+                      <button
+                        type="button"
+                        key={operation.id}
+                        className={
+                          operation.id === selectedOperation.id
+                            ? "quick-option-button active"
+                            : "quick-option-button"
+                        }
+                        onClick={() => {
+                          setOperationId(operation.id);
+                          closeQuickItem();
+                        }}
+                      >
+                        <strong>{operation.display_name}</strong>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -798,14 +865,34 @@ export function CreatePage(props: Props) {
                   <strong>{durationValue ? `${durationValue}s` : "-"}</strong>
                 </button>
                 {openQuickKey === "duration" ? (
-                  <div className="quick-popover">
-                    <DynamicInput
-                      field={durationField}
-                      value={durationValue}
-                      onValueChange={(next) => onFieldChanged(durationField, next)}
-                      onFileChange={() => undefined}
-                    />
-                  </div>
+                  durationChoices.length ? (
+                    <div className="quick-popover quick-popover-grid">
+                      {durationChoices.map((seconds) => (
+                        <button
+                          type="button"
+                          key={seconds}
+                          className={
+                            durationValue === String(seconds) ? "chip-button active" : "chip-button"
+                          }
+                          onClick={() => {
+                            onFieldChanged(durationField, String(seconds));
+                            closeQuickItem();
+                          }}
+                        >
+                          {seconds}s
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="quick-popover">
+                      <DynamicInput
+                        field={durationField}
+                        value={durationValue}
+                        onValueChange={(next) => onFieldChanged(durationField, next)}
+                        onFileChange={() => undefined}
+                      />
+                    </div>
+                  )
                 ) : null}
               </div>
             ) : null}
@@ -937,50 +1024,8 @@ export function CreatePage(props: Props) {
         ) : null}
 
         <details className="advanced-drawer">
-          <summary>{t("create.advancedOptions", { count: advancedFields.length + 3 })}</summary>
+          <summary>{t("create.advancedOptions", { count: advancedFields.length })}</summary>
           <div className="advanced-panel">
-            <div className="grid-3">
-              <label className="field">
-                <span>{t("create.provider")}</span>
-                <select
-                  value={providerId}
-                  onChange={(event) => setProviderId(event.target.value)}
-                >
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.display_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>{t("create.model")}</span>
-                <select
-                  value={modelName}
-                  onChange={(event) => setModelName(event.target.value)}
-                >
-                  {selectedProvider.models.map((model) => (
-                    <option key={model.name} value={model.name}>
-                      {model.display_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>{t("create.operation")}</span>
-                <select
-                  value={operationId}
-                  onChange={(event) => setOperationId(event.target.value)}
-                >
-                  {selectedModel.operations.map((operation) => (
-                    <option key={operation.id} value={operation.id}>
-                      {operation.display_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
             {showVeoPromptGuide ? (
               <section className="veo-guide">
                 <h4>{t("create.veoPromptGuideTitle")}</h4>
@@ -1015,8 +1060,10 @@ function DynamicInput(props: {
   value: string;
   onValueChange: (value: string) => void;
   onFileChange: (files: File[]) => void;
+  placeholder?: string;
 }) {
-  const { field, value, onValueChange, onFileChange } = props;
+  const { field, value, onValueChange, onFileChange, placeholder } = props;
+  const resolvedPlaceholder = placeholder ?? field.placeholder ?? "";
   const durationOptions = isDurationField(field) ? durationOptionsFromField(field) : [];
 
   if (durationOptions.length) {
@@ -1041,7 +1088,7 @@ function DynamicInput(props: {
         rows={field.input_type === "json" ? 8 : 4}
         value={value}
         required={field.required}
-        placeholder={field.placeholder ?? ""}
+        placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
       />
     );
@@ -1089,7 +1136,7 @@ function DynamicInput(props: {
         min={field.min ?? undefined}
         max={field.max ?? undefined}
         step={field.step ?? undefined}
-        placeholder={field.placeholder ?? ""}
+        placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
       />
     );
@@ -1099,7 +1146,7 @@ function DynamicInput(props: {
       type={field.input_type === "password" ? "password" : "text"}
       value={value}
       required={field.required}
-      placeholder={field.placeholder ?? ""}
+      placeholder={resolvedPlaceholder}
       onChange={(event) => onValueChange(event.target.value)}
     />
   );
