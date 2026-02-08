@@ -14,9 +14,11 @@ import type {
   ProviderModelOperationInfo,
   ProviderOperationField,
   VideoGenerationRequest,
+  VideoTaskDetail,
 } from "../types";
 import {
   durationOptionsFromField,
+  errorMessage,
   fieldKey,
   fieldStorageKey,
   findField,
@@ -31,6 +33,7 @@ import {
 interface Props {
   catalog?: ProviderCatalogResponse;
   loading: boolean;
+  tasks: VideoTaskDetail[];
 }
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
@@ -45,6 +48,8 @@ const VEO_PROMPT_GUIDE_LINK_DOCS =
   "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide?hl=zh-cn";
 const VEO_PROMPT_GUIDE_LINK_BLOG =
   "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1";
+const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
+const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "sora2", "local_comfy"];
 
@@ -63,7 +68,7 @@ interface AdvancedGroup {
 }
 
 export function CreatePage(props: Props) {
-  const { catalog, loading } = props;
+  const { catalog, loading, tasks } = props;
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -79,6 +84,9 @@ export function CreatePage(props: Props) {
   const [recentPromptVersion, setRecentPromptVersion] = useState(0);
   const [presetVersion, setPresetVersion] = useState(0);
   const [openQuickKey, setOpenQuickKey] = useState<string | null>(null);
+  const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
+    readLastSubmittedTaskId(),
+  );
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? null,
@@ -203,6 +211,17 @@ export function CreatePage(props: Props) {
     () => listPromptPresets(presetVersion),
     [presetVersion],
   );
+  const inProgressCount = useMemo(
+    () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
+    [tasks],
+  );
+  const trackedTask = useMemo(
+    () =>
+      lastSubmittedTaskId
+        ? tasks.find((task) => task.task_id === lastSubmittedTaskId) ?? null
+        : null,
+    [lastSubmittedTaskId, tasks],
+  );
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
     [providers],
@@ -296,6 +315,10 @@ export function CreatePage(props: Props) {
       setProviderId(videoProviders[0].id);
     }
   }, [currentGenerationKind, providerId, videoProviders]);
+
+  useEffect(() => {
+    persistLastSubmittedTaskId(lastSubmittedTaskId);
+  }, [lastSubmittedTaskId]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -512,6 +535,7 @@ export function CreatePage(props: Props) {
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
     onSuccess: async (response) => {
+      setLastSubmittedTaskId(response.task_id);
       setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
       settings.setSettings({ defaultProvider: providerId });
       if (settings.savePromptHistory && promptField) {
@@ -595,6 +619,49 @@ export function CreatePage(props: Props) {
     }
     onFieldChanged(resolutionField, nextResolution);
   };
+  const statusLabel = (task: VideoTaskDetail): string => {
+    if (task.status === "queued") {
+      if (task.queue_position != null && task.queue_position > 0) {
+        return t("create.feedbackQueuedWithPosition", { position: task.queue_position });
+      }
+      return t("create.feedbackQueued");
+    }
+    if (task.status === "running") {
+      return t("create.feedbackRunning");
+    }
+    if (task.status === "succeeded") {
+      return t("create.feedbackSucceeded");
+    }
+    if (task.status === "failed") {
+      return t("create.feedbackFailed");
+    }
+    if (task.status === "canceled") {
+      return t("create.feedbackCanceled");
+    }
+    return task.status;
+  };
+  const statusTone = (task: VideoTaskDetail | null): "warn" | "ok" | "danger" | "muted" => {
+    if (!task) {
+      return "muted";
+    }
+    if (task.status === "queued" || task.status === "running") {
+      return "warn";
+    }
+    if (task.status === "succeeded") {
+      return "ok";
+    }
+    if (task.status === "failed" || task.status === "canceled") {
+      return "danger";
+    }
+    return "muted";
+  };
+  const trackedOtherInProgressCount = useMemo(() => {
+    if (!trackedTask) {
+      return inProgressCount;
+    }
+    const trackedInProgress = trackedTask.status === "queued" || trackedTask.status === "running";
+    return trackedInProgress ? Math.max(0, inProgressCount - 1) : inProgressCount;
+  }, [inProgressCount, trackedTask]);
 
   if (loading) {
     return <section className="panel">{t("create.loadingCatalog")}</section>;
@@ -945,6 +1012,51 @@ export function CreatePage(props: Props) {
                   : t("create.generateVideo")}
             </button>
           </div>
+
+          {lastSubmittedTaskId ? (
+            <section className="submission-feedback">
+              <div className="submission-feedback-head">
+                <p className="submission-feedback-title">
+                  {t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}
+                </p>
+                <button
+                  type="button"
+                  className="mini-button"
+                  onClick={() => setLastSubmittedTaskId(null)}
+                >
+                  {t("create.feedbackContinue")}
+                </button>
+              </div>
+              <p className={`submission-feedback-state ${statusTone(trackedTask)}`}>
+                {trackedTask
+                  ? statusLabel(trackedTask)
+                  : t("create.feedbackSubmitted")}
+              </p>
+              {trackedTask?.status === "failed" && trackedTask.error ? (
+                <p className="hint">{errorMessage(trackedTask)}</p>
+              ) : null}
+              {trackedOtherInProgressCount > 0 ? (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => navigate("/assets")}
+                >
+                  {t("create.feedbackOtherInProgress", { count: trackedOtherInProgressCount })}
+                </button>
+              ) : null}
+              <div className="submission-feedback-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => navigate("/assets")}
+                >
+                  {trackedTask?.status === "succeeded"
+                    ? t("create.feedbackViewResult")
+                    : t("create.feedbackViewAssets")}
+                </button>
+              </div>
+            </section>
+          ) : null}
         </section>
 
         {promptField ? (
@@ -1232,6 +1344,45 @@ function sortProvidersByPriority(
     return left.index - right.index;
   });
   return indexed.map((item) => item.provider);
+}
+
+function readLastSubmittedTaskId(): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_SUBMITTED_TASK_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { taskId?: unknown; savedAt?: unknown };
+    const taskId = typeof parsed.taskId === "string" ? parsed.taskId.trim() : "";
+    const savedAt = typeof parsed.savedAt === "string" ? parsed.savedAt : "";
+    if (!taskId || !savedAt) {
+      localStorage.removeItem(LAST_SUBMITTED_TASK_KEY);
+      return null;
+    }
+    const savedTime = Date.parse(savedAt);
+    if (!Number.isFinite(savedTime) || Date.now() - savedTime > LAST_SUBMITTED_TASK_MAX_AGE_MS) {
+      localStorage.removeItem(LAST_SUBMITTED_TASK_KEY);
+      return null;
+    }
+    return taskId;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastSubmittedTaskId(taskId: string | null): void {
+  try {
+    if (!taskId) {
+      localStorage.removeItem(LAST_SUBMITTED_TASK_KEY);
+      return;
+    }
+    localStorage.setItem(
+      LAST_SUBMITTED_TASK_KEY,
+      JSON.stringify({ taskId, savedAt: new Date().toISOString() }),
+    );
+  } catch {
+    // ignore storage failures
+  }
 }
 
 interface ResolutionChoice {

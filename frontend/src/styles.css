@@ -435,6 +435,71 @@ button:disabled {
   gap: 4px;
 }
 
+.submission-feedback {
+  border: 1px solid #d4deef;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.submission-feedback-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.submission-feedback-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.submission-feedback-state {
+  margin: 0;
+  font-weight: 600;
+}
+
+.submission-feedback-state.warn {
+  color: var(--warn);
+}
+
+.submission-feedback-state.ok {
+  color: var(--ok);
+}
+
+.submission-feedback-state.danger {
+  color: var(--danger);
+}
+
+.submission-feedback-state.muted {
+  color: var(--muted);
+}
+
+.submission-feedback-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.submission-feedback-actions .primary-button {
+  min-width: 0;
+  width: auto;
+  padding: 10px 14px;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: #1b4e9f;
+  padding: 0;
+  width: fit-content;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
 .support-sections {
   display: grid;
   gap: 10px;

@@ -76,11 +76,23 @@ export default function App() {
           <Routes>
             <Route
               path="/"
-              element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
+              element={
+                <CreatePage
+                  catalog={catalogQuery.data}
+                  loading={catalogQuery.isLoading}
+                  tasks={tasksQuery.data ?? []}
+                />
+              }
             />
             <Route
               path="/create"
-              element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
+              element={
+                <CreatePage
+                  catalog={catalogQuery.data}
+                  loading={catalogQuery.isLoading}
+                  tasks={tasksQuery.data ?? []}
+                />
+              }
             />
             <Route path="/jobs" element={<Navigate to="/assets" replace />} />
             <Route
