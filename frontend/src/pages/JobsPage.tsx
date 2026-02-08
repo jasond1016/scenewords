@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { deleteVideoTask, retryVideoTask } from "../api";
+import { deleteVideoTask } from "../api";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
-import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
+import type { AssetType, VideoTaskDetail } from "../types";
 import {
   errorMessage,
   extractImageUrls,
@@ -53,7 +53,6 @@ export function JobsPage(props: Props) {
   const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter);
   const [dateFrom, setDateFrom] = useState(savedFilters.dateFrom);
   const [dateTo, setDateTo] = useState(savedFilters.dateTo);
-  const [draftPrompt, setDraftPrompt] = useState("");
   const [hoverVideoTaskId, setHoverVideoTaskId] = useState<string | null>(null);
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
 
@@ -126,14 +125,6 @@ export function JobsPage(props: Props) {
     }
     return lightboxItems[lightboxIndex];
   }, [lightboxIndex, lightboxItems]);
-  const hasPromptEdited = useMemo(() => {
-    if (!selectedTask) {
-      return false;
-    }
-    const original = (selectedTask.prompt ?? "").trim();
-    const current = draftPrompt.trim();
-    return Boolean(current) && current !== original;
-  }, [draftPrompt, selectedTask]);
 
   useEffect(() => {
     if (!assetList.length) {
@@ -144,14 +135,6 @@ export function JobsPage(props: Props) {
       setSelectedTaskId(assetList[0].task_id);
     }
   }, [assetList, selectedTaskId]);
-
-  useEffect(() => {
-    if (!selectedTask) {
-      setDraftPrompt("");
-      return;
-    }
-    setDraftPrompt(selectedTask.prompt ?? "");
-  }, [selectedTask?.task_id]);
 
   useEffect(() => {
     if (!lightboxItems.length) {
@@ -221,28 +204,6 @@ export function JobsPage(props: Props) {
     }
   };
 
-  const retryMutation = useMutation({
-    mutationFn: async (payload: {
-      taskId: string;
-      mode: RetryMode;
-      prompt: string;
-      assetType: AssetType;
-    }) =>
-      retryVideoTask(
-        payload.taskId,
-        payload.mode,
-        payload.prompt.trim() || null,
-        settings.gatewayToken,
-        payload.assetType,
-      ),
-    onSuccess: async (response) => {
-      setHint(t("jobs.retryQueued", { taskId: response.task_id.slice(0, 8) }));
-      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
-    },
-    onError: (error: Error) => {
-      setHint(t("jobs.retryFailed", { message: error.message }));
-    },
-  });
   const deleteMutation = useMutation({
     mutationFn: async (payload: {
       taskId: string;
@@ -527,29 +488,10 @@ export function JobsPage(props: Props) {
                 </div>
               ) : null}
 
-              <label>
-                {t("jobs.retryPrompt")}
-                <textarea
-                  rows={4}
-                  value={draftPrompt}
-                  onChange={(event) => setDraftPrompt(event.target.value)}
-                />
-              </label>
-
               <div className="asset-primary-actions">
                 <button
                   type="button"
                   className="primary-button"
-                  disabled={!hasPromptEdited}
-                  onClick={() => {
-                    settings.setPendingReuseDraft(toDraftWithPrompt(selectedTask, draftPrompt));
-                    navigate("/create");
-                  }}
-                >
-                  {t("jobs.primaryRefine")}
-                </button>
-                <button
-                  type="button"
                   onClick={() => {
                     settings.setPendingReuseDraft(toDraft(selectedTask));
                     navigate("/create");
@@ -558,9 +500,6 @@ export function JobsPage(props: Props) {
                   {t("jobs.reuseSettings")}
                 </button>
               </div>
-              {!hasPromptEdited ? (
-                <p className="hint">{t("jobs.primaryRefineHint")}</p>
-              ) : null}
 
               {errorMessage(selectedTask, {
                 mapErrorCode,
@@ -580,7 +519,7 @@ export function JobsPage(props: Props) {
                   <button
                     type="button"
                     onClick={() => {
-                      const payload = buildTaskRequestPayload(selectedTask, draftPrompt);
+                      const payload = buildTaskRequestPayload(selectedTask);
                       const text = JSON.stringify(payload, null, 2);
                       void copyText(text).then(
                         () => setHint(t("jobs.copyJsonSuccess")),
@@ -590,58 +529,6 @@ export function JobsPage(props: Props) {
                   >
                     {t("jobs.copyRequestJson")}
                   </button>
-                  {settings.showBothRetryActions ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          retryMutation.mutate({
-                            taskId: selectedTask.task_id,
-                            mode: "same_seed",
-                            prompt: draftPrompt,
-                            assetType: selectedTask.asset_type,
-                          })
-                        }
-                        disabled={retryMutation.isPending}
-                      >
-                        {t("common.retrySameSeed")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          retryMutation.mutate({
-                            taskId: selectedTask.task_id,
-                            mode: "new_seed",
-                            prompt: draftPrompt,
-                            assetType: selectedTask.asset_type,
-                          })
-                        }
-                        disabled={retryMutation.isPending}
-                      >
-                        {t("common.retryNewSeed")}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        retryMutation.mutate({
-                          taskId: selectedTask.task_id,
-                          mode: settings.retryModeDefault,
-                          prompt: draftPrompt,
-                          assetType: selectedTask.asset_type,
-                        })
-                      }
-                      disabled={retryMutation.isPending}
-                    >
-                      {t("jobs.retry", {
-                        mode:
-                          settings.retryModeDefault === "same_seed"
-                            ? t("settings.sameSeed")
-                            : t("settings.newSeed"),
-                      })}
-                    </button>
-                  )}
                   <button
                     type="button"
                     className="danger-button"
@@ -900,19 +787,12 @@ function toDraft(task: VideoTaskDetail) {
   };
 }
 
-function toDraftWithPrompt(task: VideoTaskDetail, prompt: string) {
-  return {
-    ...toDraft(task),
-    prompt: prompt.trim() || task.prompt,
-  };
-}
-
-function buildTaskRequestPayload(task: VideoTaskDetail, prompt: string) {
+function buildTaskRequestPayload(task: VideoTaskDetail) {
   return {
     provider: task.provider,
     model: task.model,
     operation: task.operation ?? "generate",
-    prompt: prompt.trim() || task.prompt,
+    prompt: task.prompt,
     negative_prompt: task.negative_prompt,
     duration_sec: task.duration_sec,
     resolution: task.resolution,
