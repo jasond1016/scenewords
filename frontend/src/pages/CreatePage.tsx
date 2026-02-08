@@ -393,6 +393,7 @@ export function CreatePage(props: Props) {
     if (!selectedOperation) {
       return;
     }
+    const previousPrompt = values["request:prompt"] ?? "";
     const hydrated: Record<string, string> = {};
     for (const field of selectedOperation.fields) {
       const key = fieldKey(field);
@@ -430,6 +431,14 @@ export function CreatePage(props: Props) {
       settings.setPendingReuseDraft(null);
       setHint(t("create.hintReusedDraft"));
       navigate("/create");
+    }
+
+    // Keep the current prompt when switching model/operation unless the target already has one.
+    if (promptField) {
+      const promptKey = fieldKey(promptField);
+      if (!hydrated[promptKey] && previousPrompt.trim()) {
+        hydrated[promptKey] = previousPrompt;
+      }
     }
 
     setValues(hydrated);
