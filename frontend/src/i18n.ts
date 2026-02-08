@@ -60,6 +60,14 @@ const ZH_CN: Record<string, string> = {
   "create.hintCreated": "任务已创建：{taskId}",
   "create.hintSubmitFailed": "提交失败：{message}",
   "create.hintReusedDraft": "已从历史记录继承参数，可直接修改提示词后重试。",
+  "create.promptNotSupported": "当前模型未暴露提示词字段，请在高级设置中完成参数后提交。",
+  "create.quickType": "创作类型",
+  "create.quickImage": "图片生成",
+  "create.quickVideo": "视频生成",
+  "create.quickMode": "模式",
+  "create.quickRatio": "比例",
+  "create.quickSize": "大小",
+  "create.quickDuration": "时长",
 
   "jobs.loading": "正在加载任务...",
   "jobs.title": "任务",
@@ -216,6 +224,15 @@ const EN: Record<string, string> = {
   "create.hintSubmitFailed": "Submit failed: {message}",
   "create.hintReusedDraft":
     "Parameters were restored from history. Update prompt and retry if needed.",
+  "create.promptNotSupported":
+    "This model does not expose a prompt field. Configure inputs in advanced settings and submit.",
+  "create.quickType": "Creation Type",
+  "create.quickImage": "Image",
+  "create.quickVideo": "Video",
+  "create.quickMode": "Mode",
+  "create.quickRatio": "Ratio",
+  "create.quickSize": "Size",
+  "create.quickDuration": "Duration",
 
   "jobs.loading": "Loading tasks...",
   "jobs.title": "Jobs",

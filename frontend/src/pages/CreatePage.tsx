@@ -10,6 +10,7 @@ import { useI18n } from "../i18n";
 import { useAppSettingsStore, type AppSettingsState } from "../state";
 import type {
   ProviderCatalogResponse,
+  ProviderInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
   VideoGenerationRequest,
@@ -32,15 +33,6 @@ interface Props {
   loading: boolean;
 }
 
-const CORE_FIELD_ORDER = [
-  "prompt",
-  "negative_prompt",
-  "duration_sec",
-  "resolution",
-  "fps",
-  "seed",
-  "quality",
-];
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
 const PROMPT_PRESETS_KEY = "scenewords_prompt_presets_v1";
 const MAX_RECENT_PROMPTS = 20;
@@ -79,6 +71,7 @@ export function CreatePage(props: Props) {
   const [hint, setHint] = useState("");
   const [recentPromptVersion, setRecentPromptVersion] = useState(0);
   const [presetVersion, setPresetVersion] = useState(0);
+  const [openQuickKey, setOpenQuickKey] = useState<string | null>(null);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? null,
@@ -104,17 +97,6 @@ export function CreatePage(props: Props) {
     const modelLower = modelName.toLowerCase();
     return providerType.includes("veo") || modelLower.includes("veo");
   }, [modelName, selectedProvider?.type]);
-  const coreFields = useMemo(
-    () => getCoreFields(selectedOperation),
-    [selectedOperation],
-  );
-  const advancedFields = useMemo(() => {
-    if (!selectedOperation) {
-      return [];
-    }
-    const coreIds = new Set(coreFields.map((field) => fieldKey(field)));
-    return selectedOperation.fields.filter((field) => !coreIds.has(fieldKey(field)));
-  }, [coreFields, selectedOperation]);
   const promptField = useMemo(
     () =>
       selectedOperation?.fields.find(
@@ -122,6 +104,63 @@ export function CreatePage(props: Props) {
       ) ?? null,
     [selectedOperation],
   );
+  const durationField = useMemo(
+    () => findField(selectedOperation, "duration_sec"),
+    [selectedOperation],
+  );
+  const resolutionField = useMemo(
+    () => findField(selectedOperation, "resolution"),
+    [selectedOperation],
+  );
+  const qualityField = useMemo(
+    () =>
+      selectedOperation?.fields.find(
+        (field) => field.target === "provider_options" && field.key === "quality",
+      ) ?? null,
+    [selectedOperation],
+  );
+  const quickMediaFields = useMemo(() => {
+    if (!selectedOperation) {
+      return [];
+    }
+    const excluded = new Set<string>();
+    if (promptField) {
+      excluded.add(fieldKey(promptField));
+    }
+    if (durationField) {
+      excluded.add(fieldKey(durationField));
+    }
+    if (resolutionField) {
+      excluded.add(fieldKey(resolutionField));
+    }
+    if (qualityField) {
+      excluded.add(fieldKey(qualityField));
+    }
+    const fileFields = selectedOperation.fields.filter((field) => {
+      if (excluded.has(fieldKey(field))) {
+        return false;
+      }
+      return field.input_type === "file" || field.input_type === "file_list";
+    });
+    const required = fileFields.filter((field) => field.required);
+    if (required.length) {
+      return required;
+    }
+    return fileFields.slice(0, 1);
+  }, [durationField, promptField, qualityField, resolutionField, selectedOperation]);
+  const advancedFields = useMemo(() => {
+    if (!selectedOperation) {
+      return [];
+    }
+    const excluded = new Set<string>();
+    if (promptField) {
+      excluded.add(fieldKey(promptField));
+    }
+    for (const field of quickMediaFields) {
+      excluded.add(fieldKey(field));
+    }
+    return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
+  }, [promptField, quickMediaFields, selectedOperation]);
   const recentPrompts = useMemo(
     () =>
       listRecentPrompts({
@@ -144,6 +183,73 @@ export function CreatePage(props: Props) {
     () => listPromptPresets(presetVersion),
     [presetVersion],
   );
+  const imageProviders = useMemo(
+    () => providers.filter((provider) => isImageProviderType(provider.type)),
+    [providers],
+  );
+  const videoProviders = useMemo(
+    () => providers.filter((provider) => !isImageProviderType(provider.type)),
+    [providers],
+  );
+  const currentGenerationKind: "image" | "video" = useMemo(
+    () => (selectedProvider && isImageProviderType(selectedProvider.type) ? "image" : "video"),
+    [selectedProvider],
+  );
+  const canSwitchGenerationKind = imageProviders.length > 0 && videoProviders.length > 0;
+  const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
+  const qualityValue = qualityField ? values[fieldKey(qualityField)] ?? "" : "";
+  const durationValue = durationField ? values[fieldKey(durationField)] ?? "" : "";
+  const resolutionChoices = useMemo(
+    () => buildResolutionChoices(resolutionField, resolutionValue),
+    [resolutionField, resolutionValue],
+  );
+  const resolutionMeta = useMemo(
+    () => parseResolutionMeta(resolutionValue),
+    [resolutionValue],
+  );
+  const ratioChoices = useMemo(
+    () => Array.from(new Set(resolutionChoices.map((item) => item.ratio).filter(Boolean))),
+    [resolutionChoices],
+  );
+  const sizeChoices = useMemo(
+    () => Array.from(new Set(resolutionChoices.map((item) => item.size).filter(Boolean))),
+    [resolutionChoices],
+  );
+  const qualityChoices = useMemo(
+    () => (qualityField?.options ?? []).map((option) => option.value).filter(Boolean),
+    [qualityField?.options],
+  );
+  const currentRatioDisplay = useMemo(() => {
+    if (!resolutionField) {
+      return "-";
+    }
+    if (resolutionMeta.ratio) {
+      return resolutionMeta.ratio;
+    }
+    if (resolutionValue) {
+      return resolutionValue;
+    }
+    return "-";
+  }, [resolutionField, resolutionMeta.ratio, resolutionValue]);
+  const currentSizeDisplay = useMemo(() => {
+    if (qualityField) {
+      if (!qualityValue) {
+        return "-";
+      }
+      const matched = qualityField.options.find((option) => option.value === qualityValue);
+      return matched?.label || qualityValue;
+    }
+    if (!resolutionField) {
+      return "-";
+    }
+    if (resolutionMeta.size) {
+      return resolutionMeta.size;
+    }
+    if (resolutionValue) {
+      return resolutionValue;
+    }
+    return "-";
+  }, [qualityField, qualityValue, resolutionField, resolutionMeta.size, resolutionValue]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -403,6 +509,46 @@ export function CreatePage(props: Props) {
       nextValue,
     );
   };
+  const onGenerationKindChanged = (nextKind: "image" | "video") => {
+    if (nextKind === currentGenerationKind) {
+      return;
+    }
+    const nextProvider = pickProviderByKind(providers, nextKind, settings.defaultProvider);
+    if (!nextProvider) {
+      return;
+    }
+    setProviderId(nextProvider.id);
+  };
+  const toggleQuickItem = (key: string) => {
+    setOpenQuickKey((current) => (current === key ? null : key));
+  };
+  const closeQuickItem = () => {
+    setOpenQuickKey(null);
+  };
+  const onRatioChanged = (nextRatio: string) => {
+    if (!resolutionField) {
+      return;
+    }
+    const nextResolution = pickResolutionValue(resolutionField, resolutionValue, { ratio: nextRatio });
+    if (!nextResolution) {
+      return;
+    }
+    onFieldChanged(resolutionField, nextResolution);
+  };
+  const onSizeChanged = (nextSize: string) => {
+    if (qualityField) {
+      onFieldChanged(qualityField, nextSize);
+      return;
+    }
+    if (!resolutionField) {
+      return;
+    }
+    const nextResolution = pickResolutionValue(resolutionField, resolutionValue, { size: nextSize });
+    if (!nextResolution) {
+      return;
+    }
+    onFieldChanged(resolutionField, nextResolution);
+  };
 
   if (loading) {
     return <section className="panel">{t("create.loadingCatalog")}</section>;
@@ -412,236 +558,453 @@ export function CreatePage(props: Props) {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <h2>{t("create.title")}</h2>
-        <p>{t("create.subtitle")}</p>
-      </div>
-
+    <section className="panel create-panel">
       <form
-        className="form-grid"
+        className="create-flow"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        <div className="grid-3">
-          <label>
-            {t("create.provider")}
-            <select
-              value={providerId}
-              onChange={(event) => setProviderId(event.target.value)}
-            >
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("create.model")}
-            <select
-              value={modelName}
-              onChange={(event) => setModelName(event.target.value)}
-            >
-              {selectedProvider.models.map((model) => (
-                <option key={model.name} value={model.name}>
-                  {model.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("create.operation")}
-            <select
-              value={operationId}
-              onChange={(event) => setOperationId(event.target.value)}
-            >
-              {selectedModel.operations.map((operation) => (
-                <option key={operation.id} value={operation.id}>
-                  {operation.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <section className="focus-composer">
+          <div className="focus-head">
+            <p className="focus-kicker">{t("create.title")}</p>
+            <h2>{t("create.subtitle")}</h2>
+            <p className="model-context">
+              {selectedProvider.display_name} · {selectedModel.display_name} ·{" "}
+              {selectedOperation.display_name}
+            </p>
+          </div>
 
-        <section className="core-section">
-          <h3>{t("create.coreInputs")}</h3>
-          <div className="dynamic-grid">
-            {coreFields.map((field) => renderField(field, values, onFieldChanged, setFiles))}
+          {promptField ? (
+            <label
+              className="prompt-editor"
+              onClick={closeQuickItem}
+              onFocusCapture={closeQuickItem}
+            >
+              <div className="prompt-editor-head">
+                <span>{promptField.label}</span>
+                <div className="inline-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFieldChanged(promptField, "");
+                    }}
+                  >
+                    {t("create.clearPrompt")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const promptValue = (values[fieldKey(promptField)] ?? "").trim();
+                      if (!promptValue) {
+                        setHint(t("create.hintPromptEmpty"));
+                        return;
+                      }
+                      const added = appendPromptPreset(promptValue);
+                      if (!added) {
+                        setHint(t("create.hintPresetExists"));
+                        return;
+                      }
+                      setPresetVersion((current) => current + 1);
+                      setHint(t("create.hintPresetSaved"));
+                    }}
+                  >
+                    {t("create.saveCurrentPreset")}
+                  </button>
+                </div>
+              </div>
+              <DynamicInput
+                field={promptField}
+                value={values[fieldKey(promptField)] ?? ""}
+                onValueChange={(next) => onFieldChanged(promptField, next)}
+                onFileChange={() => undefined}
+              />
+              {promptField.help_text ? <small>{promptField.help_text}</small> : null}
+            </label>
+          ) : (
+            <p className="hint">{t("create.promptNotSupported")}</p>
+          )}
+
+          <section className="quick-bar">
+            <div className={openQuickKey === "kind" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("kind")}
+              >
+                <span>{t("create.quickType")}</span>
+                <strong>
+                  {currentGenerationKind === "image"
+                    ? t("create.quickImage")
+                    : t("create.quickVideo")}
+                </strong>
+              </button>
+              {openQuickKey === "kind" ? (
+                <div className="quick-popover quick-popover-segment">
+                  <button
+                    type="button"
+                    className={currentGenerationKind === "video" ? "chip-button active" : "chip-button"}
+                    onClick={() => {
+                      onGenerationKindChanged("video");
+                      closeQuickItem();
+                    }}
+                    disabled={!canSwitchGenerationKind}
+                  >
+                    {t("create.quickVideo")}
+                  </button>
+                  <button
+                    type="button"
+                    className={currentGenerationKind === "image" ? "chip-button active" : "chip-button"}
+                    onClick={() => {
+                      onGenerationKindChanged("image");
+                      closeQuickItem();
+                    }}
+                    disabled={!canSwitchGenerationKind}
+                  >
+                    {t("create.quickImage")}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={openQuickKey === "model" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("model")}
+              >
+                <span>{t("create.model")}</span>
+                <strong>{selectedModel.display_name}</strong>
+              </button>
+              {openQuickKey === "model" ? (
+                <div className="quick-popover">
+                  <select
+                    value={modelName}
+                    onChange={(event) => {
+                      setModelName(event.target.value);
+                      closeQuickItem();
+                    }}
+                  >
+                    {selectedProvider.models.map((model) => (
+                      <option key={model.name} value={model.name}>
+                        {model.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={openQuickKey === "mode" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("mode")}
+              >
+                <span>{t("create.quickMode")}</span>
+                <strong>{selectedOperation.display_name}</strong>
+              </button>
+              {openQuickKey === "mode" ? (
+                <div className="quick-popover">
+                  <select
+                    value={operationId}
+                    onChange={(event) => {
+                      setOperationId(event.target.value);
+                      closeQuickItem();
+                    }}
+                  >
+                    {selectedModel.operations.map((operation) => (
+                      <option key={operation.id} value={operation.id}>
+                        {operation.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={openQuickKey === "ratio" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("ratio")}
+              >
+                <span>{t("create.quickRatio")}</span>
+                <strong>{currentRatioDisplay}</strong>
+              </button>
+              {openQuickKey === "ratio" ? (
+                <div className="quick-popover quick-popover-grid">
+                  {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
+                    <button
+                      type="button"
+                      key={ratio}
+                      className={currentRatioDisplay === ratio ? "chip-button active" : "chip-button"}
+                      onClick={() => {
+                        onRatioChanged(ratio);
+                        closeQuickItem();
+                      }}
+                      disabled={!resolutionField}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className={openQuickKey === "size" ? "quick-item open" : "quick-item"}>
+              <button
+                type="button"
+                className="quick-trigger"
+                onClick={() => toggleQuickItem("size")}
+              >
+                <span>{t("create.quickSize")}</span>
+                <strong>{currentSizeDisplay}</strong>
+              </button>
+              {openQuickKey === "size" ? (
+                <div className="quick-popover quick-popover-grid">
+                  {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+                    const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                    const display = qualityField
+                      ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                      : size;
+                    return (
+                      <button
+                        type="button"
+                        key={size}
+                        className={active ? "chip-button active" : "chip-button"}
+                        onClick={() => {
+                          onSizeChanged(size);
+                          closeQuickItem();
+                        }}
+                      >
+                        {display}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
+            {durationField ? (
+              <div className={openQuickKey === "duration" ? "quick-item open" : "quick-item"}>
+                <button
+                  type="button"
+                  className="quick-trigger"
+                  onClick={() => toggleQuickItem("duration")}
+                >
+                  <span>{t("create.quickDuration")}</span>
+                  <strong>{durationValue ? `${durationValue}s` : "-"}</strong>
+                </button>
+                {openQuickKey === "duration" ? (
+                  <div className="quick-popover">
+                    <DynamicInput
+                      field={durationField}
+                      value={durationValue}
+                      onValueChange={(next) => onFieldChanged(durationField, next)}
+                      onFileChange={() => undefined}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+
+          {quickMediaFields.length ? (
+            <section className="quick-media-fields">
+              {quickMediaFields.map((field) =>
+                renderField(field, values, onFieldChanged, setFiles, "compact"),
+              )}
+            </section>
+          ) : null}
+
+          <div className="focus-actions">
+            <div className="status-line">
+              <p className="hint">
+                {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
+                  ? t("create.estimated", {
+                      cost: estimateQuery.data.estimated_cost.toFixed(3),
+                      currency: estimateQuery.data.currency ?? settings.currency,
+                    })
+                  : t("create.estimatedUnavailable")}
+              </p>
+              {hint ? <p className="hint">{hint}</p> : null}
+            </div>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={submitMutation.isPending}
+            >
+              {submitMutation.isPending
+                ? t("create.submitting")
+                : selectedProvider.type === "tuzi_image"
+                  ? t("create.generateImage")
+                  : t("create.generateVideo")}
+            </button>
           </div>
         </section>
 
-        {showVeoPromptGuide ? (
-          <section className="veo-guide">
-            <h4>{t("create.veoPromptGuideTitle")}</h4>
-            <p>{t("create.veoPromptGuideDesc")}</p>
-            <div className="veo-guide-links">
-              <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer">
-                {t("create.veoPromptGuideLinkDocs")}
-              </a>
-              <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer">
-                {t("create.veoPromptGuideLinkBlog")}
-              </a>
-            </div>
-          </section>
-        ) : null}
-
         {promptField ? (
-          <section className="prompt-presets">
-            <div className="prompt-presets-header">
-              <h4>{t("create.promptPresets")}</h4>
-              <div className="inline-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onFieldChanged(promptField, "");
-                  }}
-                >
-                  {t("create.clearPrompt")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const promptValue = (values[fieldKey(promptField)] ?? "").trim();
-                    if (!promptValue) {
-                      setHint(t("create.hintPromptEmpty"));
-                      return;
-                    }
-                    const added = appendPromptPreset(promptValue);
-                    if (!added) {
-                      setHint(t("create.hintPresetExists"));
-                      return;
-                    }
-                    setPresetVersion((current) => current + 1);
-                    setHint(t("create.hintPresetSaved"));
-                  }}
-                >
-                  {t("create.saveCurrentPreset")}
-                </button>
-              </div>
-            </div>
-            <div className="prompt-preset-list">
-              {promptPresets.map((preset) => (
-                <div key={preset} className="prompt-preset-item">
-                  <button
-                    type="button"
-                    className="prompt-preset-chip"
-                    onClick={() => {
-                      onFieldChanged(promptField, preset);
-                      setHint(t("create.hintPresetApplied"));
-                    }}
-                  >
-                    {preset}
-                  </button>
-                  {!DEFAULT_PROMPT_PRESETS.includes(preset) ? (
+          <section className="support-sections">
+            <details className="support-details">
+              <summary>{t("create.promptPresets")}</summary>
+              <div className="prompt-preset-list">
+                {promptPresets.map((preset) => (
+                  <div key={preset} className="prompt-preset-item">
                     <button
                       type="button"
-                      className="mini-button"
+                      className="prompt-preset-chip"
                       onClick={() => {
-                        removePromptPreset(preset);
-                        setPresetVersion((current) => current + 1);
+                        onFieldChanged(promptField, preset);
+                        setHint(t("create.hintPresetApplied"));
                       }}
                     >
-                      {t("create.removePreset")}
+                      {preset}
                     </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {promptField && settings.savePromptHistory ? (
-          <section className="recent-prompts">
-            <div className="recent-prompts-header">
-              <h4>{t("create.recentPrompts")}</h4>
-              <button
-                type="button"
-                onClick={() => {
-                  clearRecentPrompts();
-                  setRecentPromptVersion((current) => current + 1);
-                }}
-              >
-                {t("common.clear")}
-              </button>
-            </div>
-            {recentPrompts.length ? (
-              <div className="recent-prompt-list">
-                {recentPrompts.map((entry) => (
-                  <div
-                    key={`${entry.usedAt}_${entry.text}`}
-                    className="recent-prompt-item"
-                  >
-                    <button
-                      type="button"
-                      className="recent-prompt-chip"
-                      onClick={() => {
-                        onFieldChanged(promptField, entry.text);
-                        setHint(t("create.hintRecentPromptApplied"));
-                      }}
-                    >
-                      {entry.text}
-                    </button>
-                    <button
-                      type="button"
-                      className={entry.pinned ? "mini-button pinned" : "mini-button"}
-                      onClick={() => {
-                        toggleRecentPromptPinned({
-                          provider: entry.provider,
-                          model: entry.model,
-                          operation: entry.operation,
-                          text: entry.text,
-                        });
-                        setRecentPromptVersion((current) => current + 1);
-                      }}
-                    >
-                      {entry.pinned ? t("create.unpin") : t("create.pin")}
-                    </button>
+                    {!DEFAULT_PROMPT_PRESETS.includes(preset) ? (
+                      <button
+                        type="button"
+                        className="mini-button"
+                        onClick={() => {
+                          removePromptPreset(preset);
+                          setPresetVersion((current) => current + 1);
+                        }}
+                      >
+                        {t("create.removePreset")}
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="hint">{t("create.noRecentPrompts")}</p>
-            )}
+            </details>
+
+            {settings.savePromptHistory ? (
+              <details className="support-details">
+                <summary>{t("create.recentPrompts")}</summary>
+                <div className="recent-prompts-header">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearRecentPrompts();
+                      setRecentPromptVersion((current) => current + 1);
+                    }}
+                  >
+                    {t("common.clear")}
+                  </button>
+                </div>
+                {recentPrompts.length ? (
+                  <div className="recent-prompt-list">
+                    {recentPrompts.map((entry) => (
+                      <div
+                        key={`${entry.usedAt}_${entry.text}`}
+                        className="recent-prompt-item"
+                      >
+                        <button
+                          type="button"
+                          className="recent-prompt-chip"
+                          onClick={() => {
+                            onFieldChanged(promptField, entry.text);
+                            setHint(t("create.hintRecentPromptApplied"));
+                          }}
+                        >
+                          {entry.text}
+                        </button>
+                        <button
+                          type="button"
+                          className={entry.pinned ? "mini-button pinned" : "mini-button"}
+                          onClick={() => {
+                            toggleRecentPromptPinned({
+                              provider: entry.provider,
+                              model: entry.model,
+                              operation: entry.operation,
+                              text: entry.text,
+                            });
+                            setRecentPromptVersion((current) => current + 1);
+                          }}
+                        >
+                          {entry.pinned ? t("create.unpin") : t("create.pin")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">{t("create.noRecentPrompts")}</p>
+                )}
+              </details>
+            ) : null}
           </section>
         ) : null}
 
-        {advancedFields.length ? (
-          <details className="advanced-section">
-            <summary>{t("create.advancedOptions", { count: advancedFields.length })}</summary>
-            <div className="dynamic-grid">
-              {advancedFields.map((field) =>
-                renderField(field, values, onFieldChanged, setFiles),
-              )}
+        <details className="advanced-drawer">
+          <summary>{t("create.advancedOptions", { count: advancedFields.length + 3 })}</summary>
+          <div className="advanced-panel">
+            <div className="grid-3">
+              <label className="field">
+                <span>{t("create.provider")}</span>
+                <select
+                  value={providerId}
+                  onChange={(event) => setProviderId(event.target.value)}
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.display_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>{t("create.model")}</span>
+                <select
+                  value={modelName}
+                  onChange={(event) => setModelName(event.target.value)}
+                >
+                  {selectedProvider.models.map((model) => (
+                    <option key={model.name} value={model.name}>
+                      {model.display_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>{t("create.operation")}</span>
+                <select
+                  value={operationId}
+                  onChange={(event) => setOperationId(event.target.value)}
+                >
+                  {selectedModel.operations.map((operation) => (
+                    <option key={operation.id} value={operation.id}>
+                      {operation.display_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          </details>
-        ) : null}
 
-        <div className="submit-area">
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={submitMutation.isPending}
-          >
-            {submitMutation.isPending
-              ? t("create.submitting")
-              : selectedProvider?.type === "tuzi_image"
-                ? t("create.generateImage")
-                : t("create.generateVideo")}
-          </button>
-          <p className="hint">
-            {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
-              ? t("create.estimated", {
-                  cost: estimateQuery.data.estimated_cost.toFixed(3),
-                  currency: estimateQuery.data.currency ?? settings.currency,
-                })
-              : t("create.estimatedUnavailable")}
-          </p>
-          <p className="hint">{hint}</p>
-        </div>
+            {showVeoPromptGuide ? (
+              <section className="veo-guide">
+                <h4>{t("create.veoPromptGuideTitle")}</h4>
+                <p>{t("create.veoPromptGuideDesc")}</p>
+                <div className="veo-guide-links">
+                  <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer">
+                    {t("create.veoPromptGuideLinkDocs")}
+                  </a>
+                  <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer">
+                    {t("create.veoPromptGuideLinkBlog")}
+                  </a>
+                </div>
+              </section>
+            ) : null}
+
+            {advancedFields.length ? (
+              <div className="dynamic-grid">
+                {advancedFields.map((field) =>
+                  renderField(field, values, onFieldChanged, setFiles),
+                )}
+              </div>
+            ) : null}
+          </div>
+        </details>
       </form>
     </section>
   );
@@ -742,20 +1105,160 @@ function DynamicInput(props: {
   );
 }
 
-function getCoreFields(
-  operation: ProviderModelOperationInfo | null,
-): ProviderOperationField[] {
-  if (!operation) {
+function isImageProviderType(providerType: string): boolean {
+  return providerType.toLowerCase().includes("image");
+}
+
+function pickProviderByKind(
+  providers: ProviderInfo[],
+  kind: "image" | "video",
+  preferredProviderId: string,
+): ProviderInfo | null {
+  const matches = providers.filter((provider) =>
+    kind === "image" ? isImageProviderType(provider.type) : !isImageProviderType(provider.type),
+  );
+  if (!matches.length) {
+    return null;
+  }
+  return matches.find((provider) => provider.id === preferredProviderId) ?? matches[0];
+}
+
+interface ResolutionChoice {
+  value: string;
+  ratio: string;
+  size: string;
+}
+
+function buildResolutionChoices(
+  field: ProviderOperationField | null,
+  currentValue: string,
+): ResolutionChoice[] {
+  if (!field) {
     return [];
   }
-  const fields: ProviderOperationField[] = [];
-  for (const key of CORE_FIELD_ORDER) {
-    const matched = operation.fields.find((field) => field.key === key);
-    if (matched) {
-      fields.push(matched);
+  const values = (field.options ?? []).map((option) => option.value).filter(Boolean);
+  if (!values.length && currentValue.trim()) {
+    values.push(currentValue.trim());
+  }
+  return values.map((value) => {
+    const parsed = parseResolutionMeta(value);
+    return {
+      value,
+      ratio: parsed.ratio,
+      size: parsed.size,
+    };
+  });
+}
+
+function pickResolutionValue(
+  field: ProviderOperationField,
+  currentValue: string,
+  matcher: { ratio?: string; size?: string },
+): string | null {
+  const choices = buildResolutionChoices(field, currentValue);
+  if (!choices.length) {
+    return null;
+  }
+  const current = parseResolutionMeta(currentValue);
+  const targetRatio = matcher.ratio ?? current.ratio;
+  const targetSize = matcher.size ?? current.size;
+
+  const fullMatch = choices.find(
+    (item) =>
+      (!targetRatio || item.ratio === targetRatio) &&
+      (!targetSize || item.size === targetSize),
+  );
+  if (fullMatch) {
+    return fullMatch.value;
+  }
+  const ratioMatch = choices.find((item) => !targetRatio || item.ratio === targetRatio);
+  if (ratioMatch) {
+    return ratioMatch.value;
+  }
+  const sizeMatch = choices.find((item) => !targetSize || item.size === targetSize);
+  if (sizeMatch) {
+    return sizeMatch.value;
+  }
+  return choices[0].value;
+}
+
+function parseResolutionMeta(raw: string): { ratio: string; size: string } {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return { ratio: "", size: "" };
+  }
+  const ratioMatch = normalized.match(/^(\d+)\s*:\s*(\d+)$/);
+  if (ratioMatch) {
+    return {
+      ratio: `${Number(ratioMatch[1])}:${Number(ratioMatch[2])}`,
+      size: "",
+    };
+  }
+
+  const resolutionMatch = normalized.match(/^(\d+)\s*[x]\s*(\d+)$/);
+  if (resolutionMatch) {
+    const width = Number(resolutionMatch[1]);
+    const height = Number(resolutionMatch[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return {
+        ratio: normalizeAspectRatio(width, height),
+        size: `${Math.min(width, height)}P`,
+      };
     }
   }
-  return fields;
+
+  const sizeMatch = normalized.match(/^(\d+)\s*p$/);
+  if (sizeMatch) {
+    return {
+      ratio: "",
+      size: `${Number(sizeMatch[1])}P`,
+    };
+  }
+  return {
+    ratio: raw.trim(),
+    size: raw.trim(),
+  };
+}
+
+function normalizeAspectRatio(width: number, height: number): string {
+  const target = width / height;
+  const candidates: Array<[string, number]> = [
+    ["21:9", 21 / 9],
+    ["16:9", 16 / 9],
+    ["9:16", 9 / 16],
+    ["4:3", 4 / 3],
+    ["3:4", 3 / 4],
+    ["1:1", 1],
+    ["3:2", 3 / 2],
+    ["2:3", 2 / 3],
+    ["4:5", 4 / 5],
+    ["5:4", 5 / 4],
+  ];
+  let best = candidates[0];
+  let diff = Math.abs(target - best[1]);
+  for (let index = 1; index < candidates.length; index += 1) {
+    const currentDiff = Math.abs(target - candidates[index][1]);
+    if (currentDiff < diff) {
+      diff = currentDiff;
+      best = candidates[index];
+    }
+  }
+  if (diff <= 0.12) {
+    return best[0];
+  }
+  const divisor = greatestCommonDivisor(width, height);
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function greatestCommonDivisor(left: number, right: number): number {
+  let a = Math.abs(Math.round(left));
+  let b = Math.abs(Math.round(right));
+  while (b !== 0) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1;
 }
 
 function renderField(
@@ -763,11 +1266,18 @@ function renderField(
   values: Record<string, string>,
   onFieldChanged: (field: ProviderOperationField, nextValue: string) => void,
   setFiles: Dispatch<SetStateAction<Record<string, File[]>>>,
+  variant: "default" | "compact" = "default",
 ) {
   const key = fieldKey(field);
   const value = values[key] ?? "";
+  const className =
+    variant === "compact"
+      ? "field field-compact"
+      : isPromptLike(field)
+        ? "field field-wide"
+        : "field";
   return (
-    <label key={key} className={isPromptLike(field) ? "field field-wide" : "field"}>
+    <label key={key} className={className}>
       <span>{field.label}</span>
       <DynamicInput
         field={field}

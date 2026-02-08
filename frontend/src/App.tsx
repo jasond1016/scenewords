@@ -42,50 +42,62 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <h1>{t("app.brandTitle")}</h1>
-          <p>
-            {t("app.brandSubtitle")} · {t("app.gateway")}
-          </p>
+      <aside className="side-rail">
+        <div className="rail-logo" aria-label={t("app.brandTitle")}>
+          {t("app.brandTitle").slice(0, 1)}
         </div>
-        <nav>
+        <nav className="rail-nav">
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/create">
             {t("nav.create")}
           </NavLink>
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/jobs">
             {t("nav.jobs")}
           </NavLink>
-          <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/settings">
-            {t("nav.settings")}
-          </NavLink>
         </nav>
       </aside>
-      <main className="content">
-        <Routes>
-          <Route
-            path="/"
-            element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
-          />
-          <Route
-            path="/create"
-            element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
-          />
-          <Route
-            path="/jobs"
-            element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
-          />
-          <Route
-            path="/settings"
-            element={
-              <SettingsPage
-                pricingVersion={pricingQuery.data?.pricing_version ?? null}
-                providers={catalogQuery.data?.providers ?? []}
-              />
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <h1>{t("app.brandTitle")}</h1>
+            <p>
+              {t("app.brandSubtitle")} · {t("app.gateway")}
+            </p>
+          </div>
+          <NavLink
+            className={({ isActive }) =>
+              isActive ? "topbar-settings active" : "topbar-settings"
             }
-          />
-        </Routes>
-      </main>
+            to="/settings"
+          >
+            {t("nav.settings")}
+          </NavLink>
+        </header>
+        <main className="content">
+          <Routes>
+            <Route
+              path="/"
+              element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
+            />
+            <Route
+              path="/create"
+              element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
+            />
+            <Route
+              path="/jobs"
+              element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
+            />
+            <Route
+              path="/settings"
+              element={
+                <SettingsPage
+                  pricingVersion={pricingQuery.data?.pricing_version ?? null}
+                  providers={catalogQuery.data?.providers ?? []}
+                />
+              }
+            />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }
