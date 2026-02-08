@@ -45,6 +45,8 @@ const VEO_PROMPT_GUIDE_LINK_DOCS =
   "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide?hl=zh-cn";
 const VEO_PROMPT_GUIDE_LINK_BLOG =
   "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1";
+const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
+const VIDEO_PROVIDER_PRIORITY = ["veo31", "sora2", "local_comfy"];
 
 interface RecentPromptEntry {
   text: string;
@@ -202,11 +204,11 @@ export function CreatePage(props: Props) {
     [presetVersion],
   );
   const imageProviders = useMemo(
-    () => providers.filter((provider) => isImageProviderType(provider.type)),
+    () => listVisibleProvidersByKind(providers, "image"),
     [providers],
   );
   const videoProviders = useMemo(
-    () => providers.filter((provider) => !isImageProviderType(provider.type)),
+    () => listVisibleProvidersByKind(providers, "video"),
     [providers],
   );
   const currentGenerationKind: "image" | "video" = useMemo(
@@ -215,12 +217,7 @@ export function CreatePage(props: Props) {
   );
   const canSwitchGenerationKind = imageProviders.length > 0 && videoProviders.length > 0;
   const providerChoices = useMemo(
-    () =>
-      providers.filter((provider) =>
-        currentGenerationKind === "image"
-          ? isImageProviderType(provider.type)
-          : !isImageProviderType(provider.type),
-      ),
+    () => listVisibleProvidersByKind(providers, currentGenerationKind),
     [currentGenerationKind, providers],
   );
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
@@ -290,6 +287,15 @@ export function CreatePage(props: Props) {
     }
     return t("create.promptPlaceholder");
   }, [promptField, t]);
+
+  useEffect(() => {
+    if (currentGenerationKind !== "video" || !videoProviders.length) {
+      return;
+    }
+    if (!videoProviders.some((provider) => provider.id === providerId)) {
+      setProviderId(videoProviders[0].id);
+    }
+  }, [currentGenerationKind, providerId, videoProviders]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -1185,13 +1191,47 @@ function pickProviderByKind(
   kind: "image" | "video",
   preferredProviderId: string,
 ): ProviderInfo | null {
-  const matches = providers.filter((provider) =>
-    kind === "image" ? isImageProviderType(provider.type) : !isImageProviderType(provider.type),
-  );
+  const matches = listVisibleProvidersByKind(providers, kind);
   if (!matches.length) {
     return null;
   }
   return matches.find((provider) => provider.id === preferredProviderId) ?? matches[0];
+}
+
+function listVisibleProvidersByKind(
+  providers: ProviderInfo[],
+  kind: "image" | "video",
+): ProviderInfo[] {
+  const filtered = providers.filter((provider) =>
+    kind === "image" ? isImageProviderType(provider.type) : !isImageProviderType(provider.type),
+  );
+  if (kind === "image") {
+    return filtered;
+  }
+  const visible = filtered.filter((provider) => !HIDDEN_VIDEO_PROVIDER_IDS.has(provider.id));
+  if (!visible.length) {
+    return [];
+  }
+  return sortProvidersByPriority(visible, VIDEO_PROVIDER_PRIORITY);
+}
+
+function sortProvidersByPriority(
+  providers: ProviderInfo[],
+  priority: string[],
+): ProviderInfo[] {
+  const rank = new Map(priority.map((id, index) => [id, index]));
+  const indexed = providers.map((provider, index) => ({ provider, index }));
+  indexed.sort((left, right) => {
+    const leftRank = rank.get(left.provider.id);
+    const rightRank = rank.get(right.provider.id);
+    const leftOrder = leftRank == null ? Number.MAX_SAFE_INTEGER : leftRank;
+    const rightOrder = rightRank == null ? Number.MAX_SAFE_INTEGER : rightRank;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.index - right.index;
+  });
+  return indexed.map((item) => item.provider);
 }
 
 interface ResolutionChoice {
