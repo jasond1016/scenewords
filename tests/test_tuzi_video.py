@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import io
+
 import pytest
+from PIL import Image
 
 from app.providers.base import ProviderError
-from app.providers.tuzi_video import _build_create_character_form
+from app.providers.tuzi_video import (
+    _SubmitRequest,
+    _build_create_character_form,
+    _build_generation_form,
+    _should_retry_upload_failure,
+)
 from app.schemas import VideoGenerationRequest
 
 
@@ -38,3 +46,68 @@ def test_build_create_character_form_rejects_invalid_character_model() -> None:
 
     with pytest.raises(ProviderError, match="character_model must be one of"):
         _build_create_character_form(request)
+
+
+def test_build_generation_form_normalizes_start_frame_to_target_resolution(tmp_path) -> None:
+    source_path = tmp_path / "source.jpg"
+    Image.new("RGB", (4032, 3024), color=(120, 90, 60)).save(source_path, format="JPEG", quality=95)
+    request = VideoGenerationRequest(
+        provider="veo31",
+        model="veo3.1",
+        operation="generate",
+        prompt="test",
+        duration_sec=8,
+        resolution="1280x720",
+        provider_options={
+            "__resolved_start_frame_file_id": [
+                {
+                    "file_id": "file_1",
+                    "path": str(source_path),
+                    "original_name": "source.jpg",
+                    "mime_type": "image/jpeg",
+                    "size_bytes": source_path.stat().st_size,
+                }
+            ]
+        },
+    )
+
+    normal_form, normal_meta = _build_generation_form(request, "generate", upload_profile="normal")
+    aggressive_form, aggressive_meta = _build_generation_form(request, "generate", upload_profile="aggressive")
+
+    normal_part = next(part for part in normal_form if part[0] == "input_reference" and isinstance(part[1], tuple))
+    aggressive_part = next(part for part in aggressive_form if part[0] == "input_reference" and isinstance(part[1], tuple))
+    normal_bytes = normal_part[1][1]
+    aggressive_bytes = aggressive_part[1][1]
+
+    with Image.open(io.BytesIO(normal_bytes)) as image:
+        assert image.size == (1280, 720)
+    with Image.open(io.BytesIO(aggressive_bytes)) as image:
+        assert image.size == (1280, 720)
+
+    assert len(normal_meta) == 1
+    assert len(aggressive_meta) == 1
+    assert normal_meta[0]["output_bytes"] <= 3_000_000
+    assert aggressive_meta[0]["output_bytes"] <= normal_meta[0]["output_bytes"]
+
+
+def test_should_retry_upload_failure_only_once_for_normal_profile() -> None:
+    error = ProviderError(
+        code="provider_job_failed",
+        message="failed",
+        raw_error={"error": {"message": "Reason: PUBLIC_ERROR_MINOR_UPLOAD"}},
+    )
+    normal_submit = _SubmitRequest(
+        endpoint="https://example.com",
+        timeout_sec=120.0,
+        files=[("input_reference", ("a.jpg", b"abc", "image/jpeg"))],
+        upload_profile="normal",
+    )
+    aggressive_submit = _SubmitRequest(
+        endpoint="https://example.com",
+        timeout_sec=120.0,
+        files=[("input_reference", ("a.jpg", b"abc", "image/jpeg"))],
+        upload_profile="aggressive",
+    )
+
+    assert _should_retry_upload_failure(error=error, submit_request=normal_submit) is True
+    assert _should_retry_upload_failure(error=error, submit_request=aggressive_submit) is False

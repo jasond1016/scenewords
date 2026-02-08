@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.config import ProviderConfig
 from app.providers.base import Provider, ProviderError
 from app.schemas import VideoGenerationRequest
+
+try:
+    from PIL import Image, ImageOps
+except Exception:  # pragma: no cover - optional dependency at import time
+    Image = None  # type: ignore[assignment]
+    ImageOps = None  # type: ignore[assignment]
 
 
 class TuziVeoProvider(Provider):
@@ -41,6 +48,8 @@ class _SubmitRequest:
     files: list[tuple[str, Any]] | None = None
     json_body: dict[str, Any] | None = None
     should_poll: bool = True
+    upload_profile: Literal["normal", "aggressive"] = "normal"
+    image_processing: list[dict[str, Any]] | None = None
 
 
 class _TuziAsyncVideoProvider:
@@ -83,6 +92,7 @@ class _TuziAsyncVideoProvider:
             base_url=base_url,
             provider_config=provider_config,
             request=request,
+            upload_profile="normal",
         )
 
         submit_json = await self._submit(
@@ -106,6 +116,9 @@ class _TuziAsyncVideoProvider:
             "submit": submit_json,
             "submit_endpoint": submit_request.endpoint,
         }
+        if submit_request.image_processing:
+            raw_response["image_processing"] = submit_request.image_processing
+            raw_response["image_processing_profile"] = submit_request.upload_profile
 
         if not submit_request.should_poll:
             return {
@@ -135,12 +148,62 @@ class _TuziAsyncVideoProvider:
             ),
             field_name="poll_interval_sec",
         )
-        query_json = await self._poll(
-            endpoint=query_url,
-            headers=headers,
-            timeout_sec=poll_timeout_sec,
-            poll_interval_sec=poll_interval_sec,
-        )
+        try:
+            query_json = await self._poll(
+                endpoint=query_url,
+                headers=headers,
+                timeout_sec=poll_timeout_sec,
+                poll_interval_sec=poll_interval_sec,
+            )
+        except ProviderError as error:
+            if _should_retry_upload_failure(error=error, submit_request=submit_request):
+                retry_submit_request = _build_submit_request(
+                    operation=operation,
+                    submit_url=submit_url,
+                    base_url=base_url,
+                    provider_config=provider_config,
+                    request=request,
+                    upload_profile="aggressive",
+                )
+                retry_submit_json = await self._submit(
+                    endpoint=retry_submit_request.endpoint,
+                    headers=headers,
+                    files=retry_submit_request.files,
+                    json_body=retry_submit_request.json_body,
+                    timeout_sec=retry_submit_request.timeout_sec,
+                )
+                retry_task_id = _extract_task_id(retry_submit_json)
+                if not retry_task_id:
+                    raise ProviderError(
+                        code="missing_provider_job_id",
+                        message="Tuzi retry submit response missing task id",
+                        raw_error=retry_submit_json,
+                    ) from error
+                retry_query_url = _render_task_url(
+                    base_url=base_url,
+                    path_template=query_path,
+                    task_id=retry_task_id,
+                )
+                raw_response["retry"] = {
+                    "submit": retry_submit_json,
+                    "submit_endpoint": retry_submit_request.endpoint,
+                    "query_endpoint": retry_query_url,
+                    "reason": "PUBLIC_ERROR_MINOR_UPLOAD",
+                    "image_processing_profile": retry_submit_request.upload_profile,
+                    "image_processing": retry_submit_request.image_processing,
+                    "previous_task_id": task_id,
+                    "retry_task_id": retry_task_id,
+                }
+                task_id = retry_task_id
+                query_url = retry_query_url
+                query_json = await self._poll(
+                    endpoint=query_url,
+                    headers=headers,
+                    timeout_sec=poll_timeout_sec,
+                    poll_interval_sec=poll_interval_sec,
+                )
+            else:
+                raise
         raw_response["query"] = query_json
         raw_response["query_endpoint"] = query_url
 
@@ -327,6 +390,7 @@ def _build_submit_request(
     base_url: str,
     provider_config: ProviderConfig,
     request: VideoGenerationRequest,
+    upload_profile: Literal["normal", "aggressive"] = "normal",
 ) -> _SubmitRequest:
     submit_timeout_sec = _coerce_positive_float(
         request.provider_options.get("submit_timeout_sec"),
@@ -335,11 +399,18 @@ def _build_submit_request(
     )
 
     if operation in {"generate", "storyboard"}:
+        form_files, processing_info = _build_generation_form(
+            request=request,
+            operation=operation,
+            upload_profile=upload_profile,
+        )
         return _SubmitRequest(
             endpoint=submit_url,
             timeout_sec=submit_timeout_sec,
-            files=_build_generation_form(request=request, operation=operation),
+            files=form_files,
             should_poll=True,
+            upload_profile=upload_profile,
+            image_processing=processing_info,
         )
 
     if operation == "remix":
@@ -390,8 +461,10 @@ def _build_submit_request(
 
 
 def _build_generation_form(
-    request: VideoGenerationRequest, operation: str
-) -> list[tuple[str, Any]]:
+    request: VideoGenerationRequest,
+    operation: str,
+    upload_profile: Literal["normal", "aggressive"] = "normal",
+) -> tuple[list[tuple[str, Any]], list[dict[str, Any]]]:
     model_name = _choose_value(
         configured=request.model,
         override=request.provider_options.get("model"),
@@ -404,6 +477,12 @@ def _build_generation_form(
         raise ProviderError(code="invalid_prompt", message="prompt is required")
 
     duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 10
+    target_width, target_height = _parse_resolution_dimensions(request.resolution)
+    target_ratio = (
+        float(target_width) / float(target_height)
+        if target_width and target_height and target_height > 0
+        else None
+    )
     form_payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
@@ -440,15 +519,24 @@ def _build_generation_form(
         if coerced is not None:
             form_parts.append((key, (None, coerced)))
 
-    start_frame_part = _collect_optional_single_file_part(
+    image_processing: list[dict[str, Any]] = []
+    start_frame_part, start_frame_processing = _collect_optional_single_file_part(
         provider_options=request.provider_options,
         resolved_key="__resolved_start_frame_file_id",
         target_field_name="input_reference",
+        target_ratio=target_ratio,
+        target_width=target_width,
+        target_height=target_height,
+        upload_profile=upload_profile,
     )
-    end_frame_part = _collect_optional_single_file_part(
+    end_frame_part, end_frame_processing = _collect_optional_single_file_part(
         provider_options=request.provider_options,
         resolved_key="__resolved_end_frame_file_id",
         target_field_name="input_reference",
+        target_ratio=target_ratio,
+        target_width=target_width,
+        target_height=target_height,
+        upload_profile=upload_profile,
     )
     if end_frame_part is not None and start_frame_part is None:
         raise ProviderError(
@@ -457,14 +545,26 @@ def _build_generation_form(
         )
     if start_frame_part is not None:
         form_parts.append(start_frame_part)
+    if start_frame_processing:
+        image_processing.append(start_frame_processing)
     if end_frame_part is not None:
         form_parts.append(end_frame_part)
+    if end_frame_processing:
+        image_processing.append(end_frame_processing)
 
     for reference in _collect_input_references(request.provider_options):
         form_parts.append(("input_reference", (None, reference)))
-    form_parts.extend(_collect_input_reference_file_parts(request.provider_options))
+    reference_parts, reference_processing = _collect_input_reference_file_parts(
+        provider_options=request.provider_options,
+        target_ratio=target_ratio,
+        target_width=target_width,
+        target_height=target_height,
+        upload_profile=upload_profile,
+    )
+    form_parts.extend(reference_parts)
+    image_processing.extend(reference_processing)
 
-    return form_parts
+    return form_parts, image_processing
 
 
 def _build_create_character_form(
@@ -519,36 +619,57 @@ def _collect_input_references(provider_options: dict[str, Any]) -> list[str]:
     return []
 
 
-def _collect_input_reference_file_parts(provider_options: dict[str, Any]) -> list[tuple[str, Any]]:
+def _collect_input_reference_file_parts(
+    provider_options: dict[str, Any],
+    *,
+    target_ratio: float | None,
+    target_width: int | None,
+    target_height: int | None,
+    upload_profile: Literal["normal", "aggressive"],
+) -> tuple[list[tuple[str, Any]], list[dict[str, Any]]]:
     raw = provider_options.get("__resolved_input_reference_file_ids")
     if not isinstance(raw, list):
-        return []
+        return [], []
 
     parts: list[tuple[str, Any]] = []
+    processing: list[dict[str, Any]] = []
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        parts.append(
-            _file_entry_to_multipart_part(entry=entry, target_field_name="input_reference")
+        part, info = _file_entry_to_multipart_part(
+            entry=entry,
+            target_field_name="input_reference",
+            target_ratio=target_ratio,
+            target_width=target_width,
+            target_height=target_height,
+            upload_profile=upload_profile,
         )
-    return parts
+        parts.append(part)
+        if info:
+            processing.append(info)
+    return parts, processing
 
 
 def _collect_optional_single_file_part(
     provider_options: dict[str, Any],
     resolved_key: str,
     target_field_name: str,
-) -> tuple[str, Any] | None:
+    *,
+    target_ratio: float | None,
+    target_width: int | None,
+    target_height: int | None,
+    upload_profile: Literal["normal", "aggressive"],
+) -> tuple[tuple[str, Any] | None, dict[str, Any] | None]:
     raw = provider_options.get(resolved_key)
     if raw is None:
-        return None
+        return None, None
     if not isinstance(raw, list):
         raise ProviderError(
             code="invalid_provider_option",
             message=f"{resolved_key} must be a resolved file entry list",
         )
     if len(raw) == 0:
-        return None
+        return None, None
     if len(raw) > 1:
         raise ProviderError(
             code="invalid_provider_option",
@@ -560,12 +681,25 @@ def _collect_optional_single_file_part(
             code="invalid_provider_option",
             message=f"{resolved_key} has invalid file metadata",
         )
-    return _file_entry_to_multipart_part(entry=entry, target_field_name=target_field_name)
+    return _file_entry_to_multipart_part(
+        entry=entry,
+        target_field_name=target_field_name,
+        target_ratio=target_ratio,
+        target_width=target_width,
+        target_height=target_height,
+        upload_profile=upload_profile,
+    )
 
 
 def _file_entry_to_multipart_part(
-    entry: dict[str, Any], target_field_name: str
-) -> tuple[str, Any]:
+    entry: dict[str, Any],
+    target_field_name: str,
+    *,
+    target_ratio: float | None,
+    target_width: int | None,
+    target_height: int | None,
+    upload_profile: Literal["normal", "aggressive"],
+) -> tuple[tuple[str, Any], dict[str, Any] | None]:
     path_text = entry.get("path")
     if not isinstance(path_text, str) or not path_text.strip():
         raise ProviderError(
@@ -595,7 +729,26 @@ def _file_entry_to_multipart_part(
     mime_type = entry.get("mime_type")
     if not isinstance(mime_type, str) or not mime_type.strip():
         mime_type = "application/octet-stream"
-    return (target_field_name, (filename, content, mime_type))
+    normalized, meta = _normalize_upload_image(
+        content=content,
+        filename=filename,
+        mime_type=mime_type,
+        target_ratio=target_ratio,
+        target_width=target_width,
+        target_height=target_height,
+        upload_profile=upload_profile,
+    )
+    if normalized is not None:
+        filename, content, mime_type = normalized
+        if meta is not None:
+            meta["field"] = target_field_name
+            file_id = entry.get("file_id")
+            if isinstance(file_id, str) and file_id:
+                meta["file_id"] = file_id
+            original_name = entry.get("original_name")
+            if isinstance(original_name, str) and original_name:
+                meta["original_name"] = original_name
+    return (target_field_name, (filename, content, mime_type)), meta
 
 
 def _normalize_operation(request: VideoGenerationRequest) -> str:
@@ -635,6 +788,186 @@ def _resolution_to_tuzi_size(raw_resolution: str | None) -> str:
         return "720p"
     # Keep explicit WxH to preserve orientation (landscape vs portrait).
     return f"{width}x{height}"
+
+
+def _parse_resolution_dimensions(raw_resolution: str | None) -> tuple[int | None, int | None]:
+    normalized = str(raw_resolution or "").strip().lower()
+    if "x" not in normalized:
+        return None, None
+    width_part, _, height_part = normalized.partition("x")
+    try:
+        width = int(width_part.strip())
+        height = int(height_part.strip())
+    except (TypeError, ValueError):
+        return None, None
+    if width <= 0 or height <= 0:
+        return None, None
+    return width, height
+
+
+def _should_retry_upload_failure(error: ProviderError, submit_request: _SubmitRequest) -> bool:
+    if submit_request.upload_profile == "aggressive":
+        return False
+    if not submit_request.files:
+        return False
+    if error.code != "provider_job_failed":
+        return False
+    raw = error.raw_error if isinstance(error.raw_error, dict) else {}
+    reason_text = json.dumps(raw, ensure_ascii=False).upper()
+    return (
+        "PUBLIC_ERROR_MINOR_UPLOAD" in reason_text
+        or "UPLOADUSERIMAGE" in reason_text
+    )
+
+
+def _normalize_upload_image(
+    *,
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    target_ratio: float | None,
+    target_width: int | None,
+    target_height: int | None,
+    upload_profile: Literal["normal", "aggressive"],
+) -> tuple[tuple[str, bytes, str] | None, dict[str, Any] | None]:
+    if Image is None or ImageOps is None:
+        return None, None
+    if not mime_type.lower().startswith("image/"):
+        return None, None
+
+    source_bytes = len(content)
+    force_processing = upload_profile == "aggressive"
+    max_bytes = 3_000_000 if upload_profile == "normal" else 1_500_000
+    try:
+        with Image.open(io.BytesIO(content)) as source:
+            image = ImageOps.exif_transpose(source)
+            original_width, original_height = image.size
+            if original_width <= 0 or original_height <= 0:
+                return None, None
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            elif image.mode == "L":
+                image = image.convert("RGB")
+
+            current_ratio = float(original_width) / float(original_height)
+            ratio_mismatch = (
+                target_ratio is not None and abs(current_ratio - target_ratio) > 0.015
+            )
+            resize_to_target = (
+                target_width is not None
+                and target_height is not None
+                and (original_width != target_width or original_height != target_height)
+            )
+            needs_processing = (
+                force_processing
+                or ratio_mismatch
+                or resize_to_target
+                or source_bytes > max_bytes
+                or mime_type.lower() not in {"image/jpeg", "image/jpg"}
+            )
+            if not needs_processing:
+                return None, None
+
+            cropped = False
+            if target_ratio is not None and target_ratio > 0:
+                image, cropped = _center_crop_to_ratio(image=image, target_ratio=target_ratio)
+
+            resized = False
+            if target_width is not None and target_height is not None:
+                if image.size != (target_width, target_height):
+                    image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                    resized = True
+            else:
+                max_edge = 1920 if upload_profile == "normal" else 1280
+                if max(image.size) > max_edge:
+                    scale = float(max_edge) / float(max(image.size))
+                    next_size = (
+                        max(1, int(round(image.size[0] * scale))),
+                        max(1, int(round(image.size[1] * scale))),
+                    )
+                    image = image.resize(next_size, Image.Resampling.LANCZOS)
+                    resized = True
+
+            encoded_bytes, quality_used = _encode_image_with_limit(
+                image=image,
+                upload_profile=upload_profile,
+            )
+            if encoded_bytes is None:
+                return None, None
+
+            base_name = Path(filename).stem.strip() or "image"
+            normalized_name = f"{base_name}.jpg"
+            info: dict[str, Any] = {
+                "profile": upload_profile,
+                "original_size": f"{original_width}x{original_height}",
+                "output_size": f"{image.size[0]}x{image.size[1]}",
+                "original_bytes": source_bytes,
+                "output_bytes": len(encoded_bytes),
+                "cropped": cropped,
+                "resized": resized,
+                "quality": quality_used,
+            }
+            return (normalized_name, encoded_bytes, "image/jpeg"), info
+    except Exception:
+        return None, None
+
+
+def _center_crop_to_ratio(image: Any, target_ratio: float) -> tuple[Any, bool]:
+    width, height = image.size
+    current_ratio = float(width) / float(height)
+    if abs(current_ratio - target_ratio) <= 0.015:
+        return image, False
+    if current_ratio > target_ratio:
+        target_width = int(round(height * target_ratio))
+        left = max(0, (width - target_width) // 2)
+        right = min(width, left + target_width)
+        return image.crop((left, 0, right, height)), True
+    target_height = int(round(width / target_ratio))
+    top = max(0, (height - target_height) // 2)
+    bottom = min(height, top + target_height)
+    return image.crop((0, top, width, bottom)), True
+
+
+def _encode_image_with_limit(
+    *,
+    image: Any,
+    upload_profile: Literal["normal", "aggressive"],
+) -> tuple[bytes | None, int]:
+    max_bytes = 3_000_000 if upload_profile == "normal" else 1_500_000
+    quality_candidates = [88, 82, 76, 70, 64, 58] if upload_profile == "normal" else [80, 74, 68, 62, 56, 50]
+    working = image
+    last_quality = quality_candidates[-1]
+    for _attempt in range(4):
+        for quality in quality_candidates:
+            buffer = io.BytesIO()
+            working.save(
+                buffer,
+                format="JPEG",
+                quality=quality,
+                optimize=True,
+            )
+            data = buffer.getvalue()
+            last_quality = quality
+            if len(data) <= max_bytes:
+                return data, quality
+        width, height = working.size
+        if width < 320 or height < 320:
+            break
+        scaled = (
+            max(1, int(round(width * 0.85))),
+            max(1, int(round(height * 0.85))),
+        )
+        if scaled == working.size:
+            break
+        working = working.resize(scaled, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    working.save(
+        buffer,
+        format="JPEG",
+        quality=last_quality,
+        optimize=True,
+    )
+    return buffer.getvalue(), last_quality
 
 
 def _build_headers(provider_config: ProviderConfig, provider_options: dict[str, Any]) -> dict[str, str]:
