@@ -28,6 +28,15 @@ interface AssetFilterSnapshot {
   dateTo: string;
 }
 
+type LightboxKind = "image" | "video";
+
+interface LightboxMediaItem {
+  key: string;
+  taskId: string;
+  url: string;
+  kind: LightboxKind;
+}
+
 export function JobsPage(props: Props) {
   const { tasks, loading } = props;
   const { locale, t } = useI18n();
@@ -46,6 +55,7 @@ export function JobsPage(props: Props) {
   const [dateTo, setDateTo] = useState(savedFilters.dateTo);
   const [draftPrompt, setDraftPrompt] = useState("");
   const [hoverVideoTaskId, setHoverVideoTaskId] = useState<string | null>(null);
+  const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
 
   const inProgressTasks = useMemo(
     () => tasks.filter((task) => task.status === "queued" || task.status === "running"),
@@ -99,6 +109,23 @@ export function JobsPage(props: Props) {
     () => assetList.find((task) => task.task_id === selectedTaskId) ?? null,
     [assetList, selectedTaskId],
   );
+  const imageLightboxItems = useMemo(
+    () => buildLightboxItems(assetList, "image"),
+    [assetList],
+  );
+  const videoLightboxItems = useMemo(
+    () => buildLightboxItems(assetList, "video"),
+    [assetList],
+  );
+  const lightboxItems = lightboxState?.kind === "video" ? videoLightboxItems : imageLightboxItems;
+  const lightboxIndex = lightboxState?.index ?? null;
+  const lightboxKind = lightboxState?.kind ?? null;
+  const lightboxItem = useMemo(() => {
+    if (lightboxIndex == null || lightboxIndex < 0 || lightboxIndex >= lightboxItems.length) {
+      return null;
+    }
+    return lightboxItems[lightboxIndex];
+  }, [lightboxIndex, lightboxItems]);
   const hasPromptEdited = useMemo(() => {
     if (!selectedTask) {
       return false;
@@ -125,6 +152,74 @@ export function JobsPage(props: Props) {
     }
     setDraftPrompt(selectedTask.prompt ?? "");
   }, [selectedTask?.task_id]);
+
+  useEffect(() => {
+    if (!lightboxItems.length) {
+      setLightboxState(null);
+      return;
+    }
+    if (lightboxIndex != null && lightboxIndex >= lightboxItems.length) {
+      setLightboxState((current) =>
+        current ? { ...current, index: lightboxItems.length - 1 } : null,
+      );
+    }
+  }, [lightboxIndex, lightboxItems]);
+
+  useEffect(() => {
+    if (lightboxIndex == null || !lightboxItems.length) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setLightboxState(null);
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setLightboxState((current) => {
+          if (!current) {
+            return null;
+          }
+          return {
+            ...current,
+            index: current.index > 0 ? current.index - 1 : lightboxItems.length - 1,
+          };
+        });
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setLightboxState((current) => {
+          if (!current) {
+            return null;
+          }
+          return {
+            ...current,
+            index: current.index < lightboxItems.length - 1 ? current.index + 1 : 0,
+          };
+        });
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [lightboxIndex, lightboxItems.length]);
+
+  const openImageLightbox = (taskId: string, imageUrl: string) => {
+    const index = imageLightboxItems.findIndex(
+      (item) => item.taskId === taskId && item.url === imageUrl,
+    );
+    if (index >= 0) {
+      setLightboxState({ kind: "image", index });
+    }
+  };
+  const openVideoLightbox = (taskId: string, videoUrl: string) => {
+    const index = videoLightboxItems.findIndex(
+      (item) => item.taskId === taskId && item.url === videoUrl,
+    );
+    if (index >= 0) {
+      setLightboxState({ kind: "video", index });
+    }
+  };
 
   const retryMutation = useMutation({
     mutationFn: async (payload: {
@@ -324,10 +419,27 @@ export function JobsPage(props: Props) {
                 onClick={() => setSelectedTaskId(task.task_id)}
               >
                 {thumb ? (
-                  <img className="asset-thumb" src={thumb} alt={task.task_id} />
+                  <button
+                    type="button"
+                    className="asset-image-hit"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedTaskId(task.task_id);
+                      openImageLightbox(task.task_id, thumb);
+                    }}
+                  >
+                    <img className="asset-thumb" src={thumb} alt={task.task_id} />
+                    <span className="asset-image-zoom">{t("jobs.previewImage")}</span>
+                  </button>
                 ) : videoUrl ? (
-                  <div
-                    className="asset-video-wrap"
+                  <button
+                    type="button"
+                    className="asset-video-hit asset-video-wrap"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedTaskId(task.task_id);
+                      openVideoLightbox(task.task_id, videoUrl);
+                    }}
                     onMouseEnter={() => setHoverVideoTaskId(task.task_id)}
                     onMouseLeave={() => setHoverVideoTaskId((current) => (current === task.task_id ? null : current))}
                   >
@@ -340,8 +452,8 @@ export function JobsPage(props: Props) {
                       autoPlay={hoverVideoTaskId === task.task_id}
                       loop
                     />
-                    <span className="asset-video-badge">{t("jobs.kindVideo")}</span>
-                  </div>
+                    <span className="asset-video-badge">{t("jobs.previewVideo")}</span>
+                  </button>
                 ) : (
                   <div className="asset-thumb-placeholder">
                     <span>{task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}</span>
@@ -386,13 +498,31 @@ export function JobsPage(props: Props) {
 
               {selectedTask.asset_type === "video" && extractVideoUrl(selectedTask) ? (
                 <div className="video-shell">
-                  <video controls playsInline src={extractVideoUrl(selectedTask) ?? undefined} />
+                  <button
+                    type="button"
+                    className="video-preview-button"
+                    onClick={() => {
+                      const url = extractVideoUrl(selectedTask);
+                      if (url) {
+                        openVideoLightbox(selectedTask.task_id, url);
+                      }
+                    }}
+                  >
+                    <video controls playsInline src={extractVideoUrl(selectedTask) ?? undefined} />
+                  </button>
                 </div>
               ) : null}
               {selectedTask.asset_type === "image" ? (
                 <div className="image-preview-grid">
                   {extractImageUrls(selectedTask).map((url) => (
-                    <img key={url} className="image-preview-item" src={url} alt={selectedTask.task_id} />
+                    <button
+                      type="button"
+                      key={url}
+                      className="image-preview-button"
+                      onClick={() => openImageLightbox(selectedTask.task_id, url)}
+                    >
+                      <img className="image-preview-item" src={url} alt={selectedTask.task_id} />
+                    </button>
                   ))}
                 </div>
               ) : null}
@@ -548,8 +678,122 @@ export function JobsPage(props: Props) {
       </div>
 
       <p className="hint">{hint}</p>
+
+      {lightboxItem ? (
+        <div className="image-lightbox" role="dialog" aria-modal="true" onClick={() => setLightboxState(null)}>
+          <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+            <div className="image-lightbox-head">
+              <p className="image-lightbox-title">
+                {t("jobs.lightboxIndex", { index: (lightboxIndex ?? 0) + 1, total: lightboxItems.length })}
+              </p>
+              <button
+                type="button"
+                className="mini-button"
+                onClick={() => setLightboxState(null)}
+              >
+                {t("common.close")}
+              </button>
+            </div>
+            <div className="image-lightbox-body">
+              {lightboxItems.length > 1 ? (
+                <button
+                  type="button"
+                  className="image-lightbox-nav prev"
+                  onClick={() =>
+                    setLightboxState((current) =>
+                      !current
+                        ? null
+                        : {
+                            ...current,
+                            index: current.index > 0 ? current.index - 1 : lightboxItems.length - 1,
+                          },
+                    )}
+                >
+                  {t("jobs.lightboxPrev")}
+                </button>
+              ) : null}
+              {lightboxKind === "video" ? (
+                <video
+                  className="image-lightbox-video"
+                  src={lightboxItem.url}
+                  controls
+                  autoPlay
+                  loop
+                  playsInline
+                />
+              ) : (
+                <img className="image-lightbox-img" src={lightboxItem.url} alt={lightboxItem.taskId} />
+              )}
+              {lightboxItems.length > 1 ? (
+                <button
+                  type="button"
+                  className="image-lightbox-nav next"
+                  onClick={() =>
+                    setLightboxState((current) =>
+                      !current
+                        ? null
+                        : {
+                            ...current,
+                            index: current.index < lightboxItems.length - 1 ? current.index + 1 : 0,
+                          },
+                    )}
+                >
+                  {t("jobs.lightboxNext")}
+                </button>
+              ) : null}
+            </div>
+            <div className="image-lightbox-actions">
+              <a href={lightboxItem.url} target="_blank" rel="noreferrer">
+                {lightboxKind === "video"
+                  ? t("jobs.lightboxOpenOriginalVideo")
+                  : t("jobs.lightboxOpenOriginal")}
+              </a>
+              <a href={lightboxItem.url} download>
+                {lightboxKind === "video"
+                  ? t("jobs.lightboxDownloadVideo")
+                  : t("jobs.lightboxDownload")}
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function buildLightboxItems(tasks: VideoTaskDetail[], kind: LightboxKind): LightboxMediaItem[] {
+  const items: LightboxMediaItem[] = [];
+  for (const task of tasks) {
+    if (kind === "image") {
+      if (task.asset_type !== "image") {
+        continue;
+      }
+      const urls = extractImageUrls(task);
+      urls.forEach((url, index) => {
+        items.push({
+          key: `${task.task_id}_img_${index}_${url}`,
+          taskId: task.task_id,
+          url,
+          kind: "image",
+        });
+      });
+      continue;
+    }
+    if (task.asset_type !== "video") {
+      continue;
+    }
+    const url = extractVideoUrl(task);
+    if (!url) {
+      continue;
+    }
+    items.push({
+      key: `${task.task_id}_video_${url}`,
+      taskId: task.task_id,
+      url,
+      kind: "video",
+    });
+  }
+  return items;
 }
 
 function readFilters(): AssetFilterSnapshot {
