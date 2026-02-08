@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
@@ -50,7 +50,7 @@ export default function App() {
           <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/create">
             {t("nav.create")}
           </NavLink>
-          <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/jobs">
+          <NavLink className={({ isActive }) => (isActive ? "active" : "")} to="/assets">
             {t("nav.jobs")}
           </NavLink>
         </nav>
@@ -82,8 +82,9 @@ export default function App() {
               path="/create"
               element={<CreatePage catalog={catalogQuery.data} loading={catalogQuery.isLoading} />}
             />
+            <Route path="/jobs" element={<Navigate to="/assets" replace />} />
             <Route
-              path="/jobs"
+              path="/assets"
               element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
             />
             <Route
