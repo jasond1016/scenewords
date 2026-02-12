@@ -24,6 +24,8 @@ class TaskWorker:
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.worker_count = worker_count
         self._tasks: list[asyncio.Task[None]] = []
+        self._running_jobs: dict[str, asyncio.Task[None]] = {}
+        self._canceled_task_ids: set[str] = set()
         self._stopping = False
 
     async def start(self) -> None:
@@ -35,6 +37,9 @@ class TaskWorker:
 
     async def stop(self) -> None:
         self._stopping = True
+        for job in list(self._running_jobs.values()):
+            if not job.done():
+                job.cancel()
         for _ in self._tasks:
             await self.queue.put("")
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -43,19 +48,39 @@ class TaskWorker:
     async def submit(self, task_id: str) -> None:
         await self.queue.put(task_id)
 
+    def cancel(self, task_id: str) -> None:
+        self._canceled_task_ids.add(task_id)
+        running = self._running_jobs.get(task_id)
+        if running and not running.done():
+            running.cancel()
+
     async def _run_loop(self, worker_id: int) -> None:
         while not self._stopping:
             task_id = await self.queue.get()
             if not task_id:
                 self.queue.task_done()
                 continue
+            if task_id in self._canceled_task_ids:
+                self._canceled_task_ids.discard(task_id)
+                self.queue.task_done()
+                continue
 
             try:
-                await self._process_task(task_id)
+                job = asyncio.create_task(self._process_task(task_id))
+                self._running_jobs[task_id] = job
+                try:
+                    await job
+                except asyncio.CancelledError:
+                    # Task cancellation is intentional (user-triggered delete/cancel).
+                    pass
             finally:
+                self._running_jobs.pop(task_id, None)
+                self._canceled_task_ids.discard(task_id)
                 self.queue.task_done()
 
     async def _process_task(self, task_id: str) -> None:
+        if task_id in self._canceled_task_ids:
+            return
         try:
             task = self.store.get_task(task_id)
         except KeyError:
@@ -82,6 +107,8 @@ class TaskWorker:
             )
             return
 
+        if task_id in self._canceled_task_ids:
+            return
         self.store.set_status(task_id=task_id, status="running")
         request = VideoGenerationRequest.model_validate(task["request"])
         try:
@@ -100,6 +127,9 @@ class TaskWorker:
                 message=error.message,
                 raw_error=error.raw_error,
             )
+        except asyncio.CancelledError:
+            # Cancellation is expected when users cancel/delete an in-progress task.
+            pass
         except Exception as error:
             self.store.set_error(
                 task_id=task_id,

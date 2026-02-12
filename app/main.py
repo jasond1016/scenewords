@@ -322,6 +322,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found") from error
         if task.get("asset_type", "video") != "video":
             raise HTTPException(status_code=404, detail="Task not found")
+        app.state.worker.cancel(task_id)
         app.state.store.delete_task(task_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -452,6 +453,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found") from error
         if task.get("asset_type", "video") != "image":
             raise HTTPException(status_code=404, detail="Task not found")
+        app.state.worker.cancel(task_id)
         app.state.store.delete_task(task_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
