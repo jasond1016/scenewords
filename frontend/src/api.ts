@@ -162,6 +162,34 @@ export async function uploadFile(file: File, token: string): Promise<UploadedFil
   );
 }
 
+export async function fetchUploadedFileBinary(
+  fileId: string,
+  token: string,
+): Promise<{ blob: Blob; fileName: string | null; contentType: string | null }> {
+  const headers = new Headers();
+  if (token.trim()) {
+    headers.set("Authorization", `Bearer ${token.trim()}`);
+  }
+  const response = await fetch(`/v1/files/${encodeURIComponent(fileId)}`, { headers });
+  if (!response.ok) {
+    let detail: unknown = null;
+    try {
+      const parsed = await response.json();
+      detail = parsed?.detail;
+    } catch {
+      detail = null;
+    }
+    throw new Error(toErrorMessage(detail, `HTTP ${response.status}`));
+  }
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("content-disposition");
+  return {
+    blob,
+    fileName: parseFilenameFromContentDisposition(contentDisposition),
+    contentType: response.headers.get("content-type"),
+  };
+}
+
 function resolveAssetType(providerType?: string): AssetType {
   if (providerType?.toLowerCase() === "tuzi_image") {
     return "image";
@@ -181,4 +209,23 @@ function retryPath(taskId: string, assetType: AssetType): string {
 function deletePath(taskId: string, assetType: AssetType): string {
   const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
   return `${root}/${encodeURIComponent(taskId)}`;
+}
+
+function parseFilenameFromContentDisposition(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]).trim() || null;
+    } catch {
+      return utf8Match[1].trim() || null;
+    }
+  }
+  const plainMatch = value.match(/filename=\"?([^\";]+)\"?/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1].trim() || null;
+  }
+  return null;
 }

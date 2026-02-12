@@ -4,15 +4,14 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type Dispatch,
   type DragEvent,
-  type SetStateAction,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   createVideoTask,
   estimatePricing,
+  fetchUploadedFileBinary,
   uploadFile,
 } from "../api";
 import { useI18n } from "../i18n";
@@ -89,6 +88,7 @@ export function CreatePage(props: Props) {
   const [operationId, setOperationId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
+  const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
   const [hint, setHint] = useState("");
   const [recentPromptVersion, setRecentPromptVersion] = useState(0);
   const [presetVersion, setPresetVersion] = useState(0);
@@ -96,6 +96,7 @@ export function CreatePage(props: Props) {
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
+  const skipNextPendingClearHydrationRef = useRef(false);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? null,
@@ -406,10 +407,23 @@ export function CreatePage(props: Props) {
     if (!selectedOperation) {
       return;
     }
+    if (skipNextPendingClearHydrationRef.current && !settings.pendingReuseDraft) {
+      skipNextPendingClearHydrationRef.current = false;
+      return;
+    }
     const previousPrompt = values["request:prompt"] ?? "";
     const hydrated: Record<string, string> = {};
+    const hydratedReusedFileIds: Record<string, string[]> = {};
     for (const field of selectedOperation.fields) {
       const key = fieldKey(field);
+      const existingReused = reusedFileIds[key];
+      if (
+        (field.input_type === "file" || field.input_type === "file_list") &&
+        Array.isArray(existingReused) &&
+        existingReused.length > 0
+      ) {
+        hydratedReusedFileIds[key] = existingReused;
+      }
       const stored = localStorage.getItem(
         fieldStorageKey(providerId, modelName, selectedOperation.id, field),
       );
@@ -440,9 +454,15 @@ export function CreatePage(props: Props) {
       pending.model === modelName &&
       pending.operation === selectedOperation.id
     ) {
-      applyDraft(hydrated, selectedOperation, pending);
+      const applied = applyDraft(hydrated, selectedOperation, pending);
+      Object.assign(hydratedReusedFileIds, applied.reusedFileIds);
+      skipNextPendingClearHydrationRef.current = true;
       settings.setPendingReuseDraft(null);
-      setHint(t("create.hintReusedDraft"));
+      setHint(
+        applied.reusedFileCount > 0
+          ? t("create.hintReusedDraftWithFiles", { count: applied.reusedFileCount })
+          : t("create.hintReusedDraft"),
+      );
       navigate("/create");
     }
 
@@ -456,6 +476,7 @@ export function CreatePage(props: Props) {
 
     setValues(hydrated);
     setFiles({});
+    setReusedFileIds(hydratedReusedFileIds);
   }, [
     modelName,
     navigate,
@@ -513,7 +534,18 @@ export function CreatePage(props: Props) {
         const key = fieldKey(field);
         if (field.input_type === "file" || field.input_type === "file_list") {
           const selectedFiles = files[key] ?? [];
+          const reusableIds = reusedFileIds[key] ?? [];
           if (!selectedFiles.length) {
+            if (reusableIds.length) {
+              const reusableValue =
+                field.input_type === "file" ? (reusableIds[0] ?? null) : reusableIds;
+              if (field.target === "request") {
+                requestPayload[field.key] = reusableValue;
+              } else {
+                payload.provider_options[field.key] = reusableValue;
+              }
+              continue;
+            }
             if (field.required) {
               throw new Error(t("create.errorMissingRequiredFile", { label: field.label }));
             }
@@ -586,6 +618,34 @@ export function CreatePage(props: Props) {
       setHint(t("create.hintSubmitFailed", { message: error.message }));
     },
   });
+
+  const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
+    const key = fieldKey(field);
+    setFiles((current) => ({ ...current, [key]: nextFiles }));
+    setReusedFileIds((current) => {
+      if (!current[key]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
+    const key = fieldKey(field);
+    setReusedFileIds((current) => {
+      if (!nextFileIds.length) {
+        if (!current[key]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+      return { ...current, [key]: nextFileIds };
+    });
+  };
 
   const onFieldChanged = (
     field: ProviderOperationField,
@@ -1007,7 +1067,16 @@ export function CreatePage(props: Props) {
               {quickMediaFields.length ? (
             <section className="quick-media-fields">
               {quickMediaFields.map((field) =>
-                renderField(field, values, files, onFieldChanged, setFiles, "compact"),
+                renderField(
+                  field,
+                  values,
+                  files,
+                  reusedFileIds,
+                  onFieldChanged,
+                  onFileFieldChanged,
+                  onReusedFileIdsChanged,
+                  "compact",
+                ),
               )}
             </section>
           ) : null}
@@ -1206,7 +1275,15 @@ export function CreatePage(props: Props) {
                         </summary>
                         <div className="dynamic-grid">
                           {group.fields.map((field) =>
-                            renderField(field, values, files, onFieldChanged, setFiles),
+                            renderField(
+                              field,
+                              values,
+                              files,
+                              reusedFileIds,
+                              onFieldChanged,
+                              onFileFieldChanged,
+                              onReusedFileIdsChanged,
+                            ),
                           )}
                         </div>
                       </details>
@@ -1227,15 +1304,32 @@ function DynamicInput(props: {
   onValueChange: (value: string) => void;
   onFileChange: (files: File[]) => void;
   selectedFiles?: File[];
+  reusedFileIds?: string[];
+  onReusedFileIdsChange?: (fileIds: string[]) => void;
   placeholder?: string;
 }) {
   const { t } = useI18n();
-  const { field, value, onValueChange, onFileChange, selectedFiles = [], placeholder } = props;
+  const gatewayToken = useAppSettingsStore((state) => state.gatewayToken);
+  const {
+    field,
+    value,
+    onValueChange,
+    onFileChange,
+    selectedFiles = [],
+    reusedFileIds = [],
+    onReusedFileIdsChange,
+    placeholder,
+  } = props;
   const resolvedPlaceholder = placeholder ?? field.placeholder ?? "";
   const durationOptions = isDurationField(field) ? durationOptionsFromField(field) : [];
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [reusedPreviews, setReusedPreviews] = useState<Array<{
+    fileId: string;
+    url: string;
+    name: string;
+  }>>([]);
 
   const filePreviews = useMemo(
     () =>
@@ -1255,13 +1349,75 @@ function DynamicInput(props: {
   }, [filePreviews]);
 
   useEffect(() => {
+    let active = true;
+    const urlsToRevoke: string[] = [];
+
+    const run = async () => {
+      if ((field.input_type !== "file" && field.input_type !== "file_list") || !reusedFileIds.length) {
+        setReusedPreviews([]);
+        return;
+      }
+      const loaded = await Promise.all(
+        reusedFileIds.map(async (fileId, index) => {
+          try {
+            const { blob, fileName } = await fetchUploadedFileBinary(fileId, gatewayToken);
+            if (!active) {
+              return null;
+            }
+            const url = URL.createObjectURL(blob);
+            urlsToRevoke.push(url);
+            return {
+              fileId,
+              url,
+              name: fileName?.trim() || `reference_${index + 1}`,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!active) {
+        return;
+      }
+      setReusedPreviews(loaded.filter((item): item is NonNullable<typeof item> => item != null));
+    };
+
+    void run();
+    return () => {
+      active = false;
+      for (const url of urlsToRevoke) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [field.input_type, gatewayToken, reusedFileIds]);
+
+  const activePreviewItems = useMemo(() => {
+    if (selectedFiles.length) {
+      return filePreviews.map((item, index) => ({
+        key: `local_${item.file.name}_${item.file.size}_${index}`,
+        url: item.url,
+        name: item.file.name,
+      }));
+    }
+    return reusedPreviews.map((item) => ({
+      key: `reused_${item.fileId}`,
+      url: item.url,
+      name: item.name,
+    }));
+  }, [filePreviews, reusedPreviews, selectedFiles.length]);
+  const reusedPreviewMap = useMemo(
+    () => new Map(reusedPreviews.map((item) => [item.fileId, item])),
+    [reusedPreviews],
+  );
+
+  useEffect(() => {
     if (previewIndex == null) {
       return;
     }
-    if (previewIndex >= filePreviews.length) {
-      setPreviewIndex(filePreviews.length ? filePreviews.length - 1 : null);
+    if (previewIndex >= activePreviewItems.length) {
+      setPreviewIndex(activePreviewItems.length ? activePreviewItems.length - 1 : null);
     }
-  }, [filePreviews.length, previewIndex]);
+  }, [activePreviewItems.length, previewIndex]);
 
   if (durationOptions.length) {
     return (
@@ -1316,7 +1472,9 @@ function DynamicInput(props: {
   }
   if (field.input_type === "file" || field.input_type === "file_list") {
     const isMulti = field.input_type === "file_list";
-    const hasFiles = selectedFiles.length > 0;
+    const hasLocalFiles = selectedFiles.length > 0;
+    const hasReusedFiles = reusedFileIds.length > 0;
+    const hasFiles = hasLocalFiles || hasReusedFiles;
     const triggerPick = () => fileInputRef.current?.click();
     const isImageFile = (item: File): boolean => {
       const type = item.type.toLowerCase();
@@ -1334,6 +1492,21 @@ function DynamicInput(props: {
     };
     const removeAt = (index: number) => {
       onFileChange(selectedFiles.filter((_, currentIndex) => currentIndex !== index));
+    };
+    const clearAll = () => {
+      onFileChange([]);
+      onReusedFileIdsChange?.([]);
+    };
+    const removeReusedFile = (fileId: string) => {
+      if (!onReusedFileIdsChange) {
+        return;
+      }
+      const removeIndex = reusedFileIds.indexOf(fileId);
+      if (removeIndex < 0) {
+        return;
+      }
+      const next = reusedFileIds.filter((_, index) => index !== removeIndex);
+      onReusedFileIdsChange(next);
     };
     const handleFilePicked = (event: ChangeEvent<HTMLInputElement>) => {
       const picked = Array.from(event.target.files ?? []).filter((item) => isImageFile(item));
@@ -1395,19 +1568,21 @@ function DynamicInput(props: {
             <button
               type="button"
               className="mini-button"
-              onClick={() => onFileChange([])}
+              onClick={clearAll}
             >
               {t("create.fileClearAll")}
             </button>
           ) : null}
           <span className="upload-media-hint">
-            {isMulti
-              ? t("create.fileSelectedCount", { count: selectedFiles.length })
-              : t("create.fileOnlyImages")}
+            {hasReusedFiles && !hasLocalFiles
+              ? t("create.fileReusedCount", { count: reusedFileIds.length })
+              : isMulti
+                ? t("create.fileSelectedCount", { count: selectedFiles.length })
+                : t("create.fileOnlyImages")}
           </span>
         </div>
 
-        {hasFiles ? (
+        {hasLocalFiles ? (
           <div className="upload-thumb-grid">
             {filePreviews.map((item, index) => (
               <article key={`${item.file.name}_${item.file.size}_${index}`} className="upload-thumb-card">
@@ -1436,18 +1611,61 @@ function DynamicInput(props: {
               </article>
             ))}
           </div>
+        ) : hasReusedFiles ? (
+          <div className="upload-thumb-grid">
+            {reusedFileIds.map((fileId, index) => {
+              const item = reusedPreviewMap.get(fileId);
+              const previewIndexForItem = item
+                ? activePreviewItems.findIndex((preview) => preview.key === `reused_${fileId}`)
+                : -1;
+              return (
+                <article key={`${fileId}_${index}`} className="upload-thumb-card">
+                  {item ? (
+                    <button
+                      type="button"
+                      className="upload-thumb-hit"
+                      onClick={() => {
+                        if (previewIndexForItem >= 0) {
+                          setPreviewIndex(previewIndexForItem);
+                        }
+                      }}
+                    >
+                      <img className="upload-thumb-img" src={item.url} alt={item.name} />
+                    </button>
+                  ) : (
+                    <div className="upload-empty">{t("create.fileReusedCount", { count: 1 })}</div>
+                  )}
+                  <div className="upload-thumb-foot">
+                    <p className="upload-thumb-name" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
+                    <button
+                      type="button"
+                      className="upload-thumb-remove"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        removeReusedFile(fileId);
+                      }}
+                      aria-label={t("create.fileRemove")}
+                    >
+                      {t("create.fileRemove")}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         ) : (
           <button type="button" className="upload-empty" onClick={triggerPick}>
             {t("create.fileOnlyImages")}
           </button>
         )}
 
-        {previewIndex != null && filePreviews[previewIndex] ? (
+        {previewIndex != null && activePreviewItems[previewIndex] ? (
           <div className="image-lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewIndex(null)}>
             <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
               <div className="image-lightbox-head">
                 <p className="image-lightbox-title">
-                  {t("jobs.lightboxIndex", { index: previewIndex + 1, total: filePreviews.length })}
+                  {t("jobs.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"
@@ -1458,7 +1676,7 @@ function DynamicInput(props: {
                 </button>
               </div>
               <div className="image-lightbox-body">
-                {filePreviews.length > 1 ? (
+                {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
                     className="image-lightbox-nav prev"
@@ -1468,7 +1686,7 @@ function DynamicInput(props: {
                           ? 0
                           : current > 0
                             ? current - 1
-                            : filePreviews.length - 1,
+                            : activePreviewItems.length - 1,
                       )
                     }
                   >
@@ -1477,10 +1695,10 @@ function DynamicInput(props: {
                 ) : null}
                 <img
                   className="image-lightbox-img"
-                  src={filePreviews[previewIndex].url}
-                  alt={filePreviews[previewIndex].file.name}
+                  src={activePreviewItems[previewIndex].url}
+                  alt={activePreviewItems[previewIndex].name}
                 />
-                {filePreviews.length > 1 ? (
+                {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
                     className="image-lightbox-nav next"
@@ -1488,7 +1706,7 @@ function DynamicInput(props: {
                       setPreviewIndex((current) =>
                         current == null
                           ? 0
-                          : current < filePreviews.length - 1
+                          : current < activePreviewItems.length - 1
                             ? current + 1
                             : 0,
                       )
@@ -1762,13 +1980,16 @@ function renderField(
   field: ProviderOperationField,
   values: Record<string, string>,
   files: Record<string, File[]>,
+  reusedFileIds: Record<string, string[]>,
   onFieldChanged: (field: ProviderOperationField, nextValue: string) => void,
-  setFiles: Dispatch<SetStateAction<Record<string, File[]>>>,
+  onFileChanged: (field: ProviderOperationField, nextFiles: File[]) => void,
+  onReusedFileIdsChanged: (field: ProviderOperationField, nextFileIds: string[]) => void,
   variant: "default" | "compact" = "default",
 ) {
   const key = fieldKey(field);
   const value = values[key] ?? "";
   const selectedFiles = files[key] ?? [];
+  const reusedIds = reusedFileIds[key] ?? [];
   const className =
     variant === "compact"
       ? "field field-compact"
@@ -1783,10 +2004,10 @@ function renderField(
         field={field}
         value={value}
         selectedFiles={selectedFiles}
+        reusedFileIds={reusedIds}
+        onReusedFileIdsChange={(nextFileIds) => onReusedFileIdsChanged(field, nextFileIds)}
         onValueChange={(next) => onFieldChanged(field, next)}
-        onFileChange={(nextFiles) =>
-          setFiles((current) => ({ ...current, [key]: nextFiles }))
-        }
+        onFileChange={(nextFiles) => onFileChanged(field, nextFiles)}
       />
       {field.help_text ? <small>{field.help_text}</small> : null}
     </Wrapper>
@@ -1822,9 +2043,22 @@ function applyDraft(
   values: Record<string, string>,
   operation: ProviderModelOperationInfo,
   draft: NonNullable<AppSettingsState["pendingReuseDraft"]>,
-): void {
+): { reusedFileIds: Record<string, string[]>; reusedFileCount: number } {
+  const reusedFileIds: Record<string, string[]> = {};
   for (const field of operation.fields) {
     const key = fieldKey(field);
+    if (field.input_type === "file" || field.input_type === "file_list") {
+      if (field.target === "provider_options") {
+        const normalized = normalizeDraftFileIds(
+          draft.providerOptions[field.key],
+          field.input_type === "file",
+        );
+        if (normalized.length) {
+          reusedFileIds[key] = normalized;
+        }
+      }
+      continue;
+    }
     if (field.target === "request") {
       if (field.key === "prompt") {
         values[key] = draft.prompt;
@@ -1847,6 +2081,49 @@ function applyDraft(
       values[key] = valueToStoredString(optionValue);
     }
   }
+  return {
+    reusedFileIds,
+    reusedFileCount: Object.values(reusedFileIds).reduce((sum, ids) => sum + ids.length, 0),
+  };
+}
+
+function normalizeDraftFileIds(raw: unknown, single: boolean): string[] {
+  const parsed = normalizeUnknownToStringList(raw);
+  if (!parsed.length) {
+    return [];
+  }
+  if (single) {
+    return [parsed[0]];
+  }
+  return parsed;
+}
+
+function normalizeUnknownToStringList(raw: unknown): string[] {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return [];
+    }
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => item.trim());
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [trimmed];
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
 }
 
 function parseNumberValue(

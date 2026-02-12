@@ -78,6 +78,7 @@ const ZH_CN: Record<string, string> = {
   "create.hintCreated": "任务已创建：{taskId}",
   "create.hintSubmitFailed": "提交失败：{message}",
   "create.hintReusedDraft": "已从历史记录继承参数，可直接修改提示词后重试。",
+  "create.hintReusedDraftWithFiles": "已复用历史参数，并带入 {count} 张参考图。",
   "create.promptNotSupported": "当前模型未暴露提示词字段，请在高级设置中完成参数后提交。",
   "create.promptPlaceholder":
     "描述你想生成的主体、场景、风格和镜头语言。示例：两只狗狗宇航员在末日雪地的飞船里吃火锅，电影级光影，慢速推进镜头。",
@@ -94,6 +95,7 @@ const ZH_CN: Record<string, string> = {
   "create.fileClearAll": "清空图片",
   "create.fileOnlyImages": "仅支持 JPG / PNG / WEBP",
   "create.fileSelectedCount": "已选 {count} 张",
+  "create.fileReusedCount": "已复用历史参考图 {count} 张",
   "create.fileRemove": "移除",
 
   "jobs.loading": "正在加载资产...",
@@ -301,6 +303,8 @@ const EN: Record<string, string> = {
   "create.hintSubmitFailed": "Submit failed: {message}",
   "create.hintReusedDraft":
     "Parameters were restored from history. Update prompt and retry if needed.",
+  "create.hintReusedDraftWithFiles":
+    "Parameters and {count} reference image(s) were restored from the source task.",
   "create.promptNotSupported":
     "This model does not expose a prompt field. Configure inputs in advanced settings and submit.",
   "create.promptPlaceholder":
@@ -318,6 +322,7 @@ const EN: Record<string, string> = {
   "create.fileClearAll": "Clear Images",
   "create.fileOnlyImages": "JPG / PNG / WEBP only",
   "create.fileSelectedCount": "{count} selected",
+  "create.fileReusedCount": "{count} restored from source task",
   "create.fileRemove": "Remove",
 
   "jobs.loading": "Loading assets...",
