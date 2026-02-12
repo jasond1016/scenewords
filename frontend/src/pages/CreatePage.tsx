@@ -563,7 +563,9 @@ export function CreatePage(props: Props) {
             uploadedIds.push(uploaded.file_id);
           }
           const uploadedValue =
-            field.input_type === "file" ? (uploadedIds[0] ?? null) : uploadedIds;
+            field.input_type === "file"
+              ? (uploadedIds[0] ?? null)
+              : Array.from(new Set([...reusableIds, ...uploadedIds]));
           if (field.target === "request") {
             requestPayload[field.key] = uploadedValue;
           } else {
@@ -622,14 +624,16 @@ export function CreatePage(props: Props) {
   const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
     const key = fieldKey(field);
     setFiles((current) => ({ ...current, [key]: nextFiles }));
-    setReusedFileIds((current) => {
-      if (!current[key]) {
-        return current;
-      }
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
+    if (field.input_type === "file") {
+      setReusedFileIds((current) => {
+        if (!current[key]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
   };
 
   const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
@@ -1392,22 +1396,25 @@ function DynamicInput(props: {
   }, [field.input_type, gatewayToken, reusedFileIds]);
 
   const activePreviewItems = useMemo(() => {
-    if (selectedFiles.length) {
-      return filePreviews.map((item, index) => ({
-        key: `local_${item.file.name}_${item.file.size}_${index}`,
-        url: item.url,
-        name: item.file.name,
-      }));
-    }
-    return reusedPreviews.map((item) => ({
+    const reusedItems = reusedPreviews.map((item) => ({
       key: `reused_${item.fileId}`,
       url: item.url,
       name: item.name,
     }));
-  }, [filePreviews, reusedPreviews, selectedFiles.length]);
+    const localItems = filePreviews.map((item, index) => ({
+      key: `local_${item.file.name}_${item.file.size}_${index}`,
+      url: item.url,
+      name: item.file.name,
+    }));
+    return [...reusedItems, ...localItems];
+  }, [filePreviews, reusedPreviews]);
   const reusedPreviewMap = useMemo(
     () => new Map(reusedPreviews.map((item) => [item.fileId, item])),
     [reusedPreviews],
+  );
+  const previewIndexByKey = useMemo(
+    () => new Map(activePreviewItems.map((item, index) => [item.key, index])),
+    [activePreviewItems],
   );
 
   useEffect(() => {
@@ -1577,47 +1584,16 @@ function DynamicInput(props: {
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
-                ? t("create.fileSelectedCount", { count: selectedFiles.length })
+                ? t("create.fileSelectedCount", { count: selectedFiles.length + reusedFileIds.length })
                 : t("create.fileOnlyImages")}
           </span>
         </div>
 
-        {hasLocalFiles ? (
-          <div className="upload-thumb-grid">
-            {filePreviews.map((item, index) => (
-              <article key={`${item.file.name}_${item.file.size}_${index}`} className="upload-thumb-card">
-                <button
-                  type="button"
-                  className="upload-thumb-hit"
-                  onClick={() => setPreviewIndex(index)}
-                >
-                  <img className="upload-thumb-img" src={item.url} alt={item.file.name} />
-                </button>
-                <div className="upload-thumb-foot">
-                  <p className="upload-thumb-name" title={item.file.name}>{item.file.name}</p>
-                  <button
-                    type="button"
-                    className="upload-thumb-remove"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      removeAt(index);
-                    }}
-                    aria-label={t("create.fileRemove")}
-                  >
-                    {t("create.fileRemove")}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : hasReusedFiles ? (
+        {hasFiles ? (
           <div className="upload-thumb-grid">
             {reusedFileIds.map((fileId, index) => {
               const item = reusedPreviewMap.get(fileId);
-              const previewIndexForItem = item
-                ? activePreviewItems.findIndex((preview) => preview.key === `reused_${fileId}`)
-                : -1;
+              const previewIndexForItem = previewIndexByKey.get(`reused_${fileId}`) ?? -1;
               return (
                 <article key={`${fileId}_${index}`} className="upload-thumb-card">
                   {item ? (
@@ -1653,6 +1629,38 @@ function DynamicInput(props: {
                 </article>
               );
             })}
+            {filePreviews.map((item, index) => (
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="upload-thumb-card">
+                <button
+                  type="button"
+                  className="upload-thumb-hit"
+                  onClick={() => {
+                    const previewIndexForItem =
+                      previewIndexByKey.get(`local_${item.file.name}_${item.file.size}_${index}`) ?? -1;
+                    if (previewIndexForItem >= 0) {
+                      setPreviewIndex(previewIndexForItem);
+                    }
+                  }}
+                >
+                  <img className="upload-thumb-img" src={item.url} alt={item.file.name} />
+                </button>
+                <div className="upload-thumb-foot">
+                  <p className="upload-thumb-name" title={item.file.name}>{item.file.name}</p>
+                  <button
+                    type="button"
+                    className="upload-thumb-remove"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      removeAt(index);
+                    }}
+                    aria-label={t("create.fileRemove")}
+                  >
+                    {t("create.fileRemove")}
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         ) : (
           <button type="button" className="upload-empty" onClick={triggerPick}>
