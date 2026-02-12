@@ -81,7 +81,7 @@ def create_app() -> FastAPI:
             store=store,
             provider_configs=provider_configs,
             providers=providers_by_id,
-            worker_count=1,
+            worker_count=20,
         )
         await worker.start()
 
