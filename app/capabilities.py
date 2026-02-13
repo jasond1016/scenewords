@@ -193,6 +193,23 @@ def _resolution_field(default_value: str = "1280x720") -> ProviderOperationField
     )
 
 
+def _orientation_mode_field(default_value: str = "auto") -> ProviderOperationField:
+    return _field(
+        "orientation_mode",
+        "视频方向",
+        target="provider_options",
+        input_type="select",
+        required=True,
+        default=default_value,
+        help_text="自动时优先按首张参考图推断横向/纵向",
+        options=[
+            _option("auto", "自动"),
+            _option("landscape", "横向"),
+            _option("portrait", "纵向"),
+        ],
+    )
+
+
 def _duration_field(
     *,
     default_value: int,
@@ -277,6 +294,7 @@ def _tuzi_sora_operations(
             options=duration_options,
         ),
         _resolution_field(),
+        _orientation_mode_field(),
         _field(
             "input_reference_file_ids",
             "参考图文件",
@@ -456,6 +474,7 @@ def _tuzi_veo_operations(
                     options=duration_options,
                 ),
                 _resolution_field(),
+                _orientation_mode_field(),
                 _field(
                     "start_frame_file_id",
                     "首帧图片",

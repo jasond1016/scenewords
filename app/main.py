@@ -43,6 +43,11 @@ from app.schemas import (
 )
 from app.worker import TaskWorker, build_provider_clients
 
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional dependency at import time
+    Image = None  # type: ignore[assignment]
+
 STATIC_DIR = Path(__file__).parent / "static"
 FRONTEND_BUILD_HINT = "Frontend assets not found. Run: pnpm --dir frontend build"
 ALLOWED_IMAGE_MIME_TYPES = {
@@ -251,6 +256,7 @@ def create_app() -> FastAPI:
             store=app.state.store,
             app_config=app.state.config,
         )
+        _apply_orientation_mode_to_resolution(payload)
         estimated_cost, currency, cost_source = _estimate_cost_for_request(payload)
         task_id = str(uuid4())
         prompt_text = payload.prompt or ""
@@ -663,6 +669,96 @@ def _resolve_uploaded_files(
         request_payload.provider_options[f"__resolved_{field.key}"] = resolved_entries
 
     _validate_file_dependencies(request_payload.provider_options)
+
+
+def _apply_orientation_mode_to_resolution(request_payload: VideoGenerationRequest) -> None:
+    provider_options = request_payload.provider_options
+    if not isinstance(provider_options, dict):
+        return
+    orientation_mode = _normalize_orientation_mode(provider_options.get("orientation_mode"))
+    if orientation_mode is None:
+        return
+    resolution = _parse_resolution_value(request_payload.resolution)
+    if resolution is None:
+        return
+    width, height = resolution
+    desired_orientation = orientation_mode
+    if orientation_mode == "auto":
+        desired_orientation = _infer_orientation_from_resolved_references(provider_options)
+    if desired_orientation is None:
+        return
+    if desired_orientation == "landscape" and width < height:
+        width, height = height, width
+    elif desired_orientation == "portrait" and width > height:
+        width, height = height, width
+    request_payload.resolution = f"{width}x{height}"
+
+
+def _normalize_orientation_mode(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"auto", "landscape", "portrait"}:
+        return normalized
+    return None
+
+
+def _parse_resolution_value(raw_resolution: str | None) -> tuple[int, int] | None:
+    if not isinstance(raw_resolution, str):
+        return None
+    normalized = raw_resolution.strip().lower()
+    if "x" not in normalized:
+        return None
+    width_part, _, height_part = normalized.partition("x")
+    try:
+        width = int(width_part.strip())
+        height = int(height_part.strip())
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _infer_orientation_from_resolved_references(
+    provider_options: dict[str, Any],
+) -> str | None:
+    for key in (
+        "__resolved_start_frame_file_id",
+        "__resolved_input_reference_file_ids",
+        "__resolved_end_frame_file_id",
+    ):
+        dimensions = _read_first_resolved_image_size(provider_options.get(key))
+        if dimensions is None:
+            continue
+        width, height = dimensions
+        if width > height:
+            return "landscape"
+        if height > width:
+            return "portrait"
+    return None
+
+
+def _read_first_resolved_image_size(raw_entries: Any) -> tuple[int, int] | None:
+    if Image is None or not isinstance(raw_entries, list):
+        return None
+    for entry in raw_entries:
+        if not isinstance(entry, dict):
+            continue
+        path_text = entry.get("path")
+        if not isinstance(path_text, str) or not path_text.strip():
+            continue
+        file_path = Path(path_text)
+        if not file_path.exists():
+            continue
+        try:
+            with Image.open(file_path) as image:
+                width, height = image.size
+        except Exception:
+            continue
+        if width > 0 and height > 0:
+            return width, height
+    return None
 
 
 def _normalize_file_ids(raw_value: Any, expect_list: bool, field_key: str) -> list[str]:

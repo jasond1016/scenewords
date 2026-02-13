@@ -98,6 +98,27 @@ def test_tuzi_sora_create_character_exposes_character_model_options() -> None:
     ]
 
 
+def test_tuzi_video_operations_expose_orientation_mode_field() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_veo",
+        model_name="veo3.1",
+    )
+
+    operations = build_model_operations(provider, "veo3.1")
+    generate = next(item for item in operations if item.id == "generate")
+    orientation_field = next(
+        field for field in generate.fields if field.key == "orientation_mode"
+    )
+
+    assert orientation_field.target == "provider_options"
+    assert orientation_field.default == "auto"
+    assert [option.value for option in orientation_field.options] == [
+        "auto",
+        "landscape",
+        "portrait",
+    ]
+
+
 def test_tuzi_image_operations_include_generate_and_edit_for_sync_model() -> None:
     provider = _build_provider_config(
         provider_type="tuzi_image",

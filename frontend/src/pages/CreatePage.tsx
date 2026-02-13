@@ -137,6 +137,13 @@ export function CreatePage(props: Props) {
     () => findField(selectedOperation, "resolution"),
     [selectedOperation],
   );
+  const orientationField = useMemo(
+    () =>
+      selectedOperation?.fields.find(
+        (field) => field.target === "provider_options" && field.key === "orientation_mode",
+      ) ?? null,
+    [selectedOperation],
+  );
   const qualityField = useMemo(
     () =>
       selectedOperation?.fields.find(
@@ -161,6 +168,9 @@ export function CreatePage(props: Props) {
     if (qualityField) {
       excluded.add(fieldKey(qualityField));
     }
+    if (orientationField) {
+      excluded.add(fieldKey(orientationField));
+    }
     const fileFields = selectedOperation.fields.filter((field) => {
       if (excluded.has(fieldKey(field))) {
         return false;
@@ -172,7 +182,7 @@ export function CreatePage(props: Props) {
       return required;
     }
     return fileFields.slice(0, 1);
-  }, [durationField, promptField, qualityField, resolutionField, selectedOperation]);
+  }, [durationField, orientationField, promptField, qualityField, resolutionField, selectedOperation]);
   const advancedFields = useMemo(() => {
     if (!selectedOperation) {
       return [];
@@ -190,11 +200,14 @@ export function CreatePage(props: Props) {
     if (qualityField) {
       excluded.add(fieldKey(qualityField));
     }
+    if (orientationField) {
+      excluded.add(fieldKey(orientationField));
+    }
     for (const field of quickMediaFields) {
       excluded.add(fieldKey(field));
     }
     return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
-  }, [durationField, promptField, qualityField, quickMediaFields, resolutionField, selectedOperation]);
+  }, [durationField, orientationField, promptField, qualityField, quickMediaFields, resolutionField, selectedOperation]);
   const advancedGroups = useMemo(
     () => groupAdvancedFields(advancedFields),
     [advancedFields],
@@ -250,6 +263,7 @@ export function CreatePage(props: Props) {
     [currentGenerationKind, providers],
   );
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
+  const orientationValue = orientationField ? values[fieldKey(orientationField)] ?? "" : "";
   const qualityValue = qualityField ? values[fieldKey(qualityField)] ?? "" : "";
   const durationValue = durationField ? values[fieldKey(durationField)] ?? "" : "";
   const durationChoices = useMemo(
@@ -275,6 +289,10 @@ export function CreatePage(props: Props) {
   const qualityChoices = useMemo(
     () => (qualityField?.options ?? []).map((option) => option.value).filter(Boolean),
     [qualityField?.options],
+  );
+  const orientationChoices = useMemo(
+    () => orientationField?.options ?? [],
+    [orientationField?.options],
   );
   const hasQuickSize = useMemo(
     () => Boolean((qualityField && qualityChoices.length) || sizeChoices.length),
@@ -311,6 +329,16 @@ export function CreatePage(props: Props) {
     }
     return "-";
   }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size]);
+  const currentOrientationDisplay = useMemo(() => {
+    if (!orientationField) {
+      return "-";
+    }
+    if (!orientationValue) {
+      return "-";
+    }
+    const matched = orientationChoices.find((option) => option.value === orientationValue);
+    return matched?.label ?? orientationValue;
+  }, [orientationChoices, orientationField, orientationValue]);
   const promptPlaceholder = useMemo(() => {
     if (!promptField) {
       return "";
@@ -691,6 +719,27 @@ export function CreatePage(props: Props) {
     }
     onFieldChanged(resolutionField, nextResolution);
   };
+  const onOrientationChanged = (nextOrientation: string) => {
+    if (!orientationField) {
+      return;
+    }
+    onFieldChanged(orientationField, nextOrientation);
+    if (!resolutionField) {
+      return;
+    }
+    if (nextOrientation !== "landscape" && nextOrientation !== "portrait") {
+      return;
+    }
+    const nextResolution = pickResolutionValueByOrientation(
+      resolutionField,
+      resolutionValue,
+      nextOrientation,
+    );
+    if (!nextResolution) {
+      return;
+    }
+    onFieldChanged(resolutionField, nextResolution);
+  };
   const onSizeChanged = (nextSize: string) => {
     if (qualityField) {
       onFieldChanged(qualityField, nextSize);
@@ -987,6 +1036,38 @@ export function CreatePage(props: Props) {
                 </div>
               ) : null}
             </div>
+
+            {orientationField ? (
+              <div className={openQuickKey === "orientation" ? "quick-item open" : "quick-item"}>
+                <button
+                  type="button"
+                  className="quick-trigger"
+                  onClick={() => toggleQuickItem("orientation")}
+                >
+                  <span>{t("create.quickOrientation")}</span>
+                  <strong>{currentOrientationDisplay}</strong>
+                </button>
+                {openQuickKey === "orientation" ? (
+                  <div className="quick-popover quick-popover-grid">
+                    {orientationChoices.map((option) => (
+                      <button
+                        type="button"
+                        key={option.value}
+                        className={
+                          orientationValue === option.value ? "chip-button active" : "chip-button"
+                        }
+                        onClick={() => {
+                          onOrientationChanged(option.value);
+                          closeQuickItem();
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {hasQuickSize ? (
               <div className={openQuickKey === "size" ? "quick-item open" : "quick-item"}>
@@ -1852,6 +1933,8 @@ interface ResolutionChoice {
   size: string;
 }
 
+type OrientationMode = "landscape" | "portrait";
+
 function buildResolutionChoices(
   field: ProviderOperationField | null,
   currentValue: string,
@@ -1905,6 +1988,27 @@ function pickResolutionValue(
   return choices[0].value;
 }
 
+function pickResolutionValueByOrientation(
+  field: ProviderOperationField,
+  currentValue: string,
+  orientation: OrientationMode,
+): string | null {
+  const choices = buildResolutionChoices(field, currentValue);
+  if (!choices.length) {
+    return null;
+  }
+  const current = parseResolutionMeta(currentValue);
+  const orientedChoices = choices.filter((item) => inferResolutionOrientation(item.value) === orientation);
+  if (!orientedChoices.length) {
+    return null;
+  }
+  const sizeMatched = orientedChoices.find((item) => !current.size || item.size === current.size);
+  if (sizeMatched) {
+    return sizeMatched.value;
+  }
+  return orientedChoices[0].value;
+}
+
 function parseResolutionMeta(raw: string): { ratio: string; size: string } {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) {
@@ -1941,6 +2045,23 @@ function parseResolutionMeta(raw: string): { ratio: string; size: string } {
     ratio: raw.trim(),
     size: raw.trim(),
   };
+}
+
+function inferResolutionOrientation(raw: string): OrientationMode | null {
+  const normalized = raw.trim().toLowerCase();
+  const match = normalized.match(/^(\d+)\s*[:x]\s*(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  const left = Number(match[1]);
+  const right = Number(match[2]);
+  if (!(Number.isFinite(left) && Number.isFinite(right) && left > 0 && right > 0)) {
+    return null;
+  }
+  if (left === right) {
+    return null;
+  }
+  return left > right ? "landscape" : "portrait";
 }
 
 function normalizeAspectRatio(width: number, height: number): string {

@@ -868,13 +868,16 @@ def _normalize_upload_image(
             if not needs_processing:
                 return None, None
 
-            cropped = False
-            if target_ratio is not None and target_ratio > 0:
-                image, cropped = _center_crop_to_ratio(image=image, target_ratio=target_ratio)
-
             resized = False
+            padded = False
             if target_width is not None and target_height is not None:
-                if image.size != (target_width, target_height):
+                if ratio_mismatch:
+                    image, padded, resized = _fit_with_padding_to_target(
+                        image=image,
+                        target_width=target_width,
+                        target_height=target_height,
+                    )
+                elif image.size != (target_width, target_height):
                     image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
                     resized = True
             else:
@@ -903,7 +906,8 @@ def _normalize_upload_image(
                 "output_size": f"{image.size[0]}x{image.size[1]}",
                 "original_bytes": source_bytes,
                 "output_bytes": len(encoded_bytes),
-                "cropped": cropped,
+                "cropped": False,
+                "padded": padded,
                 "resized": resized,
                 "quality": quality_used,
             }
@@ -912,20 +916,72 @@ def _normalize_upload_image(
         return None, None
 
 
-def _center_crop_to_ratio(image: Any, target_ratio: float) -> tuple[Any, bool]:
+def _fit_with_padding_to_target(
+    *,
+    image: Any,
+    target_width: int,
+    target_height: int,
+) -> tuple[Any, bool, bool]:
     width, height = image.size
-    current_ratio = float(width) / float(height)
-    if abs(current_ratio - target_ratio) <= 0.015:
-        return image, False
-    if current_ratio > target_ratio:
-        target_width = int(round(height * target_ratio))
-        left = max(0, (width - target_width) // 2)
-        right = min(width, left + target_width)
-        return image.crop((left, 0, right, height)), True
-    target_height = int(round(width / target_ratio))
-    top = max(0, (height - target_height) // 2)
-    bottom = min(height, top + target_height)
-    return image.crop((0, top, width, bottom)), True
+    if width <= 0 or height <= 0:
+        return image, False, False
+    scale = min(float(target_width) / float(width), float(target_height) / float(height))
+    scaled_size = (
+        max(1, int(round(width * scale))),
+        max(1, int(round(height * scale))),
+    )
+    resized = scaled_size != image.size
+    working = image.resize(scaled_size, Image.Resampling.LANCZOS) if resized else image
+    if working.size == (target_width, target_height):
+        return working, False, resized
+
+    background = _estimate_padding_color(working)
+    canvas = Image.new("RGB", (target_width, target_height), color=background)
+    offset_x = max(0, (target_width - working.size[0]) // 2)
+    offset_y = max(0, (target_height - working.size[1]) // 2)
+    canvas.paste(working, (offset_x, offset_y))
+    return canvas, True, resized
+
+
+def _estimate_padding_color(image: Any) -> tuple[int, int, int]:
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return (0, 0, 0)
+    sample_points = [
+        (0, 0),
+        (width - 1, 0),
+        (0, height - 1),
+        (width - 1, height - 1),
+        (width // 2, 0),
+        (width // 2, height - 1),
+        (0, height // 2),
+        (width - 1, height // 2),
+    ]
+    red_sum = 0
+    green_sum = 0
+    blue_sum = 0
+    sample_count = 0
+    for x, y in sample_points:
+        pixel = image.getpixel((x, y))
+        if isinstance(pixel, tuple):
+            red = int(pixel[0])
+            green = int(pixel[1] if len(pixel) > 1 else pixel[0])
+            blue = int(pixel[2] if len(pixel) > 2 else pixel[0])
+        else:
+            red = int(pixel)
+            green = int(pixel)
+            blue = int(pixel)
+        red_sum += red
+        green_sum += green
+        blue_sum += blue
+        sample_count += 1
+    if sample_count <= 0:
+        return (0, 0, 0)
+    return (
+        int(round(red_sum / sample_count)),
+        int(round(green_sum / sample_count)),
+        int(round(blue_sum / sample_count)),
+    )
 
 
 def _encode_image_with_limit(

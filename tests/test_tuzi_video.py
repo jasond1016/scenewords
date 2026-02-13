@@ -90,6 +90,52 @@ def test_build_generation_form_normalizes_start_frame_to_target_resolution(tmp_p
     assert aggressive_meta[0]["output_bytes"] <= normal_meta[0]["output_bytes"]
 
 
+def test_build_generation_form_preserves_full_portrait_content_with_padding(tmp_path) -> None:
+    source_path = tmp_path / "portrait.png"
+    image = Image.new("RGB", (600, 900), color=(128, 128, 128))
+    # Strong top/bottom color bands let us verify content survives processing.
+    for y in range(80):
+        for x in range(600):
+            image.putpixel((x, y), (255, 0, 0))
+            image.putpixel((x, 899 - y), (0, 0, 255))
+    image.save(source_path, format="PNG")
+
+    request = VideoGenerationRequest(
+        provider="veo31",
+        model="veo3.1",
+        operation="generate",
+        prompt="test",
+        duration_sec=8,
+        resolution="1280x720",
+        provider_options={
+            "__resolved_start_frame_file_id": [
+                {
+                    "file_id": "file_1",
+                    "path": str(source_path),
+                    "original_name": "portrait.png",
+                    "mime_type": "image/png",
+                    "size_bytes": source_path.stat().st_size,
+                }
+            ]
+        },
+    )
+
+    form, meta = _build_generation_form(request, "generate", upload_profile="normal")
+    part = next(part for part in form if part[0] == "input_reference" and isinstance(part[1], tuple))
+    processed_bytes = part[1][1]
+
+    with Image.open(io.BytesIO(processed_bytes)) as processed:
+        assert processed.size == (1280, 720)
+        top = processed.getpixel((640, 30))
+        bottom = processed.getpixel((640, 690))
+
+    assert top[0] > 180 and top[1] < 80 and top[2] < 80
+    assert bottom[2] > 180 and bottom[0] < 80 and bottom[1] < 80
+    assert len(meta) == 1
+    assert meta[0]["cropped"] is False
+    assert meta[0]["padded"] is True
+
+
 def test_should_retry_upload_failure_only_once_for_normal_profile() -> None:
     error = ProviderError(
         code="provider_job_failed",
