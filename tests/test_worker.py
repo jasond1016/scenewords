@@ -34,6 +34,25 @@ class _BlockingProvider(Provider):
         return {"video_url": "https://example.com/done.mp4"}
 
 
+class _StaticResultProvider(Provider):
+    def __init__(
+        self,
+        *,
+        app_config: AppConfig,
+        http_client: httpx.AsyncClient,
+        result_payload: dict[str, object],
+    ) -> None:
+        super().__init__(app_config=app_config, http_client=http_client)
+        self._result_payload = result_payload
+
+    async def generate(
+        self, provider_config: ProviderConfig, request: VideoGenerationRequest
+    ) -> dict[str, object]:
+        del provider_config
+        del request
+        return dict(self._result_payload)
+
+
 async def _wait_for_status(
     store: TaskStore,
     *,
@@ -89,7 +108,7 @@ def _build_provider_config() -> ProviderConfig:
     )
 
 
-def _seed_task(store: TaskStore) -> str:
+def _seed_task(store: TaskStore, *, asset_type: str = "video") -> str:
     task_id = str(uuid4())
     store.create_task(
         task_id=task_id,
@@ -104,7 +123,7 @@ def _seed_task(store: TaskStore) -> str:
             "prompt": "test prompt",
             "provider_options": {},
         },
-        asset_type="video",
+        asset_type=asset_type,
     )
     return task_id
 
@@ -147,6 +166,72 @@ def test_cancel_running_task_unblocks_next_queued_task(tmp_path: Path) -> None:
             await _wait_for_status(store, task_id=task_2, expected="running")
             release.set()
             await _wait_for_status(store, task_id=task_2, expected="succeeded")
+        finally:
+            await worker.stop()
+            await http_client.aclose()
+
+    asyncio.run(_run())
+
+
+def test_archives_image_results_with_stable_local_urls(tmp_path: Path) -> None:
+    async def _run() -> None:
+        store = TaskStore(tmp_path / "tasks.db")
+        app_config = _build_app_config(tmp_path)
+        provider_config = _build_provider_config()
+
+        image_1 = b"\xff\xd8\xff\xe0jpg"
+        image_2 = b"\x89PNG\r\n\x1a\npng"
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == "https://archive.test/img-1.jpg":
+                return httpx.Response(
+                    200,
+                    content=image_1,
+                    headers={"content-type": "image/jpeg"},
+                )
+            if str(request.url) == "https://archive.test/img-2.png":
+                return httpx.Response(
+                    200,
+                    content=image_2,
+                    headers={"content-type": "image/png"},
+                )
+            return httpx.Response(404, json={"detail": "not found"})
+
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+        provider = _StaticResultProvider(
+            app_config=app_config,
+            http_client=http_client,
+            result_payload={
+                "image_urls": [
+                    "https://archive.test/img-1.jpg",
+                    "https://archive.test/img-2.png",
+                ]
+            },
+        )
+        worker = TaskWorker(
+            store=store,
+            provider_configs={"demo_provider": provider_config},
+            providers={"demo_provider": provider},
+            worker_count=1,
+        )
+
+        task_id = _seed_task(store, asset_type="image")
+        await worker.start()
+        try:
+            await worker.submit(task_id)
+            await _wait_for_status(store, task_id=task_id, expected="succeeded")
+            task = store.get_task(task_id)
+            result = task["result"]
+            assert isinstance(result, dict)
+            local_urls = result.get("local_image_urls")
+            assert isinstance(local_urls, list)
+            assert len(local_urls) == 2
+            for local_url in local_urls:
+                assert isinstance(local_url, str)
+                assert local_url.startswith(f"/v1/assets/{task_id}/")
+                filename = local_url.rsplit("/", 1)[-1]
+                archived_path = app_config.output_dir / "assets" / task_id / filename
+                assert archived_path.exists()
         finally:
             await worker.stop()
             await http_client.aclose()

@@ -195,6 +195,7 @@ export function extractVideoUrl(task: VideoTaskDetail): string | null {
     return null;
   }
   const candidates = [
+    result.local_video_url,
     result.video_url,
     result.url,
     result.download_url,
@@ -219,6 +220,13 @@ export function extractImageUrls(task: VideoTaskDetail): string[] {
       urls.push(value.trim());
     }
   };
+
+  const local = (result as Record<string, unknown>).local_image_urls;
+  if (Array.isArray(local)) {
+    for (const item of local) {
+      pushUrl(item);
+    }
+  }
 
   const direct = (result as Record<string, unknown>).image_urls;
   if (Array.isArray(direct)) {

@@ -6,6 +6,7 @@ import random
 from datetime import datetime
 import mimetypes
 from pathlib import Path
+import shutil
 from typing import Any
 from uuid import uuid4
 
@@ -323,6 +324,7 @@ def create_app() -> FastAPI:
         if task.get("asset_type", "video") != "video":
             raise HTTPException(status_code=404, detail="Task not found")
         app.state.worker.cancel(task_id)
+        _delete_archived_assets(app.state.config.output_dir, task_id)
         app.state.store.delete_task(task_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -454,6 +456,7 @@ def create_app() -> FastAPI:
         if task.get("asset_type", "video") != "image":
             raise HTTPException(status_code=404, detail="Task not found")
         app.state.worker.cancel(task_id)
+        _delete_archived_assets(app.state.config.output_dir, task_id)
         app.state.store.delete_task(task_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -565,6 +568,32 @@ def create_app() -> FastAPI:
             str(file_path),
             media_type=file_record["mime_type"],
             filename=file_record["original_name"],
+        )
+
+    @app.get("/v1/assets/{task_id}/{filename}")
+    async def get_archived_asset(
+        task_id: str,
+        filename: str,
+        _: None = Depends(require_auth),
+    ) -> FileResponse:
+        if Path(filename).name != filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        archive_root = app.state.config.output_dir / "assets"
+        file_path = (archive_root / task_id / filename).resolve()
+        try:
+            file_path.relative_to(archive_root.resolve())
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail="Invalid asset path") from error
+
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="Archived asset not found")
+
+        media_type, _ = mimetypes.guess_type(str(file_path))
+        return FileResponse(
+            str(file_path),
+            media_type=media_type or "application/octet-stream",
+            filename=filename,
         )
 
     return app
@@ -690,6 +719,17 @@ def _resolve_upload_mime_type(content_type: str | None, filename: str) -> str:
         status_code=400,
         detail="Unsupported file type; only jpg/png/webp are allowed",
     )
+
+
+def _delete_archived_assets(output_dir: Path, task_id: str) -> None:
+    target = output_dir / "assets" / task_id
+    try:
+        shutil.rmtree(target)
+    except FileNotFoundError:
+        return
+    except OSError:
+        # Best-effort cleanup; task deletion should still succeed.
+        return
 
 
 def _to_task_response(

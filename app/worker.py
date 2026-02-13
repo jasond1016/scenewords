@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+import mimetypes
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
 from app.config import ProviderConfig
 from app.db import TaskStore
@@ -113,6 +117,12 @@ class TaskWorker:
         request = VideoGenerationRequest.model_validate(task["request"])
         try:
             result = await provider.generate(provider_config=provider_config, request=request)
+            result = await _archive_result_assets(
+                task_id=task_id,
+                asset_type=task.get("asset_type", "video"),
+                result=result,
+                provider=provider,
+            )
             actual_cost = _extract_actual_cost(result)
             self.store.set_result(
                 task_id=task_id,
@@ -169,3 +179,171 @@ def _extract_actual_cost(result: dict[str, object]) -> float | None:
         if isinstance(nested, (int, float)):
             return float(nested)
     return None
+
+
+async def _archive_result_assets(
+    *,
+    task_id: str,
+    asset_type: Any,
+    result: dict[str, Any],
+    provider: Provider,
+) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return result
+
+    archived = dict(result)
+    normalized_asset_type = str(asset_type or "video").lower()
+    if normalized_asset_type == "image":
+        local_image_urls: list[str] = []
+        for index, source_url in enumerate(_extract_image_urls(archived)):
+            local_url = await _download_media_to_local(
+                task_id=task_id,
+                source_url=source_url,
+                provider=provider,
+                kind="image",
+                index=index,
+            )
+            if local_url:
+                local_image_urls.append(local_url)
+        if local_image_urls:
+            archived["local_image_urls"] = local_image_urls
+        return archived
+
+    source_video_url = _extract_video_url(archived)
+    if source_video_url:
+        local_video_url = await _download_media_to_local(
+            task_id=task_id,
+            source_url=source_video_url,
+            provider=provider,
+            kind="video",
+            index=0,
+        )
+        if local_video_url:
+            archived["local_video_url"] = local_video_url
+    return archived
+
+
+async def _download_media_to_local(
+    *,
+    task_id: str,
+    source_url: str,
+    provider: Provider,
+    kind: str,
+    index: int,
+) -> str | None:
+    if not _is_http_url(source_url):
+        return None
+    try:
+        response = await provider.http_client.get(
+            source_url,
+            timeout=90.0,
+            follow_redirects=True,
+        )
+    except Exception:
+        return None
+    if response.status_code >= 400:
+        return None
+    content = response.content
+    if not content:
+        return None
+
+    archive_dir = provider.app_config.output_dir / "assets" / task_id
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+
+    extension = _resolve_media_extension(
+        source_url=source_url,
+        content_type=response.headers.get("content-type"),
+        kind=kind,
+    )
+    filename = f"{kind}_{index + 1}{extension}"
+    target_path = archive_dir / filename
+    try:
+        target_path.write_bytes(content)
+    except OSError:
+        return None
+    return f"/v1/assets/{task_id}/{filename}"
+
+
+def _is_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _resolve_media_extension(*, source_url: str, content_type: str | None, kind: str) -> str:
+    content_type_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+        "video/mp4": ".mp4",
+        "video/webm": ".webm",
+        "video/quicktime": ".mov",
+        "video/mpeg": ".mpeg",
+    }
+    if isinstance(content_type, str) and content_type.strip():
+        normalized_type = content_type.split(";")[0].strip().lower()
+        mapped = content_type_map.get(normalized_type)
+        if mapped:
+            return mapped
+
+    guessed_from_url = Path(urlparse(source_url).path).suffix.lower()
+    allowed_suffixes = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".mp4",
+        ".webm",
+        ".mov",
+        ".mpeg",
+    }
+    if guessed_from_url in allowed_suffixes:
+        return guessed_from_url
+
+    guessed_type, _ = mimetypes.guess_type(source_url)
+    if guessed_type:
+        mapped = content_type_map.get(guessed_type.lower())
+        if mapped:
+            return mapped
+    return ".mp4" if kind == "video" else ".jpg"
+
+
+def _extract_video_url(result: dict[str, Any]) -> str | None:
+    for key in ("video_url", "url", "download_url"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _extract_image_urls(result: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    direct = result.get("image_urls")
+    if isinstance(direct, list):
+        for item in direct:
+            if isinstance(item, str) and item.strip():
+                urls.append(item.strip())
+    images = result.get("images")
+    if isinstance(images, list):
+        for item in images:
+            if isinstance(item, dict):
+                url = item.get("url")
+                if isinstance(url, str) and url.strip():
+                    urls.append(url.strip())
+    if not urls:
+        for key in ("url", "download_url", "video_url"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                urls.append(value.strip())
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
