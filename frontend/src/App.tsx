@@ -1,19 +1,30 @@
-import { useEffect } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
-import { useTaskNotifications } from "./useTaskNotifications";
+import { useTaskNotifications, type TaskToastNotice } from "./useTaskNotifications";
 import { CreatePage } from "./pages/CreatePage";
 import { JobsPage } from "./pages/JobsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 const TASK_POLL_INTERVAL_MS = 4000;
+const TOAST_TTL_MS = 5200;
+
+interface ToastItem extends TaskToastNotice {
+  id: string;
+}
 
 export default function App() {
   const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
+  const location = useLocation();
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [visibility, setVisibility] = useState<"visible" | "hidden">(
+    typeof document !== "undefined" && document.visibilityState === "hidden" ? "hidden" : "visible",
+  );
   const tasksQuery = useQuery({
     queryKey: ["tasks", settings.gatewayToken],
     queryFn: () => fetchTasks(60, settings.gatewayToken),
@@ -28,17 +39,54 @@ export default function App() {
     queryFn: () => fetchPricing(settings.gatewayToken),
   });
 
-  useTaskNotifications(
-    tasksQuery.data ?? [],
-    settings.notifyOnSuccess,
-    settings.notifyOnFailure,
-    settings.notifySound,
-  );
+  const dismissToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const pushToast = useCallback((notice: TaskToastNotice) => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((current) => [...current, { ...notice, id }].slice(-4));
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((item) => item.id !== id));
+    }, TOAST_TTL_MS);
+  }, []);
+
+  useTaskNotifications({
+    tasks: tasksQuery.data ?? [],
+    enabledSuccess: settings.notifyOnSuccess,
+    enabledFailure: settings.notifyOnFailure,
+    soundEnabled: settings.notifySound,
+    currentPath: location.pathname,
+    onToast: pushToast,
+    onUnreadIncrement: settings.notifyBadge
+      ? (delta) => setUnreadCount((current) => current + delta)
+      : undefined,
+  });
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      setVisibility(document.visibilityState === "hidden" ? "hidden" : "visible");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/assets" && location.pathname !== "/jobs") {
+      return;
+    }
+    if (visibility !== "visible") {
+      return;
+    }
+    setUnreadCount(0);
+  }, [location.pathname, visibility]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    document.title = t("app.documentTitle");
-  }, [locale, t]);
+    const baseTitle = t("app.documentTitle");
+    document.title =
+      settings.notifyBadge && unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;
+  }, [locale, settings.notifyBadge, t, unreadCount]);
 
   return (
     <div className="app-shell">
@@ -111,6 +159,25 @@ export default function App() {
           </Routes>
         </main>
       </div>
+      {toasts.length ? (
+        <div className="toast-stack" aria-live="polite" aria-atomic="true">
+          {toasts.map((toast) => (
+            <article
+              key={toast.id}
+              className={toast.level === "failure" ? "toast-card failure" : "toast-card success"}
+              role="status"
+            >
+              <div className="toast-head">
+                <strong>{toast.title}</strong>
+                <button type="button" className="toast-close" onClick={() => dismissToast(toast.id)}>
+                  {t("common.close")}
+                </button>
+              </div>
+              <p>{toast.body}</p>
+            </article>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
