@@ -606,7 +606,7 @@ export function JobsPage(props: Props) {
                 </div>
                 <details>
                   <summary>{t("jobs.rawResult")}</summary>
-                  <pre>{JSON.stringify(selectedTask.result, null, 2)}</pre>
+                  <pre>{formatRawDebugPayload(selectedTask)}</pre>
                 </details>
               </details>
             </>
@@ -852,6 +852,17 @@ function buildTaskRequestPayload(task: VideoTaskDetail) {
     seed: task.seed,
     provider_options: task.provider_options ?? {},
   };
+}
+
+function formatRawDebugPayload(task: VideoTaskDetail): string {
+  if (task.status === "failed" && task.error) {
+    const rawError = task.error.raw_error;
+    if (rawError !== undefined) {
+      return JSON.stringify(rawError, null, 2);
+    }
+    return JSON.stringify(task.error, null, 2);
+  }
+  return JSON.stringify(task.result, null, 2);
 }
 
 async function copyText(text: string): Promise<void> {
