@@ -8,6 +8,7 @@ import type { AssetType, VideoTaskDetail } from "../types";
 import {
   errorMessage,
   extractImageUrls,
+  extractOriginalImageUrls,
   extractVideoUrl,
   formatTime,
 } from "../utils";
@@ -114,6 +115,13 @@ export function JobsPage(props: Props) {
   const selectedTask = useMemo(
     () => assetList.find((task) => task.task_id === selectedTaskId) ?? null,
     [assetList, selectedTaskId],
+  );
+  const selectedTaskOriginalImageUrls = useMemo(
+    () =>
+      selectedTask && selectedTask.asset_type === "image"
+        ? extractOriginalImageUrls(selectedTask)
+        : [],
+    [selectedTask],
   );
   const imageLightboxItems = useMemo(
     () => buildLightboxItems(assetList, "image"),
@@ -604,6 +612,18 @@ export function JobsPage(props: Props) {
                     {t("jobs.delete")}
                   </button>
                 </div>
+                {selectedTask.asset_type === "image" && selectedTaskOriginalImageUrls.length ? (
+                  <details>
+                    <summary>{t("jobs.originalImageLinks")}</summary>
+                    <div className="raw-link-list">
+                      {selectedTaskOriginalImageUrls.map((url) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer">
+                          {url}
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
                 <details>
                   <summary>{t("jobs.rawResult")}</summary>
                   <pre>{formatRawDebugPayload(selectedTask)}</pre>

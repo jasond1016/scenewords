@@ -213,6 +213,29 @@ export function extractImageUrls(task: VideoTaskDetail): string[] {
   if (!result || typeof result !== "object") {
     return [];
   }
+  const localUrls: string[] = [];
+  const pushLocalUrl = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) {
+      localUrls.push(value.trim());
+    }
+  };
+  const local = (result as Record<string, unknown>).local_image_urls;
+  if (Array.isArray(local)) {
+    for (const item of local) {
+      pushLocalUrl(item);
+    }
+  }
+  if (localUrls.length) {
+    return Array.from(new Set(localUrls));
+  }
+  return extractOriginalImageUrls(task);
+}
+
+export function extractOriginalImageUrls(task: VideoTaskDetail): string[] {
+  const result = task.result;
+  if (!result || typeof result !== "object") {
+    return [];
+  }
   const urls: string[] = [];
 
   const pushUrl = (value: unknown) => {
@@ -220,13 +243,6 @@ export function extractImageUrls(task: VideoTaskDetail): string[] {
       urls.push(value.trim());
     }
   };
-
-  const local = (result as Record<string, unknown>).local_image_urls;
-  if (Array.isArray(local)) {
-    for (const item of local) {
-      pushUrl(item);
-    }
-  }
 
   const direct = (result as Record<string, unknown>).image_urls;
   if (Array.isArray(direct)) {
