@@ -799,41 +799,79 @@ export function CreatePage(props: Props) {
   }, [inProgressCount, trackedTask]);
 
   if (loading) {
-    return <section className="panel">{t("create.loadingCatalog")}</section>;
+    return (
+      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
+        {t("create.loadingCatalog")}
+      </div>
+    );
   }
   if (!selectedProvider || !selectedModel || !selectedOperation) {
-    return <section className="panel">{t("create.noAvailable")}</section>;
+    return (
+      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
+        {t("create.noAvailable")}
+      </div>
+    );
   }
 
   return (
-    <section className="panel create-panel">
+    <div className="max-w-5xl mx-auto px-8 md:px-20 py-8 flex flex-col gap-7 items-center">
       <form
-        className="create-flow"
+        className="w-full flex flex-col gap-7"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        <section className="focus-composer">
+        {/* ── Generation Type Tabs ──────────────────── */}
+        {canSwitchGenerationKind ? (
+          <div className="flex justify-center">
+            <div className="inline-flex items-center gap-1 bg-surface rounded-xl p-1">
+              <button
+                type="button"
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${currentGenerationKind === "image"
+                  ? "bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  }`}
+                onClick={() => onGenerationKindChanged("image")}
+              >
+                🖼️ {t("create.quickImage")}
+              </button>
+              <button
+                type="button"
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${currentGenerationKind === "video"
+                  ? "bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  }`}
+                onClick={() => onGenerationKindChanged("video")}
+              >
+                🎬 {t("create.quickVideo")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* ── Prompt Section ───────────────────────── */}
+        <div className="flex flex-col gap-4 w-full">
+          {/* Prompt Box */}
           {promptField ? (
-            <label
-              className="prompt-editor"
+            <div
+              className="bg-surface rounded-2xl p-5 flex flex-col gap-3"
               onClick={closeQuickItem}
               onFocusCapture={closeQuickItem}
             >
-              <div className="prompt-editor-head">
-                <span>{promptField.label}</span>
-                <div className="inline-actions">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{promptField.label}</span>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      onFieldChanged(promptField, "");
-                    }}
+                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    onClick={() => onFieldChanged(promptField, "")}
                   >
                     {t("create.clearPrompt")}
                   </button>
                   <button
                     type="button"
+                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
                     onClick={() => {
                       const promptValue = (values[fieldKey(promptField)] ?? "").trim();
                       if (!promptValue) {
@@ -860,174 +898,151 @@ export function CreatePage(props: Props) {
                 onFileChange={() => undefined}
                 placeholder={promptPlaceholder}
               />
-              {promptField.help_text ? <small>{promptField.help_text}</small> : null}
-            </label>
+              {promptField.help_text ? (
+                <small className="text-xs text-gray-400">{promptField.help_text}</small>
+              ) : null}
+            </div>
           ) : (
-            <p className="hint">{t("create.promptNotSupported")}</p>
+            <p className="text-sm text-gray-400">{t("create.promptNotSupported")}</p>
           )}
 
-          <section className="quick-bar">
-            <div className={openQuickKey === "kind" ? "quick-item open" : "quick-item"}>
+          {/* ── Params Row ─────────────────────────── */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Provider selector */}
+            <div className="relative">
               <button
                 type="button"
-                className="quick-trigger"
-                onClick={() => toggleQuickItem("kind")}
-              >
-                <span>{t("create.quickType")}</span>
-                <strong>
-                  {currentGenerationKind === "image"
-                    ? t("create.quickImage")
-                    : t("create.quickVideo")}
-                </strong>
-              </button>
-              {openQuickKey === "kind" ? (
-                <div className="quick-popover quick-popover-segment">
-                  <button
-                    type="button"
-                    className={currentGenerationKind === "video" ? "chip-button active" : "chip-button"}
-                    onClick={() => {
-                      onGenerationKindChanged("video");
-                      closeQuickItem();
-                    }}
-                    disabled={!canSwitchGenerationKind}
-                  >
-                    {t("create.quickVideo")}
-                  </button>
-                  <button
-                    type="button"
-                    className={currentGenerationKind === "image" ? "chip-button active" : "chip-button"}
-                    onClick={() => {
-                      onGenerationKindChanged("image");
-                      closeQuickItem();
-                    }}
-                    disabled={!canSwitchGenerationKind}
-                  >
-                    {t("create.quickImage")}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            <div className={openQuickKey === "provider" ? "quick-item open" : "quick-item"}>
-              <button
-                type="button"
-                className="quick-trigger"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "provider"
+                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
+                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+                  }`}
                 onClick={() => toggleQuickItem("provider")}
               >
-                <span>{t("create.provider")}</span>
-                <strong>{selectedProvider.display_name}</strong>
+                <span className="text-gray-400">{t("create.provider")}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedProvider.display_name}</span>
+                <span className="text-gray-300">▾</span>
               </button>
               {openQuickKey === "provider" ? (
-                <div className="quick-popover">
-                  <div className="quick-option-list">
-                    {providerChoices.map((provider) => (
-                      <button
-                        type="button"
-                        key={provider.id}
-                        className={
-                          provider.id === providerId
-                            ? "quick-option-button active"
-                            : "quick-option-button"
-                        }
-                        onClick={() => {
-                          setProviderId(provider.id);
-                          closeQuickItem();
-                        }}
-                      >
-                        <strong>{provider.display_name}</strong>
-                      </button>
-                    ))}
-                  </div>
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
+                  {providerChoices.map((provider) => (
+                    <button
+                      type="button"
+                      key={provider.id}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${provider.id === providerId
+                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                        }`}
+                      onClick={() => {
+                        setProviderId(provider.id);
+                        closeQuickItem();
+                      }}
+                    >
+                      {provider.display_name}
+                    </button>
+                  ))}
                 </div>
               ) : null}
             </div>
 
-            <div className={openQuickKey === "model" ? "quick-item open" : "quick-item"}>
+            {/* Model selector */}
+            <div className="relative">
               <button
                 type="button"
-                className="quick-trigger"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "model"
+                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
+                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+                  }`}
                 onClick={() => toggleQuickItem("model")}
               >
-                <span>{t("create.model")}</span>
-                <strong>{selectedModel.display_name}</strong>
+                <span className="text-gray-400">{t("create.model")}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedModel.display_name}</span>
+                <span className="text-gray-300">▾</span>
               </button>
               {openQuickKey === "model" ? (
-                <div className="quick-popover">
-                  <div className="quick-option-list">
-                    {selectedProvider.models.map((model) => (
-                      <button
-                        type="button"
-                        key={model.name}
-                        className={
-                          model.name === modelName ? "quick-option-button active" : "quick-option-button"
-                        }
-                        onClick={() => {
-                          setModelName(model.name);
-                          closeQuickItem();
-                        }}
-                      >
-                        <strong>{model.display_name}</strong>
-                      </button>
-                    ))}
-                  </div>
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
+                  {selectedProvider.models.map((model) => (
+                    <button
+                      type="button"
+                      key={model.name}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${model.name === modelName
+                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                        }`}
+                      onClick={() => {
+                        setModelName(model.name);
+                        closeQuickItem();
+                      }}
+                    >
+                      {model.display_name}
+                    </button>
+                  ))}
                 </div>
               ) : null}
             </div>
 
-            <div className={openQuickKey === "mode" ? "quick-item open" : "quick-item"}>
+            {/* Mode selector */}
+            <div className="relative">
               <button
                 type="button"
-                className="quick-trigger"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "mode"
+                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
+                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+                  }`}
                 onClick={() => toggleQuickItem("mode")}
               >
-                <span>{t("create.quickMode")}</span>
-                <strong>{selectedOperation.display_name}</strong>
+                <span className="text-gray-400">{t("create.quickMode")}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedOperation.display_name}</span>
+                <span className="text-gray-300">▾</span>
               </button>
               {openQuickKey === "mode" ? (
-                <div className="quick-popover">
-                  <div className="quick-option-list">
-                    {selectedModel.operations.map((operation) => (
-                      <button
-                        type="button"
-                        key={operation.id}
-                        className={
-                          operation.id === selectedOperation.id
-                            ? "quick-option-button active"
-                            : "quick-option-button"
-                        }
-                        onClick={() => {
-                          setOperationId(operation.id);
-                          closeQuickItem();
-                        }}
-                      >
-                        <strong>{operation.display_name}</strong>
-                      </button>
-                    ))}
-                  </div>
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
+                  {selectedModel.operations.map((operation) => (
+                    <button
+                      type="button"
+                      key={operation.id}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${operation.id === selectedOperation.id
+                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                        }`}
+                      onClick={() => {
+                        setOperationId(operation.id);
+                        closeQuickItem();
+                      }}
+                    >
+                      {operation.display_name}
+                    </button>
+                  ))}
                 </div>
               ) : null}
             </div>
 
-            <div className={openQuickKey === "ratio" ? "quick-item open" : "quick-item"}>
+            <div className="h-4 w-px bg-gray-200" />
+
+            {/* Ratio selector */}
+            <div className="relative">
               <button
                 type="button"
-                className="quick-trigger"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "ratio"
+                  ? "border-gray-300 bg-white shadow-sm"
+                  : "border-transparent hover:bg-gray-100 text-gray-600"
+                  }`}
                 onClick={() => toggleQuickItem("ratio")}
               >
-                <span>{t("create.quickRatio")}</span>
-                <strong>{currentRatioDisplay}</strong>
+                <span className="text-gray-400">{t("create.quickRatio")}</span>
+                <span className="font-medium text-gray-800">{currentRatioDisplay}</span>
+                <span className="text-gray-300">▾</span>
               </button>
               {openQuickKey === "ratio" ? (
-                <div className="quick-popover quick-popover-grid">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[180px]">
                   {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                     <button
                       type="button"
                       key={ratio}
-                      className={currentRatioDisplay === ratio ? "chip-button active" : "chip-button"}
-                      onClick={() => {
-                        onRatioChanged(ratio);
-                        closeQuickItem();
-                      }}
+                      className={`px-3 py-1 rounded-lg text-sm transition-all ${currentRatioDisplay === ratio
+                        ? "bg-gray-800 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      onClick={() => { onRatioChanged(ratio); closeQuickItem(); }}
                       disabled={!resolutionField}
                     >
                       {ratio}
@@ -1037,29 +1052,32 @@ export function CreatePage(props: Props) {
               ) : null}
             </div>
 
+            {/* Orientation selector */}
             {orientationField ? (
-              <div className={openQuickKey === "orientation" ? "quick-item open" : "quick-item"}>
+              <div className="relative">
                 <button
                   type="button"
-                  className="quick-trigger"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "orientation"
+                    ? "border-gray-300 bg-white shadow-sm"
+                    : "border-transparent hover:bg-gray-100 text-gray-600"
+                    }`}
                   onClick={() => toggleQuickItem("orientation")}
                 >
-                  <span>{t("create.quickOrientation")}</span>
-                  <strong>{currentOrientationDisplay}</strong>
+                  <span className="text-gray-400">{t("create.quickOrientation")}</span>
+                  <span className="font-medium text-gray-800">{currentOrientationDisplay}</span>
+                  <span className="text-gray-300">▾</span>
                 </button>
                 {openQuickKey === "orientation" ? (
-                  <div className="quick-popover quick-popover-grid">
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[160px]">
                     {orientationChoices.map((option) => (
                       <button
                         type="button"
                         key={option.value}
-                        className={
-                          orientationValue === option.value ? "chip-button active" : "chip-button"
-                        }
-                        onClick={() => {
-                          onOrientationChanged(option.value);
-                          closeQuickItem();
-                        }}
+                        className={`px-3 py-1 rounded-lg text-sm transition-all ${orientationValue === option.value
+                          ? "bg-gray-800 text-white"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        onClick={() => { onOrientationChanged(option.value); closeQuickItem(); }}
                       >
                         {option.label}
                       </button>
@@ -1069,18 +1087,23 @@ export function CreatePage(props: Props) {
               </div>
             ) : null}
 
+            {/* Size / Quality */}
             {hasQuickSize ? (
-              <div className={openQuickKey === "size" ? "quick-item open" : "quick-item"}>
+              <div className="relative">
                 <button
                   type="button"
-                  className="quick-trigger"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "size"
+                    ? "border-gray-300 bg-white shadow-sm"
+                    : "border-transparent hover:bg-gray-100 text-gray-600"
+                    }`}
                   onClick={() => toggleQuickItem("size")}
                 >
-                  <span>{t("create.quickSize")}</span>
-                  <strong>{currentSizeDisplay}</strong>
+                  <span className="text-gray-400">{t("create.quickSize")}</span>
+                  <span className="font-medium text-gray-800">{currentSizeDisplay}</span>
+                  <span className="text-gray-300">▾</span>
                 </button>
                 {openQuickKey === "size" ? (
-                  <div className="quick-popover quick-popover-grid">
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[160px]">
                     {(qualityField ? qualityChoices : sizeChoices).map((size) => {
                       const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
                       const display = qualityField
@@ -1090,11 +1113,11 @@ export function CreatePage(props: Props) {
                         <button
                           type="button"
                           key={size}
-                          className={active ? "chip-button active" : "chip-button"}
-                          onClick={() => {
-                            onSizeChanged(size);
-                            closeQuickItem();
-                          }}
+                          className={`px-3 py-1 rounded-lg text-sm transition-all ${active
+                            ? "bg-gray-800 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            }`}
+                          onClick={() => { onSizeChanged(size); closeQuickItem(); }}
                         >
                           {display}
                         </button>
@@ -1105,37 +1128,40 @@ export function CreatePage(props: Props) {
               </div>
             ) : null}
 
+            {/* Duration */}
             {durationField ? (
-              <div className={openQuickKey === "duration" ? "quick-item open" : "quick-item"}>
+              <div className="relative">
                 <button
                   type="button"
-                  className="quick-trigger"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "duration"
+                    ? "border-gray-300 bg-white shadow-sm"
+                    : "border-transparent hover:bg-gray-100 text-gray-600"
+                    }`}
                   onClick={() => toggleQuickItem("duration")}
                 >
-                  <span>{t("create.quickDuration")}</span>
-                  <strong>{durationValue ? `${durationValue}s` : "-"}</strong>
+                  <span className="text-gray-400">{t("create.quickDuration")}</span>
+                  <span className="font-medium text-gray-800">{durationValue ? `${durationValue}s` : "-"}</span>
+                  <span className="text-gray-300">▾</span>
                 </button>
                 {openQuickKey === "duration" ? (
                   durationChoices.length ? (
-                    <div className="quick-popover quick-popover-grid">
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[140px]">
                       {durationChoices.map((seconds) => (
                         <button
                           type="button"
                           key={seconds}
-                          className={
-                            durationValue === String(seconds) ? "chip-button active" : "chip-button"
-                          }
-                          onClick={() => {
-                            onFieldChanged(durationField, String(seconds));
-                            closeQuickItem();
-                          }}
+                          className={`px-3 py-1 rounded-lg text-sm transition-all ${durationValue === String(seconds)
+                            ? "bg-gray-800 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            }`}
+                          onClick={() => { onFieldChanged(durationField, String(seconds)); closeQuickItem(); }}
                         >
                           {seconds}s
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="quick-popover">
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-20 min-w-[160px]">
                       <DynamicInput
                         field={durationField}
                         value={durationValue}
@@ -1147,10 +1173,11 @@ export function CreatePage(props: Props) {
                 ) : null}
               </div>
             ) : null}
-          </section>
+          </div>
 
-              {quickMediaFields.length ? (
-            <section className="quick-media-fields">
+          {/* ── Quick Media Fields ──────────────────── */}
+          {quickMediaFields.length ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {quickMediaFields.map((field) =>
                 renderField(
                   field,
@@ -1163,90 +1190,134 @@ export function CreatePage(props: Props) {
                   "compact",
                 ),
               )}
-            </section>
+            </div>
           ) : null}
 
-          <div className="focus-actions">
-            <div className="status-line">
-              <p className="hint">
-                {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
-                  ? t("create.estimated", {
-                      cost: estimateQuery.data.estimated_cost.toFixed(3),
-                      currency: estimateQuery.data.currency ?? settings.currency,
-                    })
-                  : t("create.estimatedUnavailable")}
-              </p>
-              {hint ? <p className="hint">{hint}</p> : null}
+          {/* ── Advanced Toggle ─────────────────────── */}
+          <details className="group">
+            <summary className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 cursor-pointer transition-colors select-none py-1">
+              <span className="group-open:rotate-90 transition-transform text-xs">▶</span>
+              {t("create.advancedOptions", { count: advancedFields.length })}
+            </summary>
+            <div className="mt-3 flex flex-col gap-3">
+              {showVeoPromptGuide ? (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-4 text-sm">
+                  <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-1">{t("create.veoPromptGuideTitle")}</h4>
+                  <p className="text-blue-600 dark:text-blue-400 mb-2">{t("create.veoPromptGuideDesc")}</p>
+                  <div className="flex gap-3">
+                    <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-200">
+                      {t("create.veoPromptGuideLinkDocs")}
+                    </a>
+                    <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-blue-600 underline hover:text-blue-800">
+                      {t("create.veoPromptGuideLinkBlog")}
+                    </a>
+                  </div>
+                </div>
+              ) : null}
+              {advancedGroups.map((group, index) => (
+                <details key={group.id} open={index === 0} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                  <summary className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                    {t(`create.advancedGroup.${group.id}`)} ({group.fields.length})
+                  </summary>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {group.fields.map((field) =>
+                      renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
+                    )}
+                  </div>
+                </details>
+              ))}
             </div>
+          </details>
+        </div>
+
+        {/* ── Generate Button + Status ─────────────── */}
+        <div className="flex items-center gap-4">
+          <div className="flex-1 flex flex-col gap-0.5">
+            <p className="text-xs text-gray-400 m-0">
+              {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
+                ? t("create.estimated", {
+                  cost: estimateQuery.data.estimated_cost.toFixed(3),
+                  currency: estimateQuery.data.currency ?? settings.currency,
+                })
+                : t("create.estimatedUnavailable")}
+            </p>
+            {hint ? <p className="text-xs text-gray-500 m-0">{hint}</p> : null}
+          </div>
+          <button
+            type="submit"
+            className="px-8 py-2.5 bg-coral hover:bg-coral-dark text-white font-semibold text-sm rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={submitMutation.isPending}
+          >
+            {submitMutation.isPending
+              ? t("create.submitting")
+              : selectedProvider.type === "tuzi_image"
+                ? t("create.generateImage")
+                : t("create.generateVideo")}
+          </button>
+        </div>
+
+        {/* ── Submission Feedback ──────────────────── */}
+        {lastSubmittedTaskId ? (
+          <div className="bg-surface rounded-2xl p-5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700 m-0">
+                {t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}
+              </p>
+              <button
+                type="button"
+                className="text-xs text-gray-400 hover:text-gray-600"
+                onClick={() => setLastSubmittedTaskId(null)}
+              >
+                {t("create.feedbackContinue")}
+              </button>
+            </div>
+            <p className={`text-sm font-medium m-0 ${statusTone(trackedTask) === "ok" ? "text-green-600" :
+              statusTone(trackedTask) === "danger" ? "text-red-500" :
+                statusTone(trackedTask) === "warn" ? "text-amber-500" :
+                  "text-gray-400"
+              }`}>
+              {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
+            </p>
+            {trackedTask?.status === "failed" && trackedTask.error ? (
+              <p className="text-xs text-red-400 m-0">{errorMessage(trackedTask)}</p>
+            ) : null}
+            {trackedOtherInProgressCount > 0 ? (
+              <button
+                type="button"
+                className="text-xs text-blue-600 hover:underline self-start"
+                onClick={() => navigate("/assets")}
+              >
+                {t("create.feedbackOtherInProgress", { count: trackedOtherInProgressCount })}
+              </button>
+            ) : null}
             <button
-              type="submit"
-              className="primary-button"
-              disabled={submitMutation.isPending}
+              type="button"
+              className="px-6 py-2 bg-coral hover:bg-coral-dark text-white font-semibold text-sm rounded-xl transition-all self-start"
+              onClick={() => navigate("/assets")}
             >
-              {submitMutation.isPending
-                ? t("create.submitting")
-                : selectedProvider.type === "tuzi_image"
-                  ? t("create.generateImage")
-                  : t("create.generateVideo")}
+              {trackedTask?.status === "succeeded"
+                ? t("create.feedbackViewResult")
+                : t("create.feedbackViewAssets")}
             </button>
           </div>
+        ) : null}
 
-          {lastSubmittedTaskId ? (
-            <section className="submission-feedback">
-              <div className="submission-feedback-head">
-                <p className="submission-feedback-title">
-                  {t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}
-                </p>
-                <button
-                  type="button"
-                  className="mini-button"
-                  onClick={() => setLastSubmittedTaskId(null)}
-                >
-                  {t("create.feedbackContinue")}
-                </button>
-              </div>
-              <p className={`submission-feedback-state ${statusTone(trackedTask)}`}>
-                {trackedTask
-                  ? statusLabel(trackedTask)
-                  : t("create.feedbackSubmitted")}
-              </p>
-              {trackedTask?.status === "failed" && trackedTask.error ? (
-                <p className="hint">{errorMessage(trackedTask)}</p>
-              ) : null}
-              {trackedOtherInProgressCount > 0 ? (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => navigate("/assets")}
-                >
-                  {t("create.feedbackOtherInProgress", { count: trackedOtherInProgressCount })}
-                </button>
-              ) : null}
-              <div className="submission-feedback-actions">
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => navigate("/assets")}
-                >
-                  {trackedTask?.status === "succeeded"
-                    ? t("create.feedbackViewResult")
-                    : t("create.feedbackViewAssets")}
-                </button>
-              </div>
-            </section>
-          ) : null}
-        </section>
+        {/* ── Divider ──────────────────────────────── */}
+        <div className="h-px bg-border-light w-full" />
 
+        {/* ── Prompt Presets & History ──────────────── */}
         {promptField ? (
-          <section className="support-sections">
-            <details className="support-details">
-              <summary>{t("create.promptPresets")}</summary>
-              <div className="prompt-preset-list">
+          <div className="flex flex-col gap-3">
+            <details className="group">
+              <summary className="text-sm font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-gray-800 dark:hover:text-gray-200 transition-colors">
+                {t("create.promptPresets")}
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2">
                 {promptPresets.map((preset) => (
-                  <div key={preset} className="prompt-preset-item">
+                  <div key={preset} className="flex items-center gap-1">
                     <button
                       type="button"
-                      className="prompt-preset-chip"
+                      className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors max-w-xs truncate"
                       onClick={() => {
                         onFieldChanged(promptField, preset);
                         setHint(t("create.hintPresetApplied"));
@@ -1257,13 +1328,13 @@ export function CreatePage(props: Props) {
                     {!DEFAULT_PROMPT_PRESETS.includes(preset) ? (
                       <button
                         type="button"
-                        className="mini-button"
+                        className="text-xs text-gray-300 hover:text-red-400 transition-colors"
                         onClick={() => {
                           removePromptPreset(preset);
                           setPresetVersion((current) => current + 1);
                         }}
                       >
-                        {t("create.removePreset")}
+                        ✕
                       </button>
                     ) : null}
                   </div>
@@ -1272,11 +1343,14 @@ export function CreatePage(props: Props) {
             </details>
 
             {settings.savePromptHistory ? (
-              <details className="support-details">
-                <summary>{t("create.recentPrompts")}</summary>
-                <div className="recent-prompts-header">
+              <details className="group">
+                <summary className="text-sm font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-gray-800 dark:hover:text-gray-200 transition-colors flex items-center justify-between">
+                  {t("create.recentPrompts")}
+                </summary>
+                <div className="mt-1 flex items-center justify-end">
                   <button
                     type="button"
+                    className="text-xs text-gray-400 hover:text-red-400 transition-colors"
                     onClick={() => {
                       clearRecentPrompts();
                       setRecentPromptVersion((current) => current + 1);
@@ -1286,15 +1360,15 @@ export function CreatePage(props: Props) {
                   </button>
                 </div>
                 {recentPrompts.length ? (
-                  <div className="recent-prompt-list">
+                  <div className="mt-2 flex flex-col gap-1.5">
                     {recentPrompts.map((entry) => (
                       <div
                         key={`${entry.usedAt}_${entry.text}`}
-                        className="recent-prompt-item"
+                        className="flex items-center gap-2 group/item"
                       >
                         <button
                           type="button"
-                          className="recent-prompt-chip"
+                          className="flex-1 text-left text-xs text-gray-600 hover:text-gray-900 truncate transition-colors"
                           onClick={() => {
                             onFieldChanged(promptField, entry.text);
                             setHint(t("create.hintRecentPromptApplied"));
@@ -1304,7 +1378,8 @@ export function CreatePage(props: Props) {
                         </button>
                         <button
                           type="button"
-                          className={entry.pinned ? "mini-button pinned" : "mini-button"}
+                          className={`text-xs shrink-0 transition-colors ${entry.pinned ? "text-amber-500" : "text-gray-300 hover:text-amber-400"
+                            }`}
                           onClick={() => {
                             toggleRecentPromptPinned({
                               provider: entry.provider,
@@ -1315,71 +1390,20 @@ export function CreatePage(props: Props) {
                             setRecentPromptVersion((current) => current + 1);
                           }}
                         >
-                          {entry.pinned ? t("create.unpin") : t("create.pin")}
+                          {entry.pinned ? "★" : "☆"}
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="hint">{t("create.noRecentPrompts")}</p>
+                  <p className="text-xs text-gray-400 mt-2">{t("create.noRecentPrompts")}</p>
                 )}
               </details>
             ) : null}
-          </section>
-        ) : null}
-
-        <details className="advanced-drawer">
-          <summary>{t("create.advancedOptions", { count: advancedFields.length })}</summary>
-          <div className="advanced-panel">
-            {showVeoPromptGuide ? (
-              <section className="veo-guide">
-                <h4>{t("create.veoPromptGuideTitle")}</h4>
-                <p>{t("create.veoPromptGuideDesc")}</p>
-                <div className="veo-guide-links">
-                  <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer">
-                    {t("create.veoPromptGuideLinkDocs")}
-                  </a>
-                  <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer">
-                    {t("create.veoPromptGuideLinkBlog")}
-                  </a>
-                </div>
-              </section>
-            ) : null}
-
-            {advancedGroups.length
-              ? (
-                  <section className="advanced-groups">
-                    {advancedGroups.map((group, index) => (
-                      <details
-                        key={group.id}
-                        className="advanced-group"
-                        open={index === 0}
-                      >
-                        <summary>
-                          {t(`create.advancedGroup.${group.id}`)} ({group.fields.length})
-                        </summary>
-                        <div className="dynamic-grid">
-                          {group.fields.map((field) =>
-                            renderField(
-                              field,
-                              values,
-                              files,
-                              reusedFileIds,
-                              onFieldChanged,
-                              onFileFieldChanged,
-                              onReusedFileIdsChanged,
-                            ),
-                          )}
-                        </div>
-                      </details>
-                    ))}
-                  </section>
-                )
-              : null}
           </div>
-        </details>
+        ) : null}
       </form>
-    </section>
+    </div>
   );
 }
 
@@ -1513,6 +1537,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
+        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
       >
         {durationOptions.map((seconds) => (
           <option key={seconds} value={String(seconds)}>
@@ -1531,6 +1556,7 @@ function DynamicInput(props: {
         required={field.required}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
+        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full resize-y"
       />
     );
   }
@@ -1540,6 +1566,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
+        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
       >
         {(field.options ?? []).map((option) => (
           <option key={option.value} value={option.value}>
@@ -1626,7 +1653,8 @@ function DynamicInput(props: {
 
     return (
       <div
-        className={isDragOver ? "upload-media dragover" : "upload-media"}
+        className={`border-2 border-dashed rounded-xl p-4 transition-colors ${isDragOver ? "border-coral bg-coral/5" : "border-gray-200 dark:border-white/10 bg-surface"
+          }`}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -1634,16 +1662,16 @@ function DynamicInput(props: {
       >
         <input
           ref={fileInputRef}
-          className="upload-file-input"
+          className="hidden"
           type="file"
           accept="image/jpeg,image/png,image/webp"
           multiple={isMulti}
           onChange={handleFilePicked}
         />
-        <div className="upload-media-actions">
+        <div className="flex items-center gap-2 mb-2">
           <button
             type="button"
-            className="mini-button"
+            className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
             onClick={triggerPick}
           >
             {!hasFiles
@@ -1655,13 +1683,13 @@ function DynamicInput(props: {
           {hasFiles ? (
             <button
               type="button"
-              className="mini-button"
+              className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
               onClick={clearAll}
             >
               {t("create.fileClearAll")}
             </button>
           ) : null}
-          <span className="upload-media-hint">
+          <span className="text-xs text-gray-400">
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
@@ -1671,32 +1699,32 @@ function DynamicInput(props: {
         </div>
 
         {hasFiles ? (
-          <div className="upload-thumb-grid">
+          <div className="grid grid-cols-4 gap-2">
             {reusedFileIds.map((fileId, index) => {
               const item = reusedPreviewMap.get(fileId);
               const previewIndexForItem = previewIndexByKey.get(`reused_${fileId}`) ?? -1;
               return (
-                <article key={`${fileId}_${index}`} className="upload-thumb-card">
+                <article key={`${fileId}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
                   {item ? (
                     <button
                       type="button"
-                      className="upload-thumb-hit"
+                      className="w-full bg-transparent border-none p-0 cursor-pointer"
                       onClick={() => {
                         if (previewIndexForItem >= 0) {
                           setPreviewIndex(previewIndexForItem);
                         }
                       }}
                     >
-                      <img className="upload-thumb-img" src={item.url} alt={item.name} />
+                      <img className="w-full aspect-square object-cover block" src={item.url} alt={item.name} />
                     </button>
                   ) : (
-                    <div className="upload-empty">{t("create.fileReusedCount", { count: 1 })}</div>
+                    <div className="aspect-square flex items-center justify-center text-xs text-gray-400">{t("create.fileReusedCount", { count: 1 })}</div>
                   )}
-                  <div className="upload-thumb-foot">
-                    <p className="upload-thumb-name" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
+                  <div className="flex items-center justify-between px-1.5 py-1 gap-1">
+                    <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="upload-thumb-remove"
+                      className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1711,10 +1739,10 @@ function DynamicInput(props: {
               );
             })}
             {filePreviews.map((item, index) => (
-              <article key={`${item.file.name}_${item.file.size}_${index}`} className="upload-thumb-card">
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-white/5 border border-gray-100 dark:border-white/10">
                 <button
                   type="button"
-                  className="upload-thumb-hit"
+                  className="w-full bg-transparent border-none p-0 cursor-pointer"
                   onClick={() => {
                     const previewIndexForItem =
                       previewIndexByKey.get(`local_${item.file.name}_${item.file.size}_${index}`) ?? -1;
@@ -1723,13 +1751,13 @@ function DynamicInput(props: {
                     }
                   }}
                 >
-                  <img className="upload-thumb-img" src={item.url} alt={item.file.name} />
+                  <img className="w-full aspect-square object-cover block" src={item.url} alt={item.file.name} />
                 </button>
-                <div className="upload-thumb-foot">
-                  <p className="upload-thumb-name" title={item.file.name}>{item.file.name}</p>
+                <div className="flex items-center justify-between px-1.5 py-1 gap-1">
+                  <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="upload-thumb-remove"
+                    className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1744,31 +1772,39 @@ function DynamicInput(props: {
             ))}
           </div>
         ) : (
-          <button type="button" className="upload-empty" onClick={triggerPick}>
+          <button type="button" className="w-full py-8 text-xs text-gray-400 bg-transparent border-none cursor-pointer hover:text-gray-600 transition-colors" onClick={triggerPick}>
             {t("create.fileOnlyImages")}
           </button>
         )}
 
         {previewIndex != null && activePreviewItems[previewIndex] ? (
-          <div className="image-lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewIndex(null)}>
-            <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
-              <div className="image-lightbox-head">
-                <p className="image-lightbox-title">
+          <div
+            className="fixed inset-0 z-50 bg-dark-overlay flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setPreviewIndex(null)}
+          >
+            <div
+              className="relative flex flex-col items-center gap-4 max-w-[90vw] max-h-[90vh]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-4">
+                <p className="text-white/60 text-xs m-0">
                   {t("jobs.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"
-                  className="mini-button"
+                  className="text-white/60 hover:text-white text-sm transition-colors bg-transparent border-none cursor-pointer"
                   onClick={() => setPreviewIndex(null)}
                 >
-                  {t("common.close")}
+                  {t("common.close")} ✕
                 </button>
               </div>
-              <div className="image-lightbox-body">
+              <div className="relative flex items-center gap-4">
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="image-lightbox-nav prev"
+                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1779,18 +1815,18 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    {t("jobs.lightboxPrev")}
+                    ‹
                   </button>
                 ) : null}
                 <img
-                  className="image-lightbox-img"
+                  className="max-w-[80vw] max-h-[75vh] rounded-xl object-contain"
                   src={activePreviewItems[previewIndex].url}
                   alt={activePreviewItems[previewIndex].name}
                 />
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="image-lightbox-nav next"
+                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1801,7 +1837,7 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    {t("jobs.lightboxNext")}
+                    ›
                   </button>
                 ) : null}
               </div>
@@ -1822,6 +1858,7 @@ function DynamicInput(props: {
         step={field.step ?? undefined}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
+        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
       />
     );
   }
@@ -1832,6 +1869,7 @@ function DynamicInput(props: {
       required={field.required}
       placeholder={resolvedPlaceholder}
       onChange={(event) => onValueChange(event.target.value)}
+      className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
     />
   );
 }
@@ -2121,14 +2159,14 @@ function renderField(
   const reusedIds = reusedFileIds[key] ?? [];
   const className =
     variant === "compact"
-      ? "field field-compact"
+      ? "flex flex-col gap-1"
       : isPromptLike(field)
-        ? "field field-wide"
-        : "field";
+        ? "flex flex-col gap-1 col-span-full"
+        : "flex flex-col gap-1";
   const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
     <Wrapper key={key} className={className}>
-      <span>{field.label}</span>
+      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{field.label}</span>
       <DynamicInput
         field={field}
         value={value}
@@ -2138,7 +2176,7 @@ function renderField(
         onValueChange={(next) => onFieldChanged(field, next)}
         onFileChange={(nextFiles) => onFileChanged(field, nextFiles)}
       />
-      {field.help_text ? <small>{field.help_text}</small> : null}
+      {field.help_text ? <small className="text-xs text-gray-400">{field.help_text}</small> : null}
     </Wrapper>
   );
 }

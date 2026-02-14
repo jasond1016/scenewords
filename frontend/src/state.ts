@@ -39,6 +39,7 @@ export interface AppSettingsState {
   savePromptHistory: boolean;
   historyRetentionDays: number;
   language: LanguagePreference;
+  theme: "light" | "dark" | "system";
   pendingReuseDraft: CreateDraft | null;
   setSettings: (partial: Partial<AppSettingsState>) => void;
   setPendingReuseDraft: (draft: CreateDraft | null) => void;
@@ -66,6 +67,7 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   savePromptHistory: true,
   historyRetentionDays: 90,
   language: "system",
+  theme: "system",
   pendingReuseDraft: null,
 };
 
@@ -104,6 +106,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         savePromptHistory: state.savePromptHistory,
         historyRetentionDays: state.historyRetentionDays,
         language: state.language,
+        theme: state.theme,
       }),
     },
   ),
