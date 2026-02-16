@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEvent, type TransitionEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { deleteVideoTask } from "../api";
@@ -18,6 +18,12 @@ interface Props {
 }
 
 const ASSET_FILTERS_KEY = "scenewords_assets_filters_v1";
+const LIGHTBOX_SWIPE_DISTANCE_PX = 56;
+const LIGHTBOX_SWIPE_MAX_DURATION_MS = 900;
+const LIGHTBOX_SWIPE_DOMINANCE_RATIO = 1.2;
+const LIGHTBOX_SWIPE_FEEDBACK_MAX_PX = 120;
+const LIGHTBOX_MEDIA_TRACK_TRANSITION_MS = 240;
+const LIGHTBOX_MEDIA_TRACK_GAP_PX = 18;
 
 interface AssetFilterSnapshot {
   kind: "all" | "video" | "image";
@@ -139,6 +145,324 @@ export function JobsPage(props: Props) {
     return lightboxItems[lightboxIndex];
   }, [lightboxIndex, lightboxItems]);
 
+  const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const swipePendingDirectionRef = useRef<"next" | "previous" | null>(null);
+  const swipeCommitTimerRef = useRef<number | null>(null);
+  const swipeRebaseTimerRef = useRef<number | null>(null);
+  const mediaViewportRef = useRef<HTMLDivElement | null>(null);
+  const [mediaViewportWidth, setMediaViewportWidth] = useState(0);
+  const [mediaDragOffsetX, setMediaDragOffsetX] = useState(0);
+  const [mediaIsDragging, setMediaIsDragging] = useState(false);
+  const [mediaIsRebasing, setMediaIsRebasing] = useState(false);
+
+  const mediaSlideStepPx =
+    (mediaViewportWidth > 0 ? mediaViewportWidth : 360) + LIGHTBOX_MEDIA_TRACK_GAP_PX;
+
+  const clearSwipeCommitTimer = () => {
+    if (swipeCommitTimerRef.current != null) {
+      window.clearTimeout(swipeCommitTimerRef.current);
+      swipeCommitTimerRef.current = null;
+    }
+  };
+
+  const clearSwipeRebaseTimer = () => {
+    if (swipeRebaseTimerRef.current != null) {
+      window.clearTimeout(swipeRebaseTimerRef.current);
+      swipeRebaseTimerRef.current = null;
+    }
+  };
+
+  const resetMediaDragFeedback = () => {
+    setMediaIsDragging(false);
+    setMediaIsRebasing(false);
+    setMediaDragOffsetX(0);
+  };
+
+  const clampMediaDragOffset = (offsetX: number): number => {
+    const maxOffset = Math.max(LIGHTBOX_SWIPE_FEEDBACK_MAX_PX, mediaSlideStepPx * 0.9);
+    if (offsetX > maxOffset) {
+      return maxOffset;
+    }
+    if (offsetX < -maxOffset) {
+      return -maxOffset;
+    }
+    return offsetX;
+  };
+
+  const goToPreviousLightboxItem = () => {
+    if (lightboxItems.length <= 1) {
+      return;
+    }
+    setLightboxState((current) => {
+      if (!current) {
+        return null;
+      }
+      return {
+        ...current,
+        index: current.index > 0 ? current.index - 1 : lightboxItems.length - 1,
+      };
+    });
+  };
+
+  const goToNextLightboxItem = () => {
+    if (lightboxItems.length <= 1) {
+      return;
+    }
+    setLightboxState((current) => {
+      if (!current) {
+        return null;
+      }
+      return {
+        ...current,
+        index: current.index < lightboxItems.length - 1 ? current.index + 1 : 0,
+      };
+    });
+  };
+
+  const commitLightboxSwipe = (direction: "next" | "previous") => {
+    if (lightboxItems.length <= 1) {
+      return;
+    }
+    clearSwipeCommitTimer();
+    clearSwipeRebaseTimer();
+    swipePendingDirectionRef.current = direction;
+    setMediaIsDragging(false);
+    setMediaIsRebasing(false);
+    setMediaDragOffsetX(
+      direction === "next" ? -mediaSlideStepPx : mediaSlideStepPx,
+    );
+
+    // Fallback: finalize even if transitionend is missed on some devices.
+    swipeCommitTimerRef.current = window.setTimeout(() => {
+      finalizeCommittedSwipe();
+      swipeCommitTimerRef.current = null;
+    }, LIGHTBOX_MEDIA_TRACK_TRANSITION_MS + 80);
+  };
+
+  const finalizeCommittedSwipe = () => {
+    const direction = swipePendingDirectionRef.current;
+    if (!direction) {
+      return;
+    }
+    swipePendingDirectionRef.current = null;
+    clearSwipeCommitTimer();
+    clearSwipeRebaseTimer();
+
+    setMediaIsRebasing(true);
+    if (direction === "next") {
+      goToNextLightboxItem();
+    } else {
+      goToPreviousLightboxItem();
+    }
+    setMediaDragOffsetX(0);
+    swipeRebaseTimerRef.current = window.setTimeout(() => {
+      setMediaIsRebasing(false);
+      swipeRebaseTimerRef.current = null;
+    }, 34);
+  };
+
+  const handleMediaTrackTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
+    if (event.propertyName !== "transform") {
+      return;
+    }
+    finalizeCommittedSwipe();
+  };
+
+  const mediaTrackStyle = {
+    transform:
+      "translate3d(" +
+      (-mediaSlideStepPx + mediaDragOffsetX) +
+      "px, 0, 0)",
+    transition: mediaIsDragging || mediaIsRebasing
+      ? "none"
+      : "transform " +
+        LIGHTBOX_MEDIA_TRACK_TRANSITION_MS +
+        "ms cubic-bezier(0.22, 1, 0.36, 1)",
+    willChange: "transform",
+  };
+
+  const resolveLightboxItemByOffset = (offset: number): LightboxMediaItem | null => {
+    if (!lightboxItems.length || lightboxIndex == null) {
+      return null;
+    }
+    if (lightboxItems.length === 1 && offset !== 0) {
+      return null;
+    }
+    const index =
+      (lightboxIndex + offset + lightboxItems.length) %
+      lightboxItems.length;
+    return lightboxItems[index] ?? null;
+  };
+
+  const previousLightboxItem = resolveLightboxItemByOffset(-1);
+  const currentLightboxItem = resolveLightboxItemByOffset(0);
+  const nextLightboxItem = resolveLightboxItemByOffset(1);
+
+  const renderLightboxMediaItem = (
+    item: LightboxMediaItem | null,
+    isActive: boolean,
+  ) => {
+    if (!item) {
+      return <div className="w-full h-full min-h-0" aria-hidden="true" />;
+    }
+    if (item.kind === "failed") {
+      return (
+        <div className="flex flex-col items-center justify-center text-white/50 gap-4 w-full h-full min-h-0">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="64"
+            height="64"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" x2="12" y1="8" y2="12" />
+            <line x1="12" x2="12.01" y1="16" y2="16" />
+          </svg>
+          <p className="text-lg font-medium">{t("jobs.generationFailed")}</p>
+        </div>
+      );
+    }
+    if (item.kind === "video") {
+      return (
+        <video
+          className="max-w-full max-h-full object-contain shadow-2xl"
+          src={item.url}
+          controls={isActive}
+          autoPlay={isActive}
+          loop
+          playsInline
+          muted={!isActive}
+          preload={isActive ? "metadata" : "none"}
+        />
+      );
+    }
+    return (
+      <img
+        className="max-w-full max-h-full object-contain shadow-2xl"
+        src={item.url}
+        alt={item.taskId}
+      />
+    );
+  };
+
+  const handleMediaTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    clearSwipeCommitTimer();
+    clearSwipeRebaseTimer();
+    swipePendingDirectionRef.current = null;
+    if (event.touches.length !== 1) {
+      swipeStartRef.current = null;
+      resetMediaDragFeedback();
+      return;
+    }
+    const touch = event.touches[0];
+    swipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+    };
+    setMediaIsRebasing(false);
+    setMediaIsDragging(lightboxItems.length > 1);
+    setMediaDragOffsetX(0);
+  };
+
+  const handleMediaTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    if (!start || event.touches.length !== 1 || lightboxItems.length <= 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (Math.abs(deltaX) < Math.abs(deltaY) * 0.75) {
+      return;
+    }
+
+    event.preventDefault();
+    setMediaIsDragging(true);
+    setMediaDragOffsetX(clampMediaDragOffset(deltaX));
+  };
+
+  const handleMediaTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || event.changedTouches.length !== 1 || lightboxItems.length <= 1) {
+      resetMediaDragFeedback();
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    const elapsed = Date.now() - start.time;
+
+    if (
+      elapsed <= LIGHTBOX_SWIPE_MAX_DURATION_MS &&
+      Math.abs(deltaX) >= LIGHTBOX_SWIPE_DISTANCE_PX &&
+      Math.abs(deltaX) >= Math.abs(deltaY) * LIGHTBOX_SWIPE_DOMINANCE_RATIO
+    ) {
+      commitLightboxSwipe(deltaX < 0 ? "next" : "previous");
+      return;
+    }
+
+    setMediaIsDragging(false);
+    setMediaDragOffsetX(0);
+  };
+
+  const handleMediaTouchCancel = () => {
+    swipeStartRef.current = null;
+    resetMediaDragFeedback();
+  };
+
+  useEffect(() => {
+    if (!lightboxState) {
+      return;
+    }
+    const element = mediaViewportRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateViewportWidth = () => {
+      setMediaViewportWidth(element.clientWidth);
+    };
+
+    updateViewportWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      const onResize = () => updateViewportWidth();
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }
+
+    const observer = new ResizeObserver(() => updateViewportWidth());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [lightboxState, isImmersive, lightboxItem?.key]);
+  useEffect(() => {
+    if (!lightboxState) {
+      clearSwipeCommitTimer();
+      clearSwipeRebaseTimer();
+      swipePendingDirectionRef.current = null;
+      swipeStartRef.current = null;
+      resetMediaDragFeedback();
+    }
+  }, [lightboxState]);
+
+  useEffect(() => {
+    return () => {
+      clearSwipeCommitTimer();
+      clearSwipeRebaseTimer();
+      swipePendingDirectionRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     if (!assetList.length) {
       setSelectedTaskId(null);
@@ -200,6 +524,37 @@ export function JobsPage(props: Props) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [lightboxIndex, lightboxItems.length]);
 
+  useEffect(() => {
+    if (!lightboxState) {
+      return;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY;
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverscrollBehavior = body.style.overscrollBehavior;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyWidth = body.style.width;
+
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "contain";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      body.style.overflow = previousBodyOverflow;
+      body.style.overscrollBehavior = previousBodyOverscrollBehavior;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.width = previousBodyWidth;
+      window.scrollTo(0, scrollY);
+    };
+  }, [lightboxState]);
   const openImageLightbox = (taskId: string, imageUrl?: string) => {
     const index = imageLightboxItems.findIndex(
       (item) => item.taskId === taskId && (!imageUrl || item.url === imageUrl),
@@ -297,7 +652,7 @@ export function JobsPage(props: Props) {
   }
 
   return (
-    <div className="max-w-[1440px] mx-auto px-6 md:px-10 py-6 flex flex-col gap-5">
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 md:px-10 py-6 flex flex-col gap-5">
       {/* ── Page Header ──────────────────────────── */}
       <div className="flex items-end justify-end gap-4">
 
@@ -425,11 +780,11 @@ export function JobsPage(props: Props) {
               <summary className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors select-none">
                 {t("jobs.advancedFilters")}
               </summary>
-              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-3 z-20 flex items-center gap-2 min-w-[400px]">
+              <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-3 z-20 w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex flex-wrap items-center gap-2">
                 <select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white"
+                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white min-w-[120px] flex-1"
                 >
                   <option value="all">{t("jobs.allStatus")}</option>
                   <option value="succeeded">{statusLabel("succeeded")}</option>
@@ -440,17 +795,17 @@ export function JobsPage(props: Props) {
                   type="date"
                   value={dateFrom}
                   onChange={(event) => setDateFrom(event.target.value)}
-                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white"
+                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white min-w-[120px] flex-1"
                 />
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(event) => setDateTo(event.target.value)}
-                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white"
+                  className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white min-w-[120px] flex-1"
                 />
                 <button
                   type="button"
-                  className="text-xs text-gray-400 hover:text-red-400 transition-colors"
+                  className="text-xs text-gray-400 hover:text-red-400 transition-colors w-full sm:w-auto text-left"
                   onClick={() => {
                     setSearchKeyword("");
                     setProviderFilter("all");
@@ -481,21 +836,26 @@ export function JobsPage(props: Props) {
       {/* ── Lightbox ──────────────────────────────── */}
       {lightboxItem ? (
         <div
-          className="fixed inset-0 z-50 bg-dark-overlay flex text-left"
+          className="fixed inset-0 z-50 bg-dark-overlay flex flex-col md:flex-row text-left overflow-hidden"
           role="dialog"
           aria-modal="true"
           onClick={() => setLightboxState(null)}
         >
           {/* Media Area (Flex Grow) */}
           <div
-            className={`relative flex flex-col items-center justify-center min-w-0 transition-all duration-300 ${isImmersive ? "flex-1" : "flex-1"}`}
+            className="relative flex-1 min-h-0 md:min-h-0 flex flex-col items-center justify-center min-w-0 overflow-hidden transition-all duration-300 px-3 py-14 md:px-0 md:py-0"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleMediaTouchStart}
+            onTouchMove={handleMediaTouchMove}
+            onTouchEnd={handleMediaTouchEnd}
+            onTouchCancel={handleMediaTouchCancel}
+            style={{ touchAction: lightboxItems.length > 1 ? "pan-y" : "auto" }}
           >
             {/* Top actions: Immersive Toggle + Close */}
-            <div className="absolute top-4 right-6 flex items-center gap-4 z-20">
+            <div className="absolute top-3 right-3 md:top-4 md:right-6 flex items-center gap-2 md:gap-4 z-20">
               <button
                 type="button"
-                className="text-white/60 hover:text-white text-sm bg-black/20 hover:bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-md transition-all"
+                className="text-white/60 hover:text-white text-xs md:text-sm bg-black/20 hover:bg-black/40 px-2.5 py-1 md:px-3 md:py-1.5 rounded-full backdrop-blur-md transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsImmersive(!isImmersive);
@@ -516,17 +876,10 @@ export function JobsPage(props: Props) {
             {lightboxItems.length > 1 && (
               <button
                 type="button"
-                className="absolute left-6 w-12 h-12 rounded-full bg-black/20 hover:bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-all text-2xl backdrop-blur-md z-10"
+                className="absolute left-2 md:left-6 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/20 hover:bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-all text-2xl backdrop-blur-md z-10"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxState((current) =>
-                    !current
-                      ? null
-                      : {
-                        ...current,
-                        index: current.index > 0 ? current.index - 1 : lightboxItems.length - 1,
-                      },
-                  );
+                  goToPreviousLightboxItem();
                 }}
               >
                 ‹
@@ -534,57 +887,35 @@ export function JobsPage(props: Props) {
             )}
 
             {/* Media Content */}
-            {lightboxItem.kind === "failed" ? (
-              <div className="flex flex-col items-center justify-center text-white/50 gap-4">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="64"
-                  height="64"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" x2="12" y1="8" y2="12" />
-                  <line x1="12" x2="12.01" y1="16" y2="16" />
-                </svg>
-                <p className="text-lg font-medium">{t("jobs.generationFailed")}</p>
+            <div ref={mediaViewportRef} className="w-full h-full max-w-[min(96vw,1280px)] overflow-hidden">
+              <div
+                className="flex items-center h-full"
+                onTransitionEnd={handleMediaTrackTransitionEnd}
+                style={{
+                  ...mediaTrackStyle,
+                  gap: `${LIGHTBOX_MEDIA_TRACK_GAP_PX}px`,
+                }}
+              >
+                <div className="shrink-0 w-full h-full flex items-center justify-center overflow-hidden">
+                  {renderLightboxMediaItem(previousLightboxItem, false)}
+                </div>
+                <div className="shrink-0 w-full h-full flex items-center justify-center overflow-hidden">
+                  {renderLightboxMediaItem(currentLightboxItem, true)}
+                </div>
+                <div className="shrink-0 w-full h-full flex items-center justify-center overflow-hidden">
+                  {renderLightboxMediaItem(nextLightboxItem, false)}
+                </div>
               </div>
-            ) : lightboxItem.kind === "video" ? (
-              <video
-                className="max-w-full max-h-full object-contain shadow-2xl"
-                src={lightboxItem.url}
-                controls
-                autoPlay
-                loop
-                playsInline
-              />
-            ) : (
-              <img
-                className="max-w-full max-h-full object-contain shadow-2xl"
-                src={lightboxItem.url}
-                alt={lightboxItem.taskId}
-              />
-            )}
+            </div>
 
             {/* Media Nav Right */}
             {lightboxItems.length > 1 && (
               <button
                 type="button"
-                className="absolute right-6 w-12 h-12 rounded-full bg-black/20 hover:bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-all text-2xl backdrop-blur-md z-10"
+                className="absolute right-2 md:right-6 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/20 hover:bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-all text-2xl backdrop-blur-md z-10"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxState((current) =>
-                    !current
-                      ? null
-                      : {
-                        ...current,
-                        index: current.index < lightboxItems.length - 1 ? current.index + 1 : 0,
-                      },
-                  );
+                  goToNextLightboxItem();
                 }}
               >
                 ›
@@ -593,7 +924,7 @@ export function JobsPage(props: Props) {
 
             {/* Counter (Bottom) */}
             {lightboxItems.length > 1 && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/20 text-white/80 px-3 py-1 rounded-full text-xs backdrop-blur-md">
+              <div className="absolute bottom-3 md:bottom-6 left-1/2 -translate-x-1/2 bg-black/20 text-white/80 px-3 py-1 rounded-full text-xs backdrop-blur-md">
                 {lightboxIndex != null ? lightboxIndex + 1 : 0} / {lightboxItems.length}
               </div>
             )}
@@ -606,16 +937,25 @@ export function JobsPage(props: Props) {
 
             return (
               <div
-                className="w-96 bg-gray-900 border-l border-white/10 flex flex-col shadow-2xl"
+                className="w-full md:w-96 md:max-w-[40vw] bg-gray-900 border-t md:border-t-0 md:border-l border-white/10 flex flex-col shadow-2xl max-h-[56vh] md:max-h-none"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
-                  <div>
-                    <h3 className="text-base font-semibold text-white/90 m-0">{t("jobs.assetDetailTitle")}</h3>
-                    <p className="text-xs text-white/40 m-0 mt-1 font-mono select-all">
-                      {currentTask.task_id}
-                      {currentTask.status !== "succeeded" ? ` · ${formatLocalizedStatus(currentTask)}` : ""}
-                    </p>
+                <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4 md:gap-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-white/90 m-0">{t("jobs.assetDetailTitle")}</h3>
+                      <p className="text-xs text-white/40 m-0 mt-1 font-mono break-all select-all">
+                        {currentTask.task_id}
+                        {currentTask.status !== "succeeded" ? ` · ${formatLocalizedStatus(currentTask)}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="md:hidden shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+                      onClick={() => setIsImmersive(true)}
+                    >
+                      ✕
+                    </button>
                   </div>
 
                   <div className="p-3 bg-white/5 rounded-xl border border-white/10">
@@ -1198,7 +1538,7 @@ function MasonryGrid({
 }) {
   const width = useWindowWidth();
   // md breakpoint is 768px
-  const columnCount = width >= 768 ? 3 : 2;
+  const columnCount = width >= 1024 ? 3 : width >= 640 ? 2 : 1;
 
   const columns = useMemo(() => {
     const cols: VideoTaskDetail[][] = Array.from({ length: columnCount }, () => []);
@@ -1272,3 +1612,11 @@ function MasonryGrid({
     </div>
   );
 }
+
+
+
+
+
+
+
+

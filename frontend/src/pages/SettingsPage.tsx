@@ -46,7 +46,7 @@ export function SettingsPage(props: Props) {
   }, [durationOptions, settings.defaultDurationSec, settings.setSettings]);
 
   return (
-    <div className="max-w-2xl mx-auto px-6 md:px-10 py-8 flex flex-col gap-6">
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-10 py-8 flex flex-col gap-6">
       {/* Header */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white m-0">{t("settings.title")}</h2>
@@ -56,7 +56,7 @@ export function SettingsPage(props: Props) {
       {/* Language */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.language")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
             {t("settings.language")}
             <select
@@ -77,7 +77,7 @@ export function SettingsPage(props: Props) {
       {/* Gateway */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.gateway")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             {t("settings.gatewayToken")}
             <input
@@ -94,7 +94,7 @@ export function SettingsPage(props: Props) {
       {/* Generation Defaults */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.generationDefaults")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             {t("settings.defaultProvider")}
             <select
@@ -175,7 +175,7 @@ export function SettingsPage(props: Props) {
       {/* Retry Behavior */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.retryBehavior")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             {t("settings.retryDefault")}
             <select
@@ -206,7 +206,7 @@ export function SettingsPage(props: Props) {
       {/* Notifications */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.notifications")}</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input
               type="checkbox"
@@ -263,7 +263,7 @@ export function SettingsPage(props: Props) {
       {/* Cost & Pricing */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.costPricing")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             {t("settings.costMode")}
             <select
@@ -296,7 +296,7 @@ export function SettingsPage(props: Props) {
             />
           </label>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input
               type="checkbox"
@@ -325,7 +325,7 @@ export function SettingsPage(props: Props) {
       {/* Privacy & Storage */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">{t("settings.privacyStorage")}</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input
               type="checkbox"

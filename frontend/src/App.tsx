@@ -107,21 +107,51 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--c-bg-main)] transition-colors duration-300">
       {/* ── Top Bar ────────────────────────────────── */}
-      <header className="flex items-center justify-between h-16 px-8 border-b border-border-light sticky top-0 bg-[var(--c-bg-main)]/95 backdrop-blur-sm z-30 transition-colors duration-300">
-        {/* Left: Logo + Page Tabs */}
-        <div className="flex items-center gap-8">
-          {/* Logo */}
-          <NavLink to="/create" className="flex items-center gap-2 no-underline">
+      <header className="border-b border-border-light sticky top-0 bg-[var(--c-bg-main)]/95 backdrop-blur-sm z-30 transition-colors duration-300">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-2.5">
+          <NavLink to="/create" className="flex items-center gap-2 no-underline min-w-0">
             <span className="text-coral text-xl font-bold">✦</span>
-            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 tracking-tight">SceneWords</span>
+            <span className="hidden sm:inline text-sm font-semibold text-gray-800 dark:text-gray-100 tracking-tight">
+              SceneWords
+            </span>
           </NavLink>
 
-          {/* Page tabs */}
-          <nav className="flex items-center gap-1">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+              onClick={() => {
+                const next = settings.theme === "light" ? "dark" : "light";
+                settings.setSettings({ theme: next });
+              }}
+              title={t("app.toggleTheme")}
+            >
+              {settings.theme === "dark" ? "🌙" : "☀️"}
+            </button>
+
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `p-2 rounded-lg transition-colors no-underline text-sm ${isActive
+                  ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-white"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                }`
+              }
+            >
+              ⚙️
+            </NavLink>
+            <div className="hidden sm:flex w-9 h-9 rounded-full bg-coral items-center justify-center text-white text-sm font-bold">
+              {t("app.brandTitle").slice(0, 1)}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 sm:px-6 md:px-8 pb-2.5">
+          <nav className="grid grid-cols-2 gap-1">
             <NavLink
               to="/create"
               className={({ isActive }) =>
-                `px-4 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
+                `w-full text-center px-3 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
                   ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
                   : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
                 }`
@@ -132,7 +162,7 @@ export default function App() {
             <NavLink
               to="/assets"
               className={({ isActive }) =>
-                `px-4 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
+                `w-full text-center px-3 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
                   ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
                   : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
                 }`
@@ -141,36 +171,6 @@ export default function App() {
               📂 {t("nav.jobs")}
             </NavLink>
           </nav>
-        </div>
-
-        {/* Right: Settings + Avatar */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
-            onClick={() => {
-              const next = settings.theme === "light" ? "dark" : "light";
-              settings.setSettings({ theme: next });
-            }}
-            title={t("app.toggleTheme")}
-          >
-            {settings.theme === "dark" ? "🌙" : "☀️"}
-          </button>
-
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              `p-2 rounded-lg transition-colors no-underline text-sm ${isActive
-                ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-white"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800"
-              }`
-            }
-          >
-            ⚙️
-          </NavLink>
-          <div className="w-9 h-9 rounded-full bg-coral flex items-center justify-center text-white text-sm font-bold">
-            {t("app.brandTitle").slice(0, 1)}
-          </div>
         </div>
       </header>
 
