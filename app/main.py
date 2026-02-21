@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 import hashlib
+import logging
+import os
 import random
 from datetime import datetime
 import mimetypes
@@ -50,6 +53,7 @@ except Exception:  # pragma: no cover - optional dependency at import time
 
 STATIC_DIR = Path(__file__).parent / "static"
 FRONTEND_BUILD_HINT = "Frontend assets not found. Run: pnpm --dir frontend build"
+LOGGER = logging.getLogger("scenewords.shutdown")
 ALLOWED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
@@ -69,6 +73,15 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app_config = load_app_config()
+        app.state.inflight_requests: dict[int, dict[str, Any]] = {}
+        app.state.inflight_request_seq = 0
+        app.state.shutdown_diagnostics_enabled = _parse_bool_env(
+            os.getenv("VIDEO_GATEWAY_SHUTDOWN_DIAGNOSTICS", "false")
+        )
+        app.state.worker_shutdown_timeout_sec = _parse_positive_float_env(
+            os.getenv("VIDEO_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_SEC"),
+            fallback=20.0,
+        )
         app_config.output_dir.mkdir(parents=True, exist_ok=True)
         app_config.upload_dir.mkdir(parents=True, exist_ok=True)
         app_config.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +113,20 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
-            await worker.stop()
+            if app.state.shutdown_diagnostics_enabled:
+                _log_inflight_requests_snapshot(app, context="lifespan_shutdown_start")
+            try:
+                await asyncio.wait_for(
+                    worker.stop(),
+                    timeout=app.state.worker_shutdown_timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                LOGGER.error(
+                    "Timed out after %.1fs while waiting for worker.stop()",
+                    app.state.worker_shutdown_timeout_sec,
+                )
+                if app.state.shutdown_diagnostics_enabled:
+                    _log_pending_asyncio_tasks(context="worker_stop_timeout")
             await http_client.aclose()
 
     app = FastAPI(title="Video Gateway", version="0.1.0", lifespan=lifespan)
@@ -112,6 +138,40 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    @app.middleware("http")
+    async def track_inflight_requests(
+        request: Request,
+        call_next: Any,
+    ) -> Response:
+        app.state.inflight_request_seq += 1
+        request_seq = app.state.inflight_request_seq
+        started_at = asyncio.get_running_loop().time()
+        app.state.inflight_requests[request_seq] = {
+            "method": request.method,
+            "path": request.url.path,
+            "query": request.url.query,
+            "started_at": started_at,
+            "client": (
+                f"{request.client.host}:{request.client.port}"
+                if request.client
+                else "unknown"
+            ),
+        }
+        try:
+            return await call_next(request)
+        finally:
+            entry = app.state.inflight_requests.pop(request_seq, None)
+            if app.state.shutdown_diagnostics_enabled and entry is not None:
+                duration_sec = max(0.0, asyncio.get_running_loop().time() - started_at)
+                LOGGER.warning(
+                    "request_completed seq=%s method=%s path=%s duration_sec=%.3f client=%s",
+                    request_seq,
+                    entry["method"],
+                    entry["path"],
+                    duration_sec,
+                    entry["client"],
+                )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -909,6 +969,70 @@ def _as_datetime(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(value)
+
+
+def _parse_bool_env(raw_value: str) -> bool:
+    normalized = raw_value.strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
+def _parse_positive_float_env(raw_value: str | None, *, fallback: float) -> float:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return fallback
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        return fallback
+    if parsed <= 0:
+        return fallback
+    return parsed
+
+
+def _log_inflight_requests_snapshot(app: FastAPI, *, context: str, limit: int = 20) -> None:
+    inflight: dict[int, dict[str, Any]] = app.state.inflight_requests
+    if not inflight:
+        LOGGER.warning("No inflight requests during %s", context)
+        return
+    now = asyncio.get_running_loop().time()
+    LOGGER.warning(
+        "Inflight requests during %s: %s",
+        context,
+        len(inflight),
+    )
+    for request_id, entry in list(inflight.items())[:limit]:
+        age_sec = max(0.0, now - float(entry.get("started_at", now)))
+        path = entry.get("path", "")
+        query = entry.get("query", "")
+        path_with_query = f"{path}?{query}" if query else path
+        LOGGER.warning(
+            "inflight seq=%s method=%s path=%s age_sec=%.3f client=%s",
+            request_id,
+            entry.get("method", "?"),
+            path_with_query,
+            age_sec,
+            entry.get("client", "unknown"),
+        )
+
+
+def _log_pending_asyncio_tasks(*, context: str, limit: int = 20) -> None:
+    loop = asyncio.get_running_loop()
+    current = asyncio.current_task(loop=loop)
+    pending = [task for task in asyncio.all_tasks(loop) if task is not current and not task.done()]
+    LOGGER.warning("Pending asyncio tasks during %s: %s", context, len(pending))
+    for index, task in enumerate(pending[:limit], start=1):
+        coro_name = getattr(task.get_coro(), "__qualname__", repr(task.get_coro()))
+        stack = task.get_stack(limit=1)
+        location = "unknown"
+        if stack:
+            frame = stack[-1]
+            location = f"{frame.f_code.co_filename}:{frame.f_lineno}"
+        LOGGER.warning(
+            "pending_task[%s] coro=%s location=%s cancelled=%s",
+            index,
+            coro_name,
+            location,
+            task.cancelled(),
+        )
 
 
 app = create_app()

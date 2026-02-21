@@ -165,7 +165,7 @@ function emptyBatch(): PendingBatch {
 }
 
 function isJobsPath(path: string): boolean {
-  return path === "/assets" || path === "/jobs";
+  return path === "/works" || path === "/assets" || path === "/jobs";
 }
 
 function buildSummary(batch: PendingBatch, t: TranslateFn): TaskToastNotice {
@@ -232,7 +232,7 @@ function showSystemNotification(title: string, body: string, soundEnabled: boole
   });
   notice.onclick = () => {
     window.focus();
-    window.location.hash = "#/assets";
+    window.location.hash = "#/works";
   };
   return true;
 }

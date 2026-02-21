@@ -4,6 +4,13 @@ import type { RetryMode } from "./types";
 
 export type LanguagePreference = "system" | "zh-CN" | "en";
 
+export interface ProviderGenerationDefaults {
+  defaultRatio: "16:9" | "9:16";
+  defaultDurationSec: number;
+  defaultQuality: string;
+  defaultNegativePrompt: string;
+}
+
 export interface CreateDraft {
   provider: string;
   model: string;
@@ -38,6 +45,7 @@ export interface AppSettingsState {
   pricingVersion: string;
   savePromptHistory: boolean;
   historyRetentionDays: number;
+  providerDefaults: Record<string, ProviderGenerationDefaults>;
   language: LanguagePreference;
   theme: "light" | "dark" | "system";
   pendingReuseDraft: CreateDraft | null;
@@ -66,6 +74,7 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   pricingVersion: "2026-02-07",
   savePromptHistory: true,
   historyRetentionDays: 90,
+  providerDefaults: {},
   language: "system",
   theme: "system",
   pendingReuseDraft: null,
@@ -105,6 +114,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         pricingVersion: state.pricingVersion,
         savePromptHistory: state.savePromptHistory,
         historyRetentionDays: state.historyRetentionDays,
+        providerDefaults: state.providerDefaults,
         language: state.language,
         theme: state.theme,
       }),

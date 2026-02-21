@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
@@ -38,6 +38,14 @@ export default function App() {
     queryKey: ["pricing", settings.gatewayToken],
     queryFn: () => fetchPricing(settings.gatewayToken),
   });
+  const inProgressCount = useMemo(
+    () =>
+      (tasksQuery.data ?? []).filter(
+        (task) => task.status === "queued" || task.status === "running",
+      ).length,
+    [tasksQuery.data],
+  );
+  const hasGatewayToken = settings.gatewayToken.trim().length > 0;
 
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((item) => item.id !== id));
@@ -72,7 +80,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (location.pathname !== "/assets" && location.pathname !== "/jobs") {
+    if (
+      location.pathname !== "/works" &&
+      location.pathname !== "/assets" &&
+      location.pathname !== "/jobs"
+    ) {
       return;
     }
     if (visibility !== "visible") {
@@ -107,68 +119,64 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--c-bg-main)] transition-colors duration-300">
       {/* ── Top Bar ────────────────────────────────── */}
-      <header className="border-b border-border-light sticky top-0 bg-[var(--c-bg-main)]/95 backdrop-blur-sm z-30 transition-colors duration-300">
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-2.5">
-          <NavLink to="/create" className="flex items-center gap-2 no-underline min-w-0">
-            <span className="text-coral text-xl font-bold">✦</span>
-            <span className="hidden sm:inline text-sm font-semibold text-gray-800 dark:text-gray-100 tracking-tight">
-              SceneWords
-            </span>
-          </NavLink>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
-              onClick={() => {
-                const next = settings.theme === "light" ? "dark" : "light";
-                settings.setSettings({ theme: next });
-              }}
-              title={t("app.toggleTheme")}
-            >
-              {settings.theme === "dark" ? "🌙" : "☀️"}
-            </button>
-
+      <header className="sticky top-0 z-30 border-b border-[#DDD6C8] bg-[#F6F3EC]/95 backdrop-blur-sm">
+        <div className="px-4 py-3 sm:px-6 md:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `p-2 rounded-lg transition-colors no-underline text-sm ${isActive
-                  ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-white"
-                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:text-gray-200 dark:hover:bg-gray-800"
-                }`
-              }
+              to="/create"
+              className="min-w-0 text-xl font-semibold tracking-tight text-[#1C1917] no-underline"
             >
-              ⚙️
+              SceneWords
             </NavLink>
-            <div className="hidden sm:flex w-9 h-9 rounded-full bg-coral items-center justify-center text-white text-sm font-bold">
-              {t("app.brandTitle").slice(0, 1)}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[#ECE7DC] px-3 py-1 text-xs font-semibold text-[#57534E]">
+                {t("app.topbar.queue", { count: inProgressCount })}
+              </span>
+              <span className="rounded-full bg-[#ECE7DC] px-3 py-1 text-xs font-semibold text-[#57534E]">
+                {hasGatewayToken
+                  ? t("app.topbar.gatewayConfigured")
+                  : t("app.topbar.gatewayUnconfigured")}
+              </span>
             </div>
           </div>
-        </div>
 
-        <div className="px-4 sm:px-6 md:px-8 pb-2.5">
-          <nav className="grid grid-cols-2 gap-1">
+          <nav className="mt-3 flex flex-wrap gap-2">
             <NavLink
               to="/create"
               className={({ isActive }) =>
-                `w-full text-center px-3 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
-                  ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
+                  isActive
+                    ? "bg-[#FBF8F2] text-[#1C1917]"
+                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
                 }`
               }
             >
-              ✨ {t("nav.create")}
+              {t("nav.create")}
             </NavLink>
             <NavLink
-              to="/assets"
+              to="/works"
               className={({ isActive }) =>
-                `w-full text-center px-3 py-1.5 text-sm font-medium rounded-lg transition-colors no-underline ${isActive
-                  ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
+                  isActive
+                    ? "bg-[#FBF8F2] text-[#1C1917]"
+                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
                 }`
               }
             >
-              📂 {t("nav.jobs")}
+              {t("nav.jobs")}
+            </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
+                  isActive
+                    ? "bg-[#FBF8F2] text-[#1C1917]"
+                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
+                }`
+              }
+            >
+              {t("nav.settings")}
             </NavLink>
           </nav>
         </div>
@@ -197,9 +205,10 @@ export default function App() {
               />
             }
           />
-          <Route path="/jobs" element={<Navigate to="/assets" replace />} />
+          <Route path="/jobs" element={<Navigate to="/works" replace />} />
+          <Route path="/assets" element={<Navigate to="/works" replace />} />
           <Route
-            path="/assets"
+            path="/works"
             element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
           />
           <Route

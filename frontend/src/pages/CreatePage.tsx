@@ -6,11 +6,10 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   createVideoTask,
-  estimatePricing,
   fetchUploadedFileBinary,
   uploadFile,
 } from "../api";
@@ -27,9 +26,12 @@ import type {
 import {
   durationOptionsFromField,
   errorMessage,
+  extractImageUrls,
+  extractVideoUrl,
   fieldKey,
   fieldStorageKey,
   findField,
+  formatTime,
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
@@ -37,6 +39,7 @@ import {
   saveSession,
   valueToStoredString,
 } from "../utils";
+import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -45,13 +48,7 @@ interface Props {
 }
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
-const PROMPT_PRESETS_KEY = "scenewords_prompt_presets_v1";
 const MAX_RECENT_PROMPTS = 20;
-const DEFAULT_PROMPT_PRESETS = [
-  "cinematic slow dolly shot of a rainy city street at night, reflections on wet asphalt",
-  "minimalist product hero shot with soft studio lighting, smooth camera orbit",
-  "aerial sunrise over mountain ridge with drifting clouds, natural color grade",
-];
 const VEO_PROMPT_GUIDE_LINK_DOCS =
   "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide?hl=zh-cn";
 const VEO_PROMPT_GUIDE_LINK_BLOG =
@@ -77,7 +74,7 @@ interface AdvancedGroup {
 
 export function CreatePage(props: Props) {
   const { catalog, loading, tasks } = props;
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const settings = useAppSettingsStore();
@@ -90,12 +87,11 @@ export function CreatePage(props: Props) {
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
   const [hint, setHint] = useState("");
-  const [recentPromptVersion, setRecentPromptVersion] = useState(0);
-  const [presetVersion, setPresetVersion] = useState(0);
-  const [openQuickKey, setOpenQuickKey] = useState<string | null>(null);
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
+  const [selectedRecentTaskId, setSelectedRecentTaskId] = useState<string | null>(null);
+  const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
 
   const selectedProvider = useMemo(
@@ -212,32 +208,42 @@ export function CreatePage(props: Props) {
     () => groupAdvancedFields(advancedFields),
     [advancedFields],
   );
-  const recentPrompts = useMemo(
-    () =>
-      listRecentPrompts({
-        provider: providerId,
-        model: modelName,
-        operation: selectedOperation?.id ?? operationId,
-        retentionDays: settings.historyRetentionDays,
-        version: recentPromptVersion,
-      }),
-    [
-      modelName,
-      operationId,
-      providerId,
-      recentPromptVersion,
-      selectedOperation?.id,
-      settings.historyRetentionDays,
-    ],
-  );
-  const promptPresets = useMemo(
-    () => listPromptPresets(presetVersion),
-    [presetVersion],
-  );
   const inProgressCount = useMemo(
     () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
     [tasks],
   );
+  const successCount = useMemo(
+    () => tasks.filter((task) => task.status === "succeeded").length,
+    [tasks],
+  );
+  const failedCount = useMemo(
+    () => tasks.filter((task) => task.status === "failed" || task.status === "canceled").length,
+    [tasks],
+  );
+  const recentTasks = useMemo(
+    () =>
+      [...tasks]
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+        .slice(0, 8),
+    [tasks],
+  );
+  const recentTaskPreviewMap = useMemo(() => {
+    const map = new Map<string, { kind: "image" | "video"; url: string }>();
+    for (const task of recentTasks) {
+      if (task.asset_type === "video") {
+        const videoUrl = extractVideoUrl(task);
+        if (videoUrl) {
+          map.set(task.task_id, { kind: "video", url: videoUrl });
+        }
+        continue;
+      }
+      const imageUrl = extractImageUrls(task)[0] ?? "";
+      if (imageUrl) {
+        map.set(task.task_id, { kind: "image", url: imageUrl });
+      }
+    }
+    return map;
+  }, [recentTasks]);
   const trackedTask = useMemo(
     () =>
       lastSubmittedTaskId
@@ -329,16 +335,6 @@ export function CreatePage(props: Props) {
     }
     return "-";
   }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size]);
-  const currentOrientationDisplay = useMemo(() => {
-    if (!orientationField) {
-      return "-";
-    }
-    if (!orientationValue) {
-      return "-";
-    }
-    const matched = orientationChoices.find((option) => option.value === orientationValue);
-    return matched?.label ?? orientationValue;
-  }, [orientationChoices, orientationField, orientationValue]);
   const promptPlaceholder = useMemo(() => {
     if (!promptField) {
       return "";
@@ -348,6 +344,28 @@ export function CreatePage(props: Props) {
     }
     return t("create.promptPlaceholder");
   }, [promptField, t]);
+  const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
+  const hasPromptValue = promptValue.trim().length > 0;
+  const hasAttachedAssets = useMemo(
+    () =>
+      quickMediaFields.some((field) => {
+        const key = fieldKey(field);
+        return (files[key]?.length ?? 0) > 0 || (reusedFileIds[key]?.length ?? 0) > 0;
+      }),
+    [files, quickMediaFields, reusedFileIds],
+  );
+  const activeWorkflowStep = useMemo(() => {
+    if (lastSubmittedTaskId) {
+      return 4;
+    }
+    if (hasAttachedAssets) {
+      return 3;
+    }
+    if (hasPromptValue) {
+      return 2;
+    }
+    return 1;
+  }, [hasAttachedAssets, hasPromptValue, lastSubmittedTaskId]);
 
   useEffect(() => {
     if (currentGenerationKind !== "video" || !videoProviders.length) {
@@ -361,6 +379,25 @@ export function CreatePage(props: Props) {
   useEffect(() => {
     persistLastSubmittedTaskId(lastSubmittedTaskId);
   }, [lastSubmittedTaskId]);
+
+  useEffect(() => {
+    if (!recentTasks.length) {
+      setSelectedRecentTaskId(null);
+      return;
+    }
+    if (!selectedRecentTaskId || !recentTasks.some((task) => task.task_id === selectedRecentTaskId)) {
+      setSelectedRecentTaskId(recentTasks[0].task_id);
+    }
+  }, [recentTasks, selectedRecentTaskId]);
+
+  useEffect(() => {
+    if (!recentOverlayTaskId) {
+      return;
+    }
+    if (!tasks.some((task) => task.task_id === recentOverlayTaskId)) {
+      setRecentOverlayTaskId(null);
+    }
+  }, [recentOverlayTaskId, tasks]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -473,7 +510,7 @@ export function CreatePage(props: Props) {
     ) {
       Object.assign(hydrated, session.values);
     }
-    applySettingDefaults(hydrated, selectedOperation, settings);
+    applySettingDefaults(hydrated, selectedOperation, settings, providerId);
 
     const pending = settings.pendingReuseDraft;
     if (
@@ -511,39 +548,23 @@ export function CreatePage(props: Props) {
     providerId,
     selectedOperation,
     settings.defaultDurationSec,
+    settings.defaultQuality,
+    settings.defaultRatio,
     settings.defaultNegativePrompt,
+    settings.historyRetentionDays,
     settings.pendingReuseDraft,
+    settings.providerDefaults,
     settings.restoreLastSession,
     settings.setPendingReuseDraft,
   ]);
 
-  const duration = parseNumberValue(selectedOperation, values, "duration_sec");
-  const resolution = parseStringValue(selectedOperation, values, "resolution");
-  const quality = parseStringValue(selectedOperation, values, "quality") ?? settings.defaultQuality;
-
-  const estimateQuery = useQuery({
-    queryKey: [
-      "estimate",
-      settings.gatewayToken,
-      providerId,
-      modelName,
-      duration,
-      resolution,
-      quality,
-    ],
-    queryFn: () =>
-      estimatePricing(
-        {
-          provider: providerId,
-          model: modelName,
-          duration_sec: duration,
-          resolution,
-          quality,
-        },
-        settings.gatewayToken,
-      ),
-    enabled: Boolean(providerId && modelName),
-  });
+  useEffect(() => {
+    if (!settings.savePromptHistory) {
+      localStorage.removeItem(RECENT_PROMPTS_KEY);
+      return;
+    }
+    pruneRecentPrompts(settings.historyRetentionDays);
+  }, [settings.historyRetentionDays, settings.savePromptHistory]);
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -630,8 +651,9 @@ export function CreatePage(props: Props) {
             provider: providerId,
             model: modelName,
             operation: selectedOperation?.id ?? operationId,
+          }, {
+            retentionDays: settings.historyRetentionDays,
           });
-          setRecentPromptVersion((current) => current + 1);
         }
       }
       saveSession({
@@ -702,12 +724,6 @@ export function CreatePage(props: Props) {
       return;
     }
     setProviderId(nextProvider.id);
-  };
-  const toggleQuickItem = (key: string) => {
-    setOpenQuickKey((current) => (current === key ? null : key));
-  };
-  const closeQuickItem = () => {
-    setOpenQuickKey(null);
   };
   const onRatioChanged = (nextRatio: string) => {
     if (!resolutionField) {
@@ -790,14 +806,6 @@ export function CreatePage(props: Props) {
     }
     return "muted";
   };
-  const trackedOtherInProgressCount = useMemo(() => {
-    if (!trackedTask) {
-      return inProgressCount;
-    }
-    const trackedInProgress = trackedTask.status === "queued" || trackedTask.status === "running";
-    return trackedInProgress ? Math.max(0, inProgressCount - 1) : inProgressCount;
-  }, [inProgressCount, trackedTask]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
@@ -814,595 +822,446 @@ export function CreatePage(props: Props) {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 md:px-12 lg:px-20 py-8 flex flex-col gap-7 items-center">
+    <div className="mx-auto flex w-full max-w-[1366px] flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
       <form
-        className="w-full flex flex-col gap-7"
+        className="w-full flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        {/* ── Generation Type Tabs ──────────────────── */}
-        {canSwitchGenerationKind ? (
-          <div className="w-full flex justify-center">
-            <div className="grid grid-cols-2 gap-1 bg-surface rounded-xl p-1 w-full max-w-md">
-              <button
-                type="button"
-                className={`px-3 sm:px-5 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${currentGenerationKind === "image"
-                  ? "bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                  }`}
-                onClick={() => onGenerationKindChanged("image")}
-              >
-                🖼️ {t("create.quickImage")}
-              </button>
-              <button
-                type="button"
-                className={`px-3 sm:px-5 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${currentGenerationKind === "video"
-                  ? "bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                  }`}
-                onClick={() => onGenerationKindChanged("video")}
-              >
-                🎬 {t("create.quickVideo")}
-              </button>
+        <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-stone-900 m-0">Workflow First · Create</h1>
+              <p className="text-xs text-stone-500 m-0 mt-1">默认只展示高频参数；低频参数折叠到 Advanced。</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canSwitchGenerationKind ? (
+                <div className="inline-flex rounded-full bg-[#ECE7DC] p-1">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                      currentGenerationKind === "image"
+                        ? "bg-white text-stone-900"
+                        : "text-stone-600 hover:text-stone-900"
+                    }`}
+                    onClick={() => onGenerationKindChanged("image")}
+                  >
+                    {t("create.quickImage")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                      currentGenerationKind === "video"
+                        ? "bg-[#EA580C] text-[#FFF7ED]"
+                        : "text-stone-600 hover:text-stone-900"
+                    }`}
+                    onClick={() => onGenerationKindChanged("video")}
+                  >
+                    {t("create.quickVideo")}
+                  </button>
+                </div>
+              ) : null}
+              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Queue {inProgressCount}</span>
+              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Success {successCount}</span>
+              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Fail {failedCount}</span>
             </div>
           </div>
-        ) : null}
-
-        {/* ── Prompt Section ───────────────────────── */}
-        <div className="flex flex-col gap-4 w-full">
-          {/* Prompt Box */}
-          {promptField ? (
-            <div
-              className="bg-surface rounded-2xl p-5 flex flex-col gap-3"
-              onClick={closeQuickItem}
-              onFocusCapture={closeQuickItem}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{promptField.label}</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                    onClick={() => onFieldChanged(promptField, "")}
-                  >
-                    {t("create.clearPrompt")}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                    onClick={() => {
-                      const promptValue = (values[fieldKey(promptField)] ?? "").trim();
-                      if (!promptValue) {
-                        setHint(t("create.hintPromptEmpty"));
-                        return;
-                      }
-                      const added = appendPromptPreset(promptValue);
-                      if (!added) {
-                        setHint(t("create.hintPresetExists"));
-                        return;
-                      }
-                      setPresetVersion((current) => current + 1);
-                      setHint(t("create.hintPresetSaved"));
-                    }}
-                  >
-                    {t("create.saveCurrentPreset")}
-                  </button>
-                </div>
-              </div>
-              <DynamicInput
-                field={promptField}
-                value={values[fieldKey(promptField)] ?? ""}
-                onValueChange={(next) => onFieldChanged(promptField, next)}
-                onFileChange={() => undefined}
-                placeholder={promptPlaceholder}
-              />
-              {promptField.help_text ? (
-                <small className="text-xs text-gray-400">{promptField.help_text}</small>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">{t("create.promptNotSupported")}</p>
-          )}
-
-          {/* ── Params Row ─────────────────────────── */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Provider selector */}
-            <div className="relative">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "provider"
-                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
-                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
-                  }`}
-                onClick={() => toggleQuickItem("provider")}
+          <div className="flex flex-wrap gap-2">
+            {["1 Prompt", "2 Mode", "3 Assets", "4 Generate"].map((label, index) => (
+              <span
+                key={label}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                  index + 1 === activeWorkflowStep
+                    ? "bg-[#EA580C] text-[#FFF7ED]"
+                    : "bg-[#ECE7DC] text-stone-700"
+                }`}
               >
-                <span className="text-gray-400">{t("create.provider")}</span>
-                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedProvider.display_name}</span>
-                <span className="text-gray-300">▾</span>
-              </button>
-              {openQuickKey === "provider" ? (
-                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
-                  {providerChoices.map((provider) => (
-                    <button
-                      type="button"
-                      key={provider.id}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${provider.id === providerId
-                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
-                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        }`}
-                      onClick={() => {
-                        setProviderId(provider.id);
-                        closeQuickItem();
-                      }}
-                    >
-                      {provider.display_name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
 
-            {/* Model selector */}
-            <div className="relative">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "model"
-                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
-                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
-                  }`}
-                onClick={() => toggleQuickItem("model")}
-              >
-                <span className="text-gray-400">{t("create.model")}</span>
-                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedModel.display_name}</span>
-                <span className="text-gray-300">▾</span>
-              </button>
-              {openQuickKey === "model" ? (
-                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
-                  {selectedProvider.models.map((model) => (
-                    <button
-                      type="button"
-                      key={model.name}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${model.name === modelName
-                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
-                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        }`}
-                      onClick={() => {
-                        setModelName(model.name);
-                        closeQuickItem();
-                      }}
-                    >
-                      {model.display_name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Mode selector */}
-            <div className="relative">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "mode"
-                  ? "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-sm"
-                  : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
-                  }`}
-                onClick={() => toggleQuickItem("mode")}
-              >
-                <span className="text-gray-400">{t("create.quickMode")}</span>
-                <span className="font-medium text-gray-800 dark:text-gray-100">{selectedOperation.display_name}</span>
-                <span className="text-gray-300">▾</span>
-              </button>
-              {openQuickKey === "mode" ? (
-                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 min-w-[180px]">
-                  {selectedModel.operations.map((operation) => (
-                    <button
-                      type="button"
-                      key={operation.id}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${operation.id === selectedOperation.id
-                        ? "bg-gray-50 dark:bg-gray-700 font-medium text-gray-900 dark:text-white"
-                        : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        }`}
-                      onClick={() => {
-                        setOperationId(operation.id);
-                        closeQuickItem();
-                      }}
-                    >
-                      {operation.display_name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="h-4 w-px bg-gray-200" />
-
-            {/* Ratio selector */}
-            <div className="relative">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "ratio"
-                  ? "border-gray-300 bg-white shadow-sm"
-                  : "border-transparent hover:bg-gray-100 text-gray-600"
-                  }`}
-                onClick={() => toggleQuickItem("ratio")}
-              >
-                <span className="text-gray-400">{t("create.quickRatio")}</span>
-                <span className="font-medium text-gray-800">{currentRatioDisplay}</span>
-                <span className="text-gray-300">▾</span>
-              </button>
-              {openQuickKey === "ratio" ? (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[180px]">
-                  {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
-                    <button
-                      type="button"
-                      key={ratio}
-                      className={`px-3 py-1 rounded-lg text-sm transition-all ${currentRatioDisplay === ratio
-                        ? "bg-gray-800 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        }`}
-                      onClick={() => { onRatioChanged(ratio); closeQuickItem(); }}
-                      disabled={!resolutionField}
-                    >
-                      {ratio}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Orientation selector */}
-            {orientationField ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "orientation"
-                    ? "border-gray-300 bg-white shadow-sm"
-                    : "border-transparent hover:bg-gray-100 text-gray-600"
-                    }`}
-                  onClick={() => toggleQuickItem("orientation")}
-                >
-                  <span className="text-gray-400">{t("create.quickOrientation")}</span>
-                  <span className="font-medium text-gray-800">{currentOrientationDisplay}</span>
-                  <span className="text-gray-300">▾</span>
-                </button>
-                {openQuickKey === "orientation" ? (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[160px]">
-                    {orientationChoices.map((option) => (
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_370px] gap-4">
+          <div className="flex flex-col gap-4">
+            <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <h2 className="text-base font-bold text-stone-900 m-0">Prompt 主编辑区</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {promptField ? (
                       <button
                         type="button"
-                        key={option.value}
-                        className={`px-3 py-1 rounded-lg text-sm transition-all ${orientationValue === option.value
-                          ? "bg-gray-800 text-white"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                          }`}
-                        onClick={() => { onOrientationChanged(option.value); closeQuickItem(); }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-stone-300 text-stone-600 hover:text-stone-900 hover:border-stone-400 transition-colors"
+                        onClick={() => onFieldChanged(promptField, "")}
                       >
-                        {option.label}
+                        {t("create.clearPrompt")}
                       </button>
-                    ))}
+                    ) : null}
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#EA580C] text-[#FFF7ED] hover:bg-[#C2410C] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={submitMutation.isPending}
+                    >
+                      {submitMutation.isPending
+                        ? t("create.submitting")
+                        : selectedProvider.type === "tuzi_image"
+                          ? t("create.generateImage")
+                          : t("create.generateVideo")}
+                    </button>
                   </div>
-                ) : null}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-stone-500">{t("create.provider")}</span>
+                    <select
+                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
+                      value={providerId}
+                      onChange={(event) => setProviderId(event.target.value)}
+                    >
+                      {providerChoices.map((provider) => (
+                        <option key={provider.id} value={provider.id}>{provider.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-stone-500">{t("create.model")}</span>
+                    <select
+                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
+                      value={modelName}
+                      onChange={(event) => setModelName(event.target.value)}
+                    >
+                      {selectedProvider.models.map((model) => (
+                        <option key={model.name} value={model.name}>{model.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-stone-500">{t("create.quickMode")}</span>
+                    <select
+                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
+                      value={selectedOperation.id}
+                      onChange={(event) => setOperationId(event.target.value)}
+                    >
+                      {selectedModel.operations.map((operation) => (
+                        <option key={operation.id} value={operation.id}>{operation.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
-            ) : null}
 
-            {/* Size / Quality */}
-            {hasQuickSize ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "size"
-                    ? "border-gray-300 bg-white shadow-sm"
-                    : "border-transparent hover:bg-gray-100 text-gray-600"
-                    }`}
-                  onClick={() => toggleQuickItem("size")}
-                >
-                  <span className="text-gray-400">{t("create.quickSize")}</span>
-                  <span className="font-medium text-gray-800">{currentSizeDisplay}</span>
-                  <span className="text-gray-300">▾</span>
-                </button>
-                {openQuickKey === "size" ? (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[160px]">
-                    {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+              {promptField ? (
+                <div className="space-y-1">
+                  <DynamicInput
+                    field={promptField}
+                    value={promptValue}
+                    onValueChange={(next) => onFieldChanged(promptField, next)}
+                    onFileChange={() => undefined}
+                    placeholder={promptPlaceholder}
+                  />
+                  {promptField.help_text ? <small className="text-xs text-stone-500">{promptField.help_text}</small> : null}
+                </div>
+              ) : (
+                <p className="text-sm text-stone-500">{t("create.promptNotSupported")}</p>
+              )}
+
+              {quickMediaFields.length ? (
+                <div className="space-y-2 rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-stone-800 m-0">素材输入</p>
+                    <p className="text-xs text-stone-500 m-0">支持复用与上传</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {quickMediaFields.map((field) =>
+                      renderField(
+                        field,
+                        values,
+                        files,
+                        reusedFileIds,
+                        onFieldChanged,
+                        onFileFieldChanged,
+                        onReusedFileIdsChanged,
+                        "compact",
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-stone-800 m-0">快捷参数</p>
+                <div className="flex flex-wrap gap-2">
+                  {resolutionField
+                    ? (ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
+                      <button
+                        type="button"
+                        key={`ratio_${ratio}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          currentRatioDisplay === ratio
+                            ? "bg-stone-800 text-white"
+                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                        }`}
+                        onClick={() => onRatioChanged(ratio)}
+                      >
+                        比例 {ratio}
+                      </button>
+                    ))
+                    : null}
+                  {hasQuickSize
+                    ? (qualityField ? qualityChoices : sizeChoices).map((size) => {
                       const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                      const display = qualityField
+                      const label = qualityField
                         ? qualityField.options.find((option) => option.value === size)?.label ?? size
                         : size;
                       return (
                         <button
                           type="button"
-                          key={size}
-                          className={`px-3 py-1 rounded-lg text-sm transition-all ${active
-                            ? "bg-gray-800 text-white"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            }`}
-                          onClick={() => { onSizeChanged(size); closeQuickItem(); }}
+                          key={`size_${size}`}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                            active
+                              ? "bg-stone-800 text-white"
+                              : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                          }`}
+                          onClick={() => onSizeChanged(size)}
                         >
-                          {display}
+                          {qualityField ? "质量" : "尺寸"} {label}
                         </button>
                       );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {/* Duration */}
-            {durationField ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${openQuickKey === "duration"
-                    ? "border-gray-300 bg-white shadow-sm"
-                    : "border-transparent hover:bg-gray-100 text-gray-600"
-                    }`}
-                  onClick={() => toggleQuickItem("duration")}
-                >
-                  <span className="text-gray-400">{t("create.quickDuration")}</span>
-                  <span className="font-medium text-gray-800">{durationValue ? `${durationValue}s` : "-"}</span>
-                  <span className="text-gray-300">▾</span>
-                </button>
-                {openQuickKey === "duration" ? (
-                  durationChoices.length ? (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 flex flex-wrap gap-1.5 min-w-[140px]">
-                      {durationChoices.map((seconds) => (
-                        <button
-                          type="button"
-                          key={seconds}
-                          className={`px-3 py-1 rounded-lg text-sm transition-all ${durationValue === String(seconds)
-                            ? "bg-gray-800 text-white"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            }`}
-                          onClick={() => { onFieldChanged(durationField, String(seconds)); closeQuickItem(); }}
-                        >
-                          {seconds}s
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-20 min-w-[160px]">
-                      <DynamicInput
-                        field={durationField}
-                        value={durationValue}
-                        onValueChange={(next) => onFieldChanged(durationField, next)}
-                        onFileChange={() => undefined}
-                      />
-                    </div>
-                  )
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-
-          {/* ── Quick Media Fields ──────────────────── */}
-          {quickMediaFields.length ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {quickMediaFields.map((field) =>
-                renderField(
-                  field,
-                  values,
-                  files,
-                  reusedFileIds,
-                  onFieldChanged,
-                  onFileFieldChanged,
-                  onReusedFileIdsChanged,
-                  "compact",
-                ),
-              )}
-            </div>
-          ) : null}
-
-          {/* ── Advanced Toggle ─────────────────────── */}
-          <details className="group">
-            <summary className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 cursor-pointer transition-colors select-none py-1">
-              <span className="group-open:rotate-90 transition-transform text-xs">▶</span>
-              {t("create.advancedOptions", { count: advancedFields.length })}
-            </summary>
-            <div className="mt-3 flex flex-col gap-3">
-              {showVeoPromptGuide ? (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-4 text-sm">
-                  <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-1">{t("create.veoPromptGuideTitle")}</h4>
-                  <p className="text-blue-600 dark:text-blue-400 mb-2">{t("create.veoPromptGuideDesc")}</p>
-                  <div className="flex gap-3">
-                    <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-200">
-                      {t("create.veoPromptGuideLinkDocs")}
-                    </a>
-                    <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-blue-600 underline hover:text-blue-800">
-                      {t("create.veoPromptGuideLinkBlog")}
-                    </a>
-                  </div>
-                </div>
-              ) : null}
-              {advancedGroups.map((group, index) => (
-                <details key={group.id} open={index === 0} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                  <summary className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                    {t(`create.advancedGroup.${group.id}`)} ({group.fields.length})
-                  </summary>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {group.fields.map((field) =>
-                      renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
-                    )}
-                  </div>
-                </details>
-              ))}
-            </div>
-          </details>
-        </div>
-
-        {/* ── Generate Button + Status ─────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex-1 flex flex-col gap-0.5">
-            <p className="text-xs text-gray-400 m-0">
-              {settings.showEstimatedCostPreSubmit && estimateQuery.data?.estimated_cost != null
-                ? t("create.estimated", {
-                  cost: estimateQuery.data.estimated_cost.toFixed(3),
-                  currency: estimateQuery.data.currency ?? settings.currency,
-                })
-                : t("create.estimatedUnavailable")}
-            </p>
-            {hint ? <p className="text-xs text-gray-500 m-0">{hint}</p> : null}
-          </div>
-          <button
-            type="submit"
-            className="w-full sm:w-auto px-8 py-2.5 bg-coral hover:bg-coral-dark text-white font-semibold text-sm rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={submitMutation.isPending}
-          >
-            {submitMutation.isPending
-              ? t("create.submitting")
-              : selectedProvider.type === "tuzi_image"
-                ? t("create.generateImage")
-                : t("create.generateVideo")}
-          </button>
-        </div>
-
-        {/* ── Submission Feedback ──────────────────── */}
-        {lastSubmittedTaskId ? (
-          <div className="bg-surface rounded-2xl p-5 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-700 m-0">
-                {t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}
-              </p>
-              <button
-                type="button"
-                className="text-xs text-gray-400 hover:text-gray-600"
-                onClick={() => setLastSubmittedTaskId(null)}
-              >
-                {t("create.feedbackContinue")}
-              </button>
-            </div>
-            <p className={`text-sm font-medium m-0 ${statusTone(trackedTask) === "ok" ? "text-green-600" :
-              statusTone(trackedTask) === "danger" ? "text-red-500" :
-                statusTone(trackedTask) === "warn" ? "text-amber-500" :
-                  "text-gray-400"
-              }`}>
-              {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
-            </p>
-            {trackedTask?.status === "failed" && trackedTask.error ? (
-              <p className="text-xs text-red-400 m-0">{errorMessage(trackedTask)}</p>
-            ) : null}
-            {trackedOtherInProgressCount > 0 ? (
-              <button
-                type="button"
-                className="text-xs text-blue-600 hover:underline self-start"
-                onClick={() => navigate("/assets")}
-              >
-                {t("create.feedbackOtherInProgress", { count: trackedOtherInProgressCount })}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="px-6 py-2 bg-coral hover:bg-coral-dark text-white font-semibold text-sm rounded-xl transition-all self-start"
-              onClick={() => navigate("/assets")}
-            >
-              {trackedTask?.status === "succeeded"
-                ? t("create.feedbackViewResult")
-                : t("create.feedbackViewAssets")}
-            </button>
-          </div>
-        ) : null}
-
-        {/* ── Divider ──────────────────────────────── */}
-        <div className="h-px bg-border-light w-full" />
-
-        {/* ── Prompt Presets & History ──────────────── */}
-        {promptField ? (
-          <div className="flex flex-col gap-3">
-            <details className="group">
-              <summary className="text-sm font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-gray-800 dark:hover:text-gray-200 transition-colors">
-                {t("create.promptPresets")}
-              </summary>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {promptPresets.map((preset) => (
-                  <div key={preset} className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors max-w-xs truncate"
-                      onClick={() => {
-                        onFieldChanged(promptField, preset);
-                        setHint(t("create.hintPresetApplied"));
-                      }}
-                    >
-                      {preset}
-                    </button>
-                    {!DEFAULT_PROMPT_PRESETS.includes(preset) ? (
+                    })
+                    : null}
+                  {orientationField
+                    ? orientationChoices.map((option) => (
                       <button
                         type="button"
-                        className="text-xs text-gray-300 hover:text-red-400 transition-colors"
-                        onClick={() => {
-                          removePromptPreset(preset);
-                          setPresetVersion((current) => current + 1);
-                        }}
+                        key={`orientation_${option.value}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          orientationValue === option.value
+                            ? "bg-stone-800 text-white"
+                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                        }`}
+                        onClick={() => onOrientationChanged(option.value)}
                       >
-                        ✕
+                        方向 {option.label}
                       </button>
-                    ) : null}
+                    ))
+                    : null}
+                  {durationField && durationChoices.length
+                    ? durationChoices.map((seconds) => (
+                      <button
+                        type="button"
+                        key={`duration_${seconds}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          durationValue === String(seconds)
+                            ? "bg-stone-800 text-white"
+                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                        }`}
+                        onClick={() => onFieldChanged(durationField, String(seconds))}
+                      >
+                        时长 {seconds}s
+                      </button>
+                    ))
+                    : null}
+                </div>
+                {durationField && !durationChoices.length ? (
+                  <div className="max-w-xs">
+                    <DynamicInput
+                      field={durationField}
+                      value={durationValue}
+                      onValueChange={(next) => onFieldChanged(durationField, next)}
+                      onFileChange={() => undefined}
+                    />
                   </div>
+                ) : null}
+              </div>
+
+              {hint ? <p className="text-xs text-stone-600 m-0">{hint}</p> : null}
+            </section>
+
+            <details className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-3 sm:p-4">
+              <summary className="cursor-pointer list-none flex items-center justify-between text-sm font-semibold text-stone-800">
+                <span>Advanced（默认折叠）</span>
+                <span className="text-xs font-medium text-stone-500">{t("create.advancedOptions", { count: advancedFields.length })}</span>
+              </summary>
+              <div className="mt-3 space-y-3">
+                {showVeoPromptGuide ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+                    <h4 className="font-semibold text-blue-800 mb-1">{t("create.veoPromptGuideTitle")}</h4>
+                    <p className="text-blue-600 mb-2">{t("create.veoPromptGuideDesc")}</p>
+                    <div className="flex flex-wrap gap-3">
+                      <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkDocs")}</a>
+                      <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkBlog")}</a>
+                    </div>
+                  </div>
+                ) : null}
+                {advancedGroups.map((group) => (
+                  <section key={group.id} className="rounded-lg border border-stone-200 bg-white p-3">
+                    <p className="text-sm font-semibold text-stone-800 m-0 mb-2">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {group.fields.map((field) =>
+                        renderField(
+                          field,
+                          values,
+                          files,
+                          reusedFileIds,
+                          onFieldChanged,
+                          onFileFieldChanged,
+                          onReusedFileIdsChanged,
+                        ),
+                      )}
+                    </div>
+                  </section>
                 ))}
               </div>
             </details>
 
-            {settings.savePromptHistory ? (
-              <details className="group">
-                <summary className="text-sm font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-gray-800 dark:hover:text-gray-200 transition-colors flex items-center justify-between">
-                  {t("create.recentPrompts")}
-                </summary>
-                <div className="mt-1 flex items-center justify-end">
-                  <button
-                    type="button"
-                    className="text-xs text-gray-400 hover:text-red-400 transition-colors"
-                    onClick={() => {
-                      clearRecentPrompts();
-                      setRecentPromptVersion((current) => current + 1);
-                    }}
-                  >
-                    {t("common.clear")}
-                  </button>
+            {lastSubmittedTaskId ? (
+              <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-800 m-0">{t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}</p>
+                  <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => setLastSubmittedTaskId(null)}>{t("create.feedbackContinue")}</button>
                 </div>
-                {recentPrompts.length ? (
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    {recentPrompts.map((entry) => (
-                      <div
-                        key={`${entry.usedAt}_${entry.text}`}
-                        className="flex items-center gap-2 group/item"
-                      >
-                        <button
-                          type="button"
-                          className="flex-1 text-left text-xs text-gray-600 hover:text-gray-900 truncate transition-colors"
-                          onClick={() => {
-                            onFieldChanged(promptField, entry.text);
-                            setHint(t("create.hintRecentPromptApplied"));
-                          }}
-                        >
-                          {entry.text}
-                        </button>
-                        <button
-                          type="button"
-                          className={`text-xs shrink-0 transition-colors ${entry.pinned ? "text-amber-500" : "text-gray-300 hover:text-amber-400"
-                            }`}
-                          onClick={() => {
-                            toggleRecentPromptPinned({
-                              provider: entry.provider,
-                              model: entry.model,
-                              operation: entry.operation,
-                              text: entry.text,
-                            });
-                            setRecentPromptVersion((current) => current + 1);
-                          }}
-                        >
-                          {entry.pinned ? "★" : "☆"}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400 mt-2">{t("create.noRecentPrompts")}</p>
-                )}
-              </details>
+                <p className={`text-sm font-medium mt-2 mb-0 ${
+                  statusTone(trackedTask) === "ok"
+                    ? "text-green-600"
+                    : statusTone(trackedTask) === "danger"
+                      ? "text-red-600"
+                      : statusTone(trackedTask) === "warn"
+                        ? "text-amber-600"
+                        : "text-stone-500"
+                }`}>
+                  {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
+                </p>
+                {trackedTask?.status === "failed" && trackedTask.error ? (
+                  <p className="text-xs text-red-500 mt-2 mb-0">{errorMessage(trackedTask)}</p>
+                ) : null}
+              </section>
             ) : null}
           </div>
-        ) : null}
+
+          <aside className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 h-fit xl:sticky xl:top-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-stone-900 m-0">最近任务</h3>
+              <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => navigate("/works")}>查看全部</button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {recentTasks.length ? (
+                recentTasks.map((task) => {
+                  const isSelected = selectedRecentTaskId === task.task_id;
+                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
+                  return (
+                    <div key={task.task_id} className="space-y-2">
+                      <button
+                        type="button"
+                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                          isSelected
+                            ? "border-[#E8692A] bg-[#FFF7ED]"
+                            : "border-[#DDD6C8] bg-[#F6F3EC] hover:border-stone-400"
+                        }`}
+                        onClick={() => setSelectedRecentTaskId(task.task_id)}
+                      >
+                        <p className="text-sm font-medium text-stone-900 m-0 line-clamp-2">{task.prompt?.trim() || "(No prompt)"}</p>
+                        <p className="text-xs text-stone-500 m-0 mt-1">{task.provider} · {task.model}</p>
+                        <p className={`text-xs font-semibold m-0 mt-1 ${
+                          statusTone(task) === "ok"
+                            ? "text-green-600"
+                            : statusTone(task) === "danger"
+                              ? "text-red-600"
+                              : statusTone(task) === "warn"
+                                ? "text-amber-600"
+                                : "text-stone-500"
+                        }`}>
+                          {statusLabel(task)}
+                        </p>
+                      </button>
+
+                      {isSelected ? (
+                        <div className="rounded-lg border border-[#DDD6C8] bg-white p-3 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="m-0 text-xs font-semibold text-stone-800">任务详情</p>
+                            <span className={`text-[11px] font-semibold ${
+                              statusTone(task) === "ok"
+                                ? "text-green-600"
+                                : statusTone(task) === "danger"
+                                  ? "text-red-600"
+                                  : statusTone(task) === "warn"
+                                    ? "text-amber-600"
+                                    : "text-stone-500"
+                            }`}>
+                              {statusLabel(task)}
+                            </span>
+                          </div>
+                          {preview ? (
+                            <button
+                              type="button"
+                              className="block w-full overflow-hidden rounded-md border border-[#E2DBC9] bg-[#F4EFE5] p-0 text-left transition-colors hover:border-[#C9C0AF]"
+                              onClick={() => setRecentOverlayTaskId(task.task_id)}
+                              title={locale === "zh-CN" ? "点击查看详情" : "Open detail"}
+                            >
+                              {preview.kind === "video" ? (
+                                <video
+                                  src={preview.url}
+                                  className="block aspect-video w-full object-cover"
+                                  muted
+                                  loop
+                                  autoPlay
+                                  playsInline
+                                />
+                              ) : (
+                                <img
+                                  src={preview.url}
+                                  alt={task.task_id}
+                                  className="block w-full max-h-40 object-cover"
+                                />
+                              )}
+                            </button>
+                          ) : null}
+                          <p className="m-0 text-xs text-stone-700 line-clamp-3">
+                            {task.prompt?.trim() || "(No prompt)"}
+                          </p>
+                          <p className="m-0 text-[11px] text-stone-500">
+                            {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {promptField ? (
+                              <button
+                                type="button"
+                                className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-1.5 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+                                onClick={() => {
+                                  settings.setPendingReuseDraft(toDraft(task));
+                                  setHint(
+                                    locale === "zh-CN"
+                                      ? "已复用任务参数与素材到主编辑区。"
+                                      : "Task settings and references restored to editor.",
+                                  );
+                                }}
+                              >
+                                {locale === "zh-CN" ? "复用 Prompt" : "Reuse Prompt"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-stone-500 m-0">暂无任务</p>
+              )}
+            </div>
+          </aside>
+        </div>
       </form>
+      {recentOverlayTaskId ? (
+        <WorkDetailOverlay
+          tasks={recentTasks}
+          initialTaskId={recentOverlayTaskId}
+          onClose={() => setRecentOverlayTaskId(null)}
+          onHint={setHint}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2189,21 +2048,97 @@ function applySettingDefaults(
   values: Record<string, string>,
   operation: ProviderModelOperationInfo,
   settings: AppSettingsState,
+  providerId: string,
 ): void {
+  const resolvedDefaults = resolveGenerationDefaults(settings, providerId);
+
   const durationField = findField(operation, "duration_sec");
   if (durationField) {
     const key = fieldKey(durationField);
     if (!values[key]) {
-      values[key] = String(settings.defaultDurationSec);
+      values[key] = String(resolvedDefaults.defaultDurationSec);
     }
   }
   const negativeField = findField(operation, "negative_prompt");
-  if (negativeField && settings.defaultNegativePrompt) {
+  if (negativeField && resolvedDefaults.defaultNegativePrompt) {
     const key = fieldKey(negativeField);
     if (!values[key]) {
-      values[key] = settings.defaultNegativePrompt;
+      values[key] = resolvedDefaults.defaultNegativePrompt;
     }
   }
+
+  const qualityField =
+    operation.fields.find(
+      (field) =>
+        field.key === "quality" &&
+        (field.target === "provider_options" || field.target === "request"),
+    ) ?? null;
+  if (qualityField && resolvedDefaults.defaultQuality) {
+    const key = fieldKey(qualityField);
+    if (!values[key]) {
+      values[key] = resolvedDefaults.defaultQuality;
+    }
+  }
+
+  const resolutionField = findField(operation, "resolution");
+  if (resolutionField) {
+    const key = fieldKey(resolutionField);
+    if (!values[key]) {
+      const matched = pickResolutionValue(resolutionField, "", {
+        ratio: resolvedDefaults.defaultRatio,
+      });
+      if (matched) {
+        values[key] = matched;
+      }
+    }
+  }
+
+  const aspectRatioField =
+    operation.fields.find(
+      (field) =>
+        field.key === "aspect_ratio" &&
+        (field.target === "provider_options" || field.target === "request"),
+    ) ?? null;
+  if (aspectRatioField) {
+    const key = fieldKey(aspectRatioField);
+    if (!values[key]) {
+      values[key] = resolvedDefaults.defaultRatio;
+    }
+  }
+}
+
+function resolveGenerationDefaults(
+  settings: AppSettingsState,
+  providerId: string,
+): {
+  defaultRatio: "16:9" | "9:16";
+  defaultDurationSec: number;
+  defaultQuality: string;
+  defaultNegativePrompt: string;
+} {
+  const providerDefaults = providerId ? settings.providerDefaults[providerId] : undefined;
+  return {
+    defaultRatio: providerDefaults?.defaultRatio ?? settings.defaultRatio,
+    defaultDurationSec: providerDefaults?.defaultDurationSec ?? settings.defaultDurationSec,
+    defaultQuality: providerDefaults?.defaultQuality ?? settings.defaultQuality,
+    defaultNegativePrompt:
+      providerDefaults?.defaultNegativePrompt ?? settings.defaultNegativePrompt,
+  };
+}
+
+function toDraft(task: VideoTaskDetail): NonNullable<AppSettingsState["pendingReuseDraft"]> {
+  return {
+    provider: task.provider,
+    model: task.model,
+    operation: task.operation ?? "generate",
+    prompt: task.prompt,
+    negativePrompt: task.negative_prompt ?? "",
+    durationSec: task.duration_sec,
+    resolution: task.resolution ?? "",
+    fps: task.fps,
+    seed: task.seed,
+    providerOptions: task.provider_options ?? {},
+  };
 }
 
 function applyDraft(
@@ -2293,37 +2228,6 @@ function normalizeUnknownToStringList(raw: unknown): string[] {
     .map((item) => item.trim());
 }
 
-function parseNumberValue(
-  operation: ProviderModelOperationInfo | null,
-  values: Record<string, string>,
-  key: string,
-): number | null {
-  const field = findField(operation, key);
-  if (!field) {
-    return null;
-  }
-  const raw = values[fieldKey(field)] ?? "";
-  if (!raw.trim()) {
-    return null;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseStringValue(
-  operation: ProviderModelOperationInfo | null,
-  values: Record<string, string>,
-  key: string,
-): string | null {
-  const field = findField(operation, key);
-  if (!field) {
-    return null;
-  }
-  const raw = values[fieldKey(field)] ?? "";
-  const trimmed = raw.trim();
-  return trimmed || null;
-}
-
 function groupAdvancedFields(fields: ProviderOperationField[]): AdvancedGroup[] {
   const groups: AdvancedGroup[] = [
     { id: "inputs", fields: [] },
@@ -2410,8 +2314,11 @@ function appendRecentPrompt(input: {
   provider: string;
   model: string;
   operation: string;
+}, options?: {
+  retentionDays?: number;
 }): void {
-  const current = readRecentPrompts();
+  const retentionDays = normalizeRetentionDays(options?.retentionDays);
+  const current = filterRecentPromptsByRetention(readRecentPrompts(), retentionDays);
   const normalizedText = input.text.trim();
   if (!normalizedText) {
     return;
@@ -2444,40 +2351,32 @@ function appendRecentPrompt(input: {
   localStorage.setItem(RECENT_PROMPTS_KEY, JSON.stringify(compacted));
 }
 
-function listRecentPrompts(input: {
-  provider: string;
-  model: string;
-  operation: string;
-  retentionDays: number;
-  version: number;
-}): RecentPromptEntry[] {
-  void input.version;
-  const all = readRecentPrompts();
-  const now = Date.now();
-  const keepMillis = Math.max(1, input.retentionDays) * 24 * 60 * 60 * 1000;
-  const alive = all.filter((entry) => {
-    const ts = Date.parse(entry.usedAt);
-    return Number.isFinite(ts) && now - ts <= keepMillis;
-  });
-  if (alive.length !== all.length) {
-    localStorage.setItem(RECENT_PROMPTS_KEY, JSON.stringify(alive));
+function pruneRecentPrompts(retentionDays: number): void {
+  const current = readRecentPrompts();
+  const filtered = filterRecentPromptsByRetention(current, retentionDays);
+  if (filtered.length === current.length) {
+    return;
   }
-  return alive
-    .filter(
-      (entry) =>
-        entry.provider === input.provider &&
-        entry.model === input.model &&
-        entry.operation === input.operation,
-    )
-    .sort((left, right) => {
-      if (left.pinned && !right.pinned) {
-        return -1;
-      }
-      if (!left.pinned && right.pinned) {
-        return 1;
-      }
-      return Date.parse(right.usedAt) - Date.parse(left.usedAt);
-    });
+  localStorage.setItem(RECENT_PROMPTS_KEY, JSON.stringify(filtered));
+}
+
+function filterRecentPromptsByRetention(
+  entries: RecentPromptEntry[],
+  retentionDays: number,
+): RecentPromptEntry[] {
+  const normalizedDays = normalizeRetentionDays(retentionDays);
+  const oldestAllowed = Date.now() - normalizedDays * 24 * 60 * 60 * 1000;
+  return entries.filter((entry) => {
+    const timestamp = Date.parse(entry.usedAt);
+    return Number.isFinite(timestamp) && timestamp >= oldestAllowed;
+  });
+}
+
+function normalizeRetentionDays(input: number | undefined): number {
+  if (!Number.isFinite(input) || input == null) {
+    return 90;
+  }
+  return Math.max(1, Math.floor(input));
 }
 
 function readRecentPrompts(): RecentPromptEntry[] {
@@ -2512,80 +2411,3 @@ function readRecentPrompts(): RecentPromptEntry[] {
   }
 }
 
-function toggleRecentPromptPinned(input: {
-  provider: string;
-  model: string;
-  operation: string;
-  text: string;
-}): void {
-  const list = readRecentPrompts();
-  const next = list.map((entry) => {
-    if (
-      entry.provider !== input.provider ||
-      entry.model !== input.model ||
-      entry.operation !== input.operation ||
-      entry.text !== input.text
-    ) {
-      return entry;
-    }
-    return { ...entry, pinned: !entry.pinned };
-  });
-  localStorage.setItem(RECENT_PROMPTS_KEY, JSON.stringify(next));
-}
-
-function listPromptPresets(version: number): string[] {
-  void version;
-  const custom = readPromptPresets();
-  const merged = [...DEFAULT_PROMPT_PRESETS];
-  for (const item of custom) {
-    if (!merged.includes(item)) {
-      merged.push(item);
-    }
-  }
-  return merged;
-}
-
-function appendPromptPreset(text: string): boolean {
-  const normalized = text.trim();
-  if (!normalized) {
-    return false;
-  }
-  if (DEFAULT_PROMPT_PRESETS.includes(normalized)) {
-    return false;
-  }
-  const current = readPromptPresets();
-  if (current.includes(normalized)) {
-    return false;
-  }
-  const next = [normalized, ...current].slice(0, MAX_RECENT_PROMPTS);
-  localStorage.setItem(PROMPT_PRESETS_KEY, JSON.stringify(next));
-  return true;
-}
-
-function removePromptPreset(text: string): void {
-  const current = readPromptPresets();
-  const next = current.filter((item) => item !== text);
-  localStorage.setItem(PROMPT_PRESETS_KEY, JSON.stringify(next));
-}
-
-function readPromptPresets(): string[] {
-  const raw = localStorage.getItem(PROMPT_PRESETS_KEY);
-  if (!raw) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .map((item) => (typeof item === "string" ? item.trim() : ""))
-      .filter((item): item is string => Boolean(item));
-  } catch {
-    return [];
-  }
-}
-
-function clearRecentPrompts(): void {
-  localStorage.removeItem(RECENT_PROMPTS_KEY);
-}
