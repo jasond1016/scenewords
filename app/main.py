@@ -188,6 +188,22 @@ def create_app() -> FastAPI:
             )
         return FileResponse(str(index_path))
 
+    @app.get("/favicon.ico", response_class=FileResponse)
+    async def favicon_ico() -> FileResponse:
+        return _serve_frontend_root_asset("favicon.ico")
+
+    @app.get("/favicon-32.png", response_class=FileResponse)
+    async def favicon_png_32() -> FileResponse:
+        return _serve_frontend_root_asset("favicon-32.png")
+
+    @app.get("/apple-touch-icon.png", response_class=FileResponse)
+    async def apple_touch_icon() -> FileResponse:
+        return _serve_frontend_root_asset("apple-touch-icon.png")
+
+    @app.get("/logo-mark.png", response_class=FileResponse)
+    async def logo_mark() -> FileResponse:
+        return _serve_frontend_root_asset("logo-mark.png")
+
     @app.get("/v1/models", response_model=ProviderCatalogResponse)
     async def list_models(_: None = Depends(require_auth)) -> ProviderCatalogResponse:
         provider_configs: dict[str, ProviderConfig] = app.state.provider_configs
@@ -1125,3 +1141,18 @@ def _log_pending_asyncio_tasks(*, context: str, limit: int = 20) -> None:
 
 
 app = create_app()
+
+
+def _serve_frontend_root_asset(filename: str) -> FileResponse:
+    asset_path = STATIC_DIR / filename
+    if not asset_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Frontend asset not found: {filename}",
+        )
+    media_type, _ = mimetypes.guess_type(str(asset_path))
+    return FileResponse(
+        str(asset_path),
+        media_type=media_type or "application/octet-stream",
+        filename=filename,
+    )

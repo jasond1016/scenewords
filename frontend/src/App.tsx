@@ -11,6 +11,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 const TASK_POLL_INTERVAL_MS = 4000;
 const TOAST_TTL_MS = 5200;
+const LOGO_MARK_SRC = `${import.meta.env.BASE_URL}logo-mark-header.png`;
 
 interface ToastItem extends TaskToastNotice {
   id: string;
@@ -126,9 +127,15 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <NavLink
               to="/create"
-              className="min-w-0 text-xl font-semibold tracking-tight text-[#1C1917] no-underline"
+              className="inline-flex min-w-0 items-center gap-2.5 text-xl font-semibold tracking-tight text-[#1C1917] no-underline"
             >
-              SceneWords
+              <img
+                src={LOGO_MARK_SRC}
+                alt=""
+                aria-hidden="true"
+                className="h-9 w-9 shrink-0 rounded-md"
+              />
+              <span className="truncate">SceneWords</span>
             </NavLink>
 
             <div className="flex flex-wrap items-center gap-2">
