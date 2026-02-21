@@ -79,6 +79,8 @@ body {
   font-family: var(--font-family-sans);
   background: var(--c-bg-main);
   color: var(--c-text-main);
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

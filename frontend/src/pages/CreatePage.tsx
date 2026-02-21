@@ -884,7 +884,7 @@ export function CreatePage(props: Props) {
           </div>
         </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_370px] gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_370px]">
           <div className="flex flex-col gap-4">
             <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-4">
               <div className="flex flex-col gap-3">
@@ -1141,7 +1141,7 @@ export function CreatePage(props: Props) {
             ) : null}
           </div>
 
-          <aside className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 h-fit xl:sticky xl:top-6">
+          <aside className="h-fit rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 lg:sticky lg:top-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-stone-900 m-0">最近任务</h3>
               <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => navigate("/works")}>查看全部</button>
@@ -2410,4 +2410,3 @@ function readRecentPrompts(): RecentPromptEntry[] {
     return [];
   }
 }
-

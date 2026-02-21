@@ -95,6 +95,8 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    document.documentElement.setAttribute("translate", "no");
+    document.body.classList.add("notranslate");
     const baseTitle = t("app.documentTitle");
     document.title =
       settings.notifyBadge && unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;

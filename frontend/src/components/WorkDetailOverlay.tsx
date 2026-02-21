@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { deleteVideoTask, retryVideoTask } from "../api";
@@ -91,35 +91,100 @@ export function WorkDetailOverlay(props: Props) {
     setIsInfoHidden(prefersCompactInfo);
   }, [isLightboxOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isLightboxOpen) {
       return;
     }
     const root = document.documentElement;
     const body = document.body;
-    const scrollY = window.scrollY;
     const prevRootOverflow = root.style.overflow;
     const prevBodyOverflow = body.style.overflow;
+    const prevRootOverscrollBehavior = root.style.overscrollBehavior;
     const prevBodyOverscrollBehavior = body.style.overscrollBehavior;
-    const prevBodyPosition = body.style.position;
-    const prevBodyTop = body.style.top;
-    const prevBodyWidth = body.style.width;
+    const allowScrollSelector = "[data-overlay-scroll='allow']";
+
+    let lastTouchY: number | null = null;
+
+    const getAllowedContainer = (target: EventTarget | null): HTMLElement | null => {
+      if (!(target instanceof Element)) {
+        return null;
+      }
+      const container = target.closest(allowScrollSelector);
+      return container instanceof HTMLElement ? container : null;
+    };
+
+    const canScrollContainer = (container: HTMLElement, deltaY: number): boolean => {
+      const maxScrollTop = container.scrollHeight - container.clientHeight;
+      if (maxScrollTop <= 0) {
+        return false;
+      }
+      const atTop = container.scrollTop <= 0;
+      const atBottom = container.scrollTop >= maxScrollTop - 1;
+      if (deltaY < 0 && atTop) {
+        return false;
+      }
+      if (deltaY > 0 && atBottom) {
+        return false;
+      }
+      return true;
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (!event.touches.length) {
+        lastTouchY = null;
+        return;
+      }
+      lastTouchY = event.touches[0].clientY;
+    };
+    const onTouchEnd = () => {
+      lastTouchY = null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const container = getAllowedContainer(event.target);
+      if (!container) {
+        event.preventDefault();
+        return;
+      }
+      const currentY = event.touches[0]?.clientY ?? lastTouchY ?? 0;
+      const deltaY = currentY - (lastTouchY ?? currentY);
+      lastTouchY = currentY;
+      // In touch coordinates: finger up => deltaY < 0 (content intends to scroll down)
+      const intendedScrollDelta = -deltaY;
+      if (!canScrollContainer(container, intendedScrollDelta)) {
+        event.preventDefault();
+      }
+    };
+    const onWheel = (event: WheelEvent) => {
+      const container = getAllowedContainer(event.target);
+      if (!container) {
+        event.preventDefault();
+        return;
+      }
+      if (!canScrollContainer(container, event.deltaY)) {
+        event.preventDefault();
+      }
+    };
 
     root.style.overflow = "hidden";
     body.style.overflow = "hidden";
+    root.style.overscrollBehavior = "none";
     body.style.overscrollBehavior = "contain";
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
+    document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true, capture: true });
+    document.addEventListener("touchcancel", onTouchEnd, { passive: true, capture: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+    document.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
     return () => {
+      document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchend", onTouchEnd, true);
+      document.removeEventListener("touchcancel", onTouchEnd, true);
+      document.removeEventListener("touchmove", onTouchMove, true);
+      document.removeEventListener("wheel", onWheel, true);
       root.style.overflow = prevRootOverflow;
       body.style.overflow = prevBodyOverflow;
+      root.style.overscrollBehavior = prevRootOverscrollBehavior;
       body.style.overscrollBehavior = prevBodyOverscrollBehavior;
-      body.style.position = prevBodyPosition;
-      body.style.top = prevBodyTop;
-      body.style.width = prevBodyWidth;
-      window.scrollTo(0, scrollY);
     };
   }, [isLightboxOpen]);
 
@@ -223,18 +288,18 @@ export function WorkDetailOverlay(props: Props) {
     if (task.asset_type === "image") {
       if (task.status === "queued") {
         if (task.queue_position != null) {
-          return t("jobs.imageQueuedWithPosition", { position: task.queue_position });
+          return t("jobs.imageStatusQueuedWithPosition", { position: task.queue_position });
         }
-        return t("jobs.imageQueued");
+        return t("jobs.imageStatusQueued");
       }
       if (task.status === "running") {
-        return t("jobs.imageRunning");
+        return t("jobs.imageStatusRunning");
       }
       if (task.status === "succeeded") {
-        return t("jobs.imageSucceeded");
+        return t("jobs.imageStatusSucceeded");
       }
       if (task.status === "failed") {
-        return t("jobs.imageFailed");
+        return t("status.failed");
       }
       return task.status;
     }
@@ -262,7 +327,7 @@ export function WorkDetailOverlay(props: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#241F1A]/40 p-1.5 backdrop-blur-[2px] sm:p-3"
+      className="fixed inset-0 z-50 h-dvh bg-[#241F1A]/40 p-1.5 backdrop-blur-[2px] sm:p-3"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
@@ -345,7 +410,10 @@ export function WorkDetailOverlay(props: Props) {
 
         {!isInfoHidden ? (
           <aside className="absolute inset-x-2 bottom-2 top-[62px] z-30 overflow-hidden rounded-xl border border-[#E0D9CD] bg-[#FAF8F3]/95 p-3 shadow-[0_16px_40px_rgba(36,31,26,0.2)] backdrop-blur-[1.5px] sm:static sm:inset-auto sm:w-[360px] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:bg-[#FAF8F3] sm:p-3 sm:shadow-none sm:backdrop-blur-none">
-            <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1 sm:pr-0">
+            <div
+              className="flex h-full flex-col gap-3 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
+              data-overlay-scroll="allow"
+            >
               <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -354,7 +422,7 @@ export function WorkDetailOverlay(props: Props) {
                       {currentLightboxTask.task_id}
                     </p>
                   </div>
-                  <span className="rounded-full bg-[#EEE8DB] px-2 py-1 text-[10px] font-semibold text-[#6B6257]">
+                  <span className="rounded-full bg-[#EEE8DB] px-2 py-1 text-[10px] font-semibold text-[#6B6257] whitespace-nowrap">
                     {formatLocalizedStatus(currentLightboxTask)}
                   </span>
                 </div>
