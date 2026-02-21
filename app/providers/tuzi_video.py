@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.config import ProviderConfig
-from app.providers.base import Provider, ProviderError
+from app.providers.base import (
+    Provider,
+    ProviderError,
+    extract_resume_checkpoint,
+    report_provider_progress,
+)
 from app.schemas import VideoGenerationRequest
 
 try:
@@ -95,41 +100,69 @@ class _TuziAsyncVideoProvider:
             upload_profile="normal",
         )
 
-        submit_json = await self._submit(
-            endpoint=submit_request.endpoint,
-            headers=headers,
-            files=submit_request.files,
-            json_body=submit_request.json_body,
-            timeout_sec=submit_request.timeout_sec,
-        )
-
-        task_id = _extract_task_id(submit_json)
-        if not task_id:
-            raise ProviderError(
-                code="missing_provider_job_id",
-                message="Tuzi submit response missing task id",
-                raw_error=submit_json,
+        resume_task_id, resume_query_endpoint = extract_resume_checkpoint(request)
+        if resume_task_id and resume_query_endpoint:
+            task_id = resume_task_id
+            submit_json: dict[str, Any] | None = None
+            raw_response = {
+                "operation": operation,
+                "resume": True,
+            }
+            query_url = resume_query_endpoint
+            report_provider_progress(
+                request,
+                provider_job_id=task_id,
+                provider_query_endpoint=query_url,
+                provider_status="resuming",
+            )
+        else:
+            submit_json = await self._submit(
+                endpoint=submit_request.endpoint,
+                headers=headers,
+                files=submit_request.files,
+                json_body=submit_request.json_body,
+                timeout_sec=submit_request.timeout_sec,
             )
 
-        raw_response: dict[str, Any] = {
-            "operation": operation,
-            "submit": submit_json,
-            "submit_endpoint": submit_request.endpoint,
-        }
-        if submit_request.image_processing:
-            raw_response["image_processing"] = submit_request.image_processing
-            raw_response["image_processing_profile"] = submit_request.upload_profile
+            task_id = _extract_task_id(submit_json)
+            if not task_id:
+                raise ProviderError(
+                    code="missing_provider_job_id",
+                    message="Tuzi submit response missing task id",
+                    raw_error=submit_json,
+                )
 
-        if not submit_request.should_poll:
-            return {
-                "mode": self.mode_name,
+            raw_response = {
                 "operation": operation,
-                "provider_job_id": task_id,
-                "video_url": _find_video_url(submit_json),
-                "raw_response": raw_response,
+                "submit": submit_json,
+                "submit_endpoint": submit_request.endpoint,
             }
+            if submit_request.image_processing:
+                raw_response["image_processing"] = submit_request.image_processing
+                raw_response["image_processing_profile"] = submit_request.upload_profile
 
-        query_url = _render_task_url(base_url=base_url, path_template=query_path, task_id=task_id)
+            if not submit_request.should_poll:
+                report_provider_progress(
+                    request,
+                    provider_job_id=task_id,
+                    provider_status="submitted",
+                )
+                return {
+                    "mode": self.mode_name,
+                    "operation": operation,
+                    "provider_job_id": task_id,
+                    "video_url": _find_video_url(submit_json),
+                    "raw_response": raw_response,
+                }
+
+            query_url = _render_task_url(base_url=base_url, path_template=query_path, task_id=task_id)
+            report_provider_progress(
+                request,
+                provider_job_id=task_id,
+                provider_query_endpoint=query_url,
+                provider_status="submitted",
+            )
+
         poll_timeout_sec = _coerce_positive_float(
             request.provider_options.get("timeout_sec"),
             fallback=_coerce_positive_float(
@@ -154,9 +187,13 @@ class _TuziAsyncVideoProvider:
                 headers=headers,
                 timeout_sec=poll_timeout_sec,
                 poll_interval_sec=poll_interval_sec,
+                request=request,
+                provider_job_id=task_id,
             )
         except ProviderError as error:
-            if _should_retry_upload_failure(error=error, submit_request=submit_request):
+            if (not (resume_task_id and resume_query_endpoint)) and _should_retry_upload_failure(
+                error=error, submit_request=submit_request
+            ):
                 retry_submit_request = _build_submit_request(
                     operation=operation,
                     submit_url=submit_url,
@@ -201,6 +238,8 @@ class _TuziAsyncVideoProvider:
                     headers=headers,
                     timeout_sec=poll_timeout_sec,
                     poll_interval_sec=poll_interval_sec,
+                    request=request,
+                    provider_job_id=task_id,
                 )
             else:
                 raise
@@ -284,6 +323,8 @@ class _TuziAsyncVideoProvider:
         headers: dict[str, str],
         timeout_sec: float,
         poll_interval_sec: float,
+        request: VideoGenerationRequest,
+        provider_job_id: str,
     ) -> dict[str, Any]:
         deadline = asyncio.get_event_loop().time() + timeout_sec
         while asyncio.get_event_loop().time() < deadline:
@@ -315,6 +356,12 @@ class _TuziAsyncVideoProvider:
                 )
 
             status = _extract_status(payload)
+            report_provider_progress(
+                request,
+                provider_job_id=provider_job_id,
+                provider_query_endpoint=endpoint,
+                provider_status=status or "polling",
+            )
             if _is_failure_payload(payload=payload, status=status):
                 raise ProviderError(
                     code="provider_job_failed",
@@ -323,6 +370,12 @@ class _TuziAsyncVideoProvider:
                 )
 
             if _is_success_status(status) or _find_video_url(payload):
+                report_provider_progress(
+                    request,
+                    provider_job_id=provider_job_id,
+                    provider_query_endpoint=endpoint,
+                    provider_status="succeeded",
+                )
                 return payload
 
             await asyncio.sleep(poll_interval_sec)

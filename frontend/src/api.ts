@@ -130,6 +130,20 @@ export function deleteVideoTask(
   );
 }
 
+export function cancelVideoTask(
+  taskId: string,
+  token: string,
+  assetType: AssetType = "video",
+): Promise<VideoTaskDetail> {
+  return request<VideoTaskDetail>(
+    cancelPath(taskId, assetType),
+    {
+      method: "POST",
+    },
+    token,
+  );
+}
+
 export function fetchPricing(token: string): Promise<PricingCatalogResponse> {
   return request<PricingCatalogResponse>("/v1/pricing", {}, token);
 }
@@ -209,6 +223,11 @@ function retryPath(taskId: string, assetType: AssetType): string {
 function deletePath(taskId: string, assetType: AssetType): string {
   const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
   return `${root}/${encodeURIComponent(taskId)}`;
+}
+
+function cancelPath(taskId: string, assetType: AssetType): string {
+  const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
+  return `${root}/${encodeURIComponent(taskId)}/cancel`;
 }
 
 function parseFilenameFromContentDisposition(value: string | null): string | null {

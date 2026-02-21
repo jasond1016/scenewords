@@ -5,7 +5,12 @@ import os
 from typing import Any
 
 from app.config import ProviderConfig
-from app.providers.base import Provider, ProviderError
+from app.providers.base import (
+    Provider,
+    ProviderError,
+    extract_resume_checkpoint,
+    report_provider_progress,
+)
 from app.schemas import VideoGenerationRequest
 
 
@@ -69,43 +74,62 @@ class GeminiVeoCompatibleProvider(Provider):
             fallback=120.0,
             field_name="submit_timeout_sec",
         )
-        try:
-            submit_response = await self.http_client.post(
-                submit_endpoint,
-                headers=headers,
-                json=payload,
-                timeout=submit_timeout_sec,
+        resume_job_id, resume_query_endpoint = extract_resume_checkpoint(request)
+        if resume_job_id and resume_query_endpoint:
+            operation_name = resume_job_id
+            submit_json: dict[str, Any] | None = None
+            operation_endpoint = resume_query_endpoint
+            report_provider_progress(
+                request,
+                provider_job_id=operation_name,
+                provider_query_endpoint=operation_endpoint,
+                provider_status="resuming",
             )
-            submit_json = _safe_json(submit_response)
-        except Exception as error:
-            raise ProviderError(
-                code="provider_request_failed",
-                message="Failed to submit request to Gemini-compatible provider",
-                raw_error=str(error),
-            ) from error
+        else:
+            try:
+                submit_response = await self.http_client.post(
+                    submit_endpoint,
+                    headers=headers,
+                    json=payload,
+                    timeout=submit_timeout_sec,
+                )
+                submit_json = _safe_json(submit_response)
+            except Exception as error:
+                raise ProviderError(
+                    code="provider_request_failed",
+                    message="Failed to submit request to Gemini-compatible provider",
+                    raw_error=str(error),
+                ) from error
 
-        if submit_response.status_code >= 400:
-            raise ProviderError(
-                code="provider_http_error",
-                message=f"Provider returned HTTP {submit_response.status_code} on submit",
-                raw_error=submit_json,
-            )
+            if submit_response.status_code >= 400:
+                raise ProviderError(
+                    code="provider_http_error",
+                    message=f"Provider returned HTTP {submit_response.status_code} on submit",
+                    raw_error=submit_json,
+                )
 
-        operation_name = _extract_operation_name(submit_json)
-        immediate_video_url = _find_video_url(submit_json)
-        if not operation_name and immediate_video_url:
-            return {
-                "mode": "gemini_veo_compatible",
-                "provider_job_id": submit_json.get("id"),
-                "video_url": immediate_video_url,
-                "raw_response": submit_json,
-            }
-        if not operation_name:
-            raise ProviderError(
-                code="missing_operation_name",
-                message="Provider did not return operation name",
-                raw_error=submit_json,
-            )
+            operation_name = _extract_operation_name(submit_json)
+            immediate_video_url = _find_video_url(submit_json)
+            if not operation_name and immediate_video_url:
+                provider_job_id = submit_json.get("id")
+                if isinstance(provider_job_id, str) and provider_job_id.strip():
+                    report_provider_progress(
+                        request,
+                        provider_job_id=provider_job_id,
+                        provider_status="succeeded",
+                    )
+                return {
+                    "mode": "gemini_veo_compatible",
+                    "provider_job_id": provider_job_id,
+                    "video_url": immediate_video_url,
+                    "raw_response": submit_json,
+                }
+            if not operation_name:
+                raise ProviderError(
+                    code="missing_operation_name",
+                    message="Provider did not return operation name",
+                    raw_error=submit_json,
+                )
 
         poll_timeout_sec = _coerce_positive_float(
             request.provider_options.get("timeout_sec"),
@@ -136,16 +160,25 @@ class GeminiVeoCompatibleProvider(Provider):
             override=request.provider_options.get("operation_path"),
             allow_override=self.app_config.allow_endpoint_override,
         )
-        operation_endpoint = _build_operation_endpoint(
-            operation_name=operation_name,
-            operation_base_url=operation_base_url,
-            operation_path_template=operation_path_template,
-        )
+        if not (resume_job_id and resume_query_endpoint):
+            operation_endpoint = _build_operation_endpoint(
+                operation_name=operation_name,
+                operation_base_url=operation_base_url,
+                operation_path_template=operation_path_template,
+            )
+            report_provider_progress(
+                request,
+                provider_job_id=operation_name,
+                provider_query_endpoint=operation_endpoint,
+                provider_status="submitted",
+            )
         operation_json = await self._poll_operation(
             operation_endpoint=operation_endpoint,
             headers=headers,
             timeout_sec=poll_timeout_sec,
             poll_interval_sec=poll_interval_sec,
+            request=request,
+            provider_job_id=operation_name,
         )
 
         error_payload = operation_json.get("error")
@@ -164,6 +197,7 @@ class GeminiVeoCompatibleProvider(Provider):
                 "submit": submit_json,
                 "operation": operation_json,
                 "operation_endpoint": operation_endpoint,
+                "resume": bool(resume_job_id and resume_query_endpoint),
             },
         }
 
@@ -173,6 +207,8 @@ class GeminiVeoCompatibleProvider(Provider):
         headers: dict[str, str],
         timeout_sec: float,
         poll_interval_sec: float,
+        request: VideoGenerationRequest,
+        provider_job_id: str,
     ) -> dict[str, Any]:
         deadline = asyncio.get_event_loop().time() + timeout_sec
         while asyncio.get_event_loop().time() < deadline:
@@ -204,6 +240,12 @@ class GeminiVeoCompatibleProvider(Provider):
                     raw_error=operation_json.get("error"),
                 )
 
+            report_provider_progress(
+                request,
+                provider_job_id=provider_job_id,
+                provider_query_endpoint=operation_endpoint,
+                provider_status="done" if bool(operation_json.get("done")) else "running",
+            )
             if bool(operation_json.get("done")):
                 return operation_json
             await asyncio.sleep(poll_interval_sec)

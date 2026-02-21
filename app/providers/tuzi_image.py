@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from app.config import ProviderConfig
-from app.providers.base import Provider, ProviderError
+from app.providers.base import (
+    Provider,
+    ProviderError,
+    extract_resume_checkpoint,
+    report_provider_progress,
+)
 from app.schemas import VideoGenerationRequest
 
 
@@ -173,26 +178,44 @@ async def _generate_async(
         fallback=120.0,
         field_name="submit_timeout_sec",
     )
-    submit_payload = await _post_multipart(
-        provider=provider,
-        endpoint=submit_endpoint,
-        headers=headers,
-        form_parts=_build_async_form(request=request),
-        timeout_sec=submit_timeout_sec,
-    )
-    task_id = _extract_task_id(submit_payload)
-    if not task_id:
-        raise ProviderError(
-            code="missing_provider_job_id",
-            message="Tuzi async submit response missing task id",
-            raw_error=submit_payload,
+    resume_task_id, resume_query_endpoint = extract_resume_checkpoint(request)
+    if resume_task_id and resume_query_endpoint:
+        task_id = resume_task_id
+        query_endpoint = resume_query_endpoint
+        submit_payload: dict[str, Any] | None = None
+        report_provider_progress(
+            request,
+            provider_job_id=task_id,
+            provider_query_endpoint=query_endpoint,
+            provider_status="resuming",
         )
+    else:
+        submit_payload = await _post_multipart(
+            provider=provider,
+            endpoint=submit_endpoint,
+            headers=headers,
+            form_parts=_build_async_form(request=request),
+            timeout_sec=submit_timeout_sec,
+        )
+        task_id = _extract_task_id(submit_payload)
+        if not task_id:
+            raise ProviderError(
+                code="missing_provider_job_id",
+                message="Tuzi async submit response missing task id",
+                raw_error=submit_payload,
+            )
 
-    query_endpoint = _render_task_url(
-        base_url=base_url,
-        path_template=query_path,
-        task_id=task_id,
-    )
+        query_endpoint = _render_task_url(
+            base_url=base_url,
+            path_template=query_path,
+            task_id=task_id,
+        )
+        report_provider_progress(
+            request,
+            provider_job_id=task_id,
+            provider_query_endpoint=query_endpoint,
+            provider_status="submitted",
+        )
     timeout_sec = _coerce_positive_float(
         request.provider_options.get("timeout_sec"),
         fallback=_coerce_positive_float(
@@ -217,6 +240,8 @@ async def _generate_async(
         headers=headers,
         timeout_sec=timeout_sec,
         poll_interval_sec=poll_interval_sec,
+        request=request,
+        provider_job_id=task_id,
     )
     images = _extract_images(query_payload)
     if not images:
@@ -230,10 +255,11 @@ async def _generate_async(
         provider_job_id=task_id,
         images=images,
         raw_response={
-            "submit_endpoint": submit_endpoint,
+            "submit_endpoint": None if submit_payload is None else submit_endpoint,
             "submit": submit_payload,
             "query_endpoint": query_endpoint,
             "query": query_payload,
+            "resume": bool(resume_task_id and resume_query_endpoint),
         },
     )
 
@@ -451,6 +477,8 @@ async def _poll_async_result(
     headers: dict[str, str],
     timeout_sec: float,
     poll_interval_sec: float,
+    request: VideoGenerationRequest,
+    provider_job_id: str,
 ) -> dict[str, Any]:
     deadline = asyncio.get_event_loop().time() + timeout_sec
     while asyncio.get_event_loop().time() < deadline:
@@ -482,6 +510,12 @@ async def _poll_async_result(
             )
 
         status = _extract_status(payload)
+        report_provider_progress(
+            request,
+            provider_job_id=provider_job_id,
+            provider_query_endpoint=endpoint,
+            provider_status=status or "polling",
+        )
         if status in {"failed", "error", "canceled", "cancelled", "timeout", "expired"}:
             raise ProviderError(
                 code="provider_job_failed",
@@ -489,6 +523,12 @@ async def _poll_async_result(
                 raw_error=payload,
             )
         if _extract_images(payload) or status in {"completed", "succeeded", "success", "done"}:
+            report_provider_progress(
+                request,
+                provider_job_id=provider_job_id,
+                provider_query_endpoint=endpoint,
+                provider_status="succeeded",
+            )
             return payload
         await asyncio.sleep(poll_interval_sec)
 

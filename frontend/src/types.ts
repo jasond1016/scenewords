@@ -88,6 +88,9 @@ export interface VideoTaskResponse {
 
 export interface VideoTaskDetail extends VideoTaskResponse {
   operation: string | null;
+  provider_job_id?: string | null;
+  provider_status?: string | null;
+  provider_query_endpoint?: string | null;
   prompt: string;
   negative_prompt: string | null;
   duration_sec: number | null;

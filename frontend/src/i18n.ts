@@ -147,6 +147,8 @@ const ZH_CN: Record<string, string> = {
   "jobs.deleteConfirm": "确认删除任务 {taskId}？此操作不可撤销。",
   "jobs.deleteSuccess": "已删除任务：{taskId}",
   "jobs.provider": "Provider",
+  "jobs.upstreamJob": "上游任务",
+  "jobs.upstreamStatus": "上游状态",
   "jobs.model": "模型",
   "jobs.resolution": "分辨率",
   "jobs.created": "创建时间",
@@ -252,6 +254,7 @@ const ZH_CN: Record<string, string> = {
   "error.internal_error": "网关内部错误",
   "error.upstream_error": "上游服务异常",
   "error.bad_request": "请求参数不合法",
+  "error.worker_interrupted": "网关重启导致任务中断，请重试",
 };
 
 const EN: Record<string, string> = {
@@ -400,6 +403,8 @@ const EN: Record<string, string> = {
   "jobs.deleteConfirm": "Delete task {taskId}? This action cannot be undone.",
   "jobs.deleteSuccess": "Task deleted: {taskId}",
   "jobs.provider": "Provider",
+  "jobs.upstreamJob": "Upstream Job",
+  "jobs.upstreamStatus": "Upstream Status",
   "jobs.model": "Model",
   "jobs.resolution": "Resolution",
   "jobs.created": "Created",
@@ -505,6 +510,7 @@ const EN: Record<string, string> = {
   "error.internal_error": "Gateway internal error",
   "error.upstream_error": "Upstream service error",
   "error.bad_request": "Invalid request parameters",
+  "error.worker_interrupted": "Task interrupted by gateway restart. Please retry.",
 };
 
 const MESSAGES: Record<SupportedLocale, Record<string, string>> = {

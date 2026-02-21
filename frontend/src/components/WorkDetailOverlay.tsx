@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { deleteVideoTask, retryVideoTask } from "../api";
+import { cancelVideoTask, deleteVideoTask, retryVideoTask } from "../api";
 import { useI18n, type TranslateFn } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
@@ -238,8 +238,12 @@ export function WorkDetailOverlay(props: Props) {
       taskId: string;
       assetType: AssetType;
       action: "cancel" | "delete";
-    }) =>
-      deleteVideoTask(payload.taskId, settings.gatewayToken, payload.assetType),
+    }) => {
+      if (payload.action === "cancel") {
+        return cancelVideoTask(payload.taskId, settings.gatewayToken, payload.assetType);
+      }
+      return deleteVideoTask(payload.taskId, settings.gatewayToken, payload.assetType);
+    },
     onSuccess: async (_data, payload) => {
       onHint?.(
         payload.action === "cancel"
@@ -421,6 +425,16 @@ export function WorkDetailOverlay(props: Props) {
                     <p className="m-0 mt-1 truncate font-mono text-[11px] text-[#7C7266]">
                       {currentLightboxTask.task_id}
                     </p>
+                    {currentLightboxTask.provider_job_id ? (
+                      <p className="m-0 mt-1 truncate text-[10px] text-[#8A7E71]">
+                        {t("jobs.upstreamJob")}: {currentLightboxTask.provider_job_id}
+                      </p>
+                    ) : null}
+                    {currentLightboxTask.provider_status ? (
+                      <p className="m-0 mt-0.5 truncate text-[10px] text-[#8A7E71]">
+                        {t("jobs.upstreamStatus")}: {currentLightboxTask.provider_status}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="rounded-full bg-[#EEE8DB] px-2 py-1 text-[10px] font-semibold text-[#6B6257] whitespace-nowrap">
                     {formatLocalizedStatus(currentLightboxTask)}
@@ -486,6 +500,28 @@ export function WorkDetailOverlay(props: Props) {
                     >
                       {t("jobs.download")}
                     </a>
+                  ) : null}
+                  {currentLightboxTask.status === "queued" || currentLightboxTask.status === "running" ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[#E4C9BD] bg-[#FFF8F5] px-3 py-2 text-xs font-semibold text-[#A64633] transition-colors hover:bg-[#FDEDE6]"
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          t("jobs.cancelConfirm", { taskId: currentLightboxTask.task_id.slice(0, 8) }),
+                        );
+                        if (!confirmed) {
+                          return;
+                        }
+                        deleteMutation.mutate({
+                          taskId: currentLightboxTask.task_id,
+                          assetType: currentLightboxTask.asset_type,
+                          action: "cancel",
+                        });
+                      }}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {t("jobs.cancelInProgress")}
+                    </button>
                   ) : null}
                   {currentLightboxTask.status !== "queued" && currentLightboxTask.status !== "running" ? (
                     settings.showBothRetryActions ? (

@@ -115,6 +115,29 @@ class TaskWorker:
             return
         self.store.set_status(task_id=task_id, status="running")
         request = VideoGenerationRequest.model_validate(task["request"])
+        resume_provider_job_id = task.get("provider_job_id")
+        resume_provider_query_endpoint = task.get("provider_query_endpoint")
+
+        def _report_provider_progress(payload: dict[str, Any]) -> None:
+            if not isinstance(payload, dict):
+                return
+            self.store.set_provider_progress(
+                task_id=task_id,
+                provider_job_id=_as_optional_text(payload.get("provider_job_id")),
+                provider_status=_as_optional_text(payload.get("provider_status")),
+                provider_query_endpoint=_as_optional_text(payload.get("provider_query_endpoint")),
+            )
+
+        request.provider_options["__provider_progress_reporter"] = _report_provider_progress
+        if isinstance(resume_provider_job_id, str) and resume_provider_job_id.strip():
+            request.provider_options["__resume_provider_job_id"] = resume_provider_job_id.strip()
+        if (
+            isinstance(resume_provider_query_endpoint, str)
+            and resume_provider_query_endpoint.strip()
+        ):
+            request.provider_options["__resume_provider_query_endpoint"] = (
+                resume_provider_query_endpoint.strip()
+            )
         try:
             result = await provider.generate(provider_config=provider_config, request=request)
             result = await _archive_result_assets(
@@ -178,6 +201,12 @@ def _extract_actual_cost(result: dict[str, object]) -> float | None:
         nested = billing.get("amount")
         if isinstance(nested, (int, float)):
             return float(nested)
+    return None
+
+
+def _as_optional_text(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 

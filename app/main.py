@@ -110,6 +110,7 @@ def create_app() -> FastAPI:
         app.state.store = store
         app.state.http_client = http_client
         app.state.worker = worker
+        await _recover_unfinished_tasks_after_restart(app)
         try:
             yield
         finally:
@@ -377,6 +378,23 @@ def create_app() -> FastAPI:
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
         return await _enqueue_video_task(source_request)
 
+    @app.post("/v1/video/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
+    async def cancel_video_task(
+        task_id: str, _: None = Depends(require_auth)
+    ) -> VideoTaskDetail:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "video":
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        if task["status"] in {"queued", "running"}:
+            app.state.worker.cancel(task_id)
+            app.state.store.set_canceled(task_id)
+            task = app.state.store.get_task(task_id)
+        return _to_task_detail(task, queue_map=_build_queue_position_map(asset_type="video"))
+
     @app.delete(
         "/v1/video/tasks/{task_id}",
         status_code=status.HTTP_204_NO_CONTENT,
@@ -508,6 +526,23 @@ def create_app() -> FastAPI:
         if retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
         return await _enqueue_image_task(source_request)
+
+    @app.post("/v1/image/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
+    async def cancel_image_task(
+        task_id: str, _: None = Depends(require_auth)
+    ) -> VideoTaskDetail:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type", "video") != "image":
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        if task["status"] in {"queued", "running"}:
+            app.state.worker.cancel(task_id)
+            app.state.store.set_canceled(task_id)
+            task = app.state.store.get_task(task_id)
+        return _to_task_detail(task, queue_map=_build_queue_position_map(asset_type="image"))
 
     @app.delete(
         "/v1/image/tasks/{task_id}",
@@ -888,6 +923,57 @@ def _delete_archived_assets(output_dir: Path, task_id: str) -> None:
         return
 
 
+async def _recover_unfinished_tasks_after_restart(app: FastAPI) -> None:
+    store: TaskStore = app.state.store
+    worker: TaskWorker = app.state.worker
+    active_tasks = store.list_active_tasks()
+    if not active_tasks:
+        return
+
+    requeued_count = 0
+    resumed_count = 0
+    interrupted_count = 0
+    for task in active_tasks:
+        task_id = task["task_id"]
+        status = task.get("status")
+        if status == "queued":
+            await worker.submit(task_id)
+            requeued_count += 1
+            continue
+        if status == "running":
+            provider_job_id = task.get("provider_job_id")
+            provider_query_endpoint = task.get("provider_query_endpoint")
+            if (
+                isinstance(provider_job_id, str)
+                and provider_job_id.strip()
+                and isinstance(provider_query_endpoint, str)
+                and provider_query_endpoint.strip()
+            ):
+                store.set_status(task_id, "queued")
+                store.set_provider_progress(
+                    task_id,
+                    provider_status="resuming",
+                )
+                await worker.submit(task_id)
+                resumed_count += 1
+                continue
+            store.set_error(
+                task_id=task_id,
+                code="worker_interrupted",
+                message="Gateway restarted while task was running. Retry the task to continue.",
+                raw_error={"reason": "gateway_restart"},
+            )
+            interrupted_count += 1
+
+    if requeued_count or resumed_count or interrupted_count:
+        LOGGER.warning(
+            "Recovered unfinished tasks after restart: requeued=%s resumed=%s interrupted=%s",
+            requeued_count,
+            resumed_count,
+            interrupted_count,
+        )
+
+
 def _to_task_response(
     task: dict[str, Any],
     *,
@@ -934,6 +1020,9 @@ def _to_task_detail(
         provider=task["provider"],
         model=task["model"],
         operation=task.get("operation") or request_payload.get("operation"),
+        provider_job_id=task.get("provider_job_id"),
+        provider_status=task.get("provider_status"),
+        provider_query_endpoint=task.get("provider_query_endpoint"),
         prompt=task["prompt"],
         negative_prompt=request_payload.get("negative_prompt"),
         duration_sec=request_payload.get("duration_sec"),
@@ -957,7 +1046,7 @@ def _strip_internal_provider_options(options: dict[str, Any]) -> dict[str, Any]:
     safe_options: dict[str, Any] = {}
     for key, value in options.items():
         normalized = key.strip().lower()
-        if key.startswith("__resolved_"):
+        if key.startswith("__"):
             continue
         if "api_key" in normalized or "token" in normalized or "secret" in normalized:
             continue

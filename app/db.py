@@ -27,6 +27,9 @@ class TaskStore:
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     operation TEXT,
+                    provider_job_id TEXT,
+                    provider_status TEXT,
+                    provider_query_endpoint TEXT,
                     prompt TEXT NOT NULL,
                     request_json TEXT NOT NULL,
                     result_json TEXT,
@@ -106,6 +109,47 @@ class TaskStore:
             )
             self._connection.commit()
 
+    def set_provider_progress(
+        self,
+        task_id: str,
+        *,
+        provider_job_id: str | None = None,
+        provider_status: str | None = None,
+        provider_query_endpoint: str | None = None,
+    ) -> None:
+        updates: list[str] = []
+        params: list[Any] = []
+        if isinstance(provider_job_id, str) and provider_job_id.strip():
+            updates.append("provider_job_id = ?")
+            params.append(provider_job_id.strip())
+        if isinstance(provider_status, str) and provider_status.strip():
+            updates.append("provider_status = ?")
+            params.append(provider_status.strip())
+        if isinstance(provider_query_endpoint, str) and provider_query_endpoint.strip():
+            updates.append("provider_query_endpoint = ?")
+            params.append(provider_query_endpoint.strip())
+        if not updates:
+            return
+        updates.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(task_id)
+        sql = f"UPDATE tasks SET {', '.join(updates)} WHERE task_id = ?"
+        with self._lock:
+            self._connection.execute(sql, tuple(params))
+            self._connection.commit()
+
+    def set_canceled(self, task_id: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                """
+                UPDATE tasks
+                SET status = ?, provider_status = ?, error_json = NULL, updated_at = ?
+                WHERE task_id = ?
+                """,
+                ("canceled", "canceled", _now_iso(), task_id),
+            )
+            self._connection.commit()
+
     def set_result(
         self,
         task_id: str,
@@ -118,7 +162,7 @@ class TaskStore:
                 """
                 UPDATE tasks
                 SET status = ?, result_json = ?, error_json = NULL, actual_cost = ?,
-                    cost_source = COALESCE(?, cost_source), updated_at = ?
+                    cost_source = COALESCE(?, cost_source), provider_status = ?, updated_at = ?
                 WHERE task_id = ?
                 """,
                 (
@@ -126,6 +170,7 @@ class TaskStore:
                     json.dumps(result, ensure_ascii=False),
                     actual_cost,
                     cost_source,
+                    "succeeded",
                     _now_iso(),
                     task_id,
                 ),
@@ -138,10 +183,16 @@ class TaskStore:
             self._connection.execute(
                 """
                 UPDATE tasks
-                SET status = ?, error_json = ?, updated_at = ?
+                SET status = ?, provider_status = ?, error_json = ?, updated_at = ?
                 WHERE task_id = ?
                 """,
-                ("failed", json.dumps(error_payload, ensure_ascii=False), _now_iso(), task_id),
+                (
+                    "failed",
+                    "failed",
+                    json.dumps(error_payload, ensure_ascii=False),
+                    _now_iso(),
+                    task_id,
+                ),
             )
             self._connection.commit()
 
@@ -276,6 +327,11 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "provider": row["provider"],
         "model": row["model"],
         "operation": row["operation"] if "operation" in row.keys() else None,
+        "provider_job_id": row["provider_job_id"] if "provider_job_id" in row.keys() else None,
+        "provider_status": row["provider_status"] if "provider_status" in row.keys() else None,
+        "provider_query_endpoint": (
+            row["provider_query_endpoint"] if "provider_query_endpoint" in row.keys() else None
+        ),
         "prompt": row["prompt"],
         "request": request_payload,
         "result": result_payload,
@@ -327,6 +383,9 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
     expected_columns: dict[str, str] = {
         "asset_type": "TEXT",
         "operation": "TEXT",
+        "provider_job_id": "TEXT",
+        "provider_status": "TEXT",
+        "provider_query_endpoint": "TEXT",
         "estimated_cost": "REAL",
         "actual_cost": "REAL",
         "currency": "TEXT",

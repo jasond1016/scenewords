@@ -32,6 +32,9 @@ class VideoTaskResponse(BaseModel):
 
 class VideoTaskDetail(VideoTaskResponse):
     operation: str | None = None
+    provider_job_id: str | None = None
+    provider_status: str | None = None
+    provider_query_endpoint: str | None = None
     prompt: str
     negative_prompt: str | None = None
     duration_sec: int | None = None

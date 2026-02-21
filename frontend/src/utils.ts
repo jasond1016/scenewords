@@ -338,6 +338,7 @@ function mapErrorCode(code: string): string | null {
     internal_error: "Gateway internal error",
     upstream_error: "Upstream service error",
     bad_request: "Invalid request parameters",
+    worker_interrupted: "Task interrupted by gateway restart. Please retry.",
   };
   return mappings[code] ?? null;
 }
