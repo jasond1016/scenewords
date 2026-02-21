@@ -26,7 +26,8 @@ export interface CreateDraft {
 
 export interface AppSettingsState {
   gatewayToken: string;
-  defaultProvider: string;
+  defaultImageProvider: string;
+  defaultVideoProvider: string;
   defaultRatio: "16:9" | "9:16";
   defaultDurationSec: number;
   defaultQuality: string;
@@ -55,7 +56,8 @@ export interface AppSettingsState {
 
 const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> = {
   gatewayToken: "",
-  defaultProvider: "",
+  defaultImageProvider: "",
+  defaultVideoProvider: "",
   defaultRatio: "16:9",
   defaultDurationSec: 8,
   defaultQuality: "standard",
@@ -95,7 +97,8 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       name: "scenewords_gateway_settings_v1",
       partialize: (state) => ({
         gatewayToken: state.gatewayToken,
-        defaultProvider: state.defaultProvider,
+        defaultImageProvider: state.defaultImageProvider,
+        defaultVideoProvider: state.defaultVideoProvider,
         defaultRatio: state.defaultRatio,
         defaultDurationSec: state.defaultDurationSec,
         defaultQuality: state.defaultQuality,

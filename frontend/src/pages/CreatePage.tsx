@@ -14,7 +14,11 @@ import {
   uploadFile,
 } from "../api";
 import { useI18n } from "../i18n";
-import { useAppSettingsStore, type AppSettingsState } from "../state";
+import {
+  useAppSettingsStore,
+  type AppSettingsState,
+  type ProviderGenerationDefaults,
+} from "../state";
 import type {
   ProviderCatalogResponse,
   ProviderInfo,
@@ -403,8 +407,12 @@ export function CreatePage(props: Props) {
     if (!providers.length || providerId) {
       return;
     }
+    const preferredProviderId =
+      currentGenerationKind === "image"
+        ? settings.defaultImageProvider
+        : settings.defaultVideoProvider;
     const defaultProvider =
-      providers.find((provider) => provider.id === settings.defaultProvider) ??
+      pickProviderByKind(providers, currentGenerationKind, preferredProviderId) ??
       providers[0];
     const defaultModel =
       defaultProvider.models.find((model) => model.is_default) ??
@@ -417,7 +425,13 @@ export function CreatePage(props: Props) {
     setProviderId(defaultProvider.id);
     setModelName(defaultModel?.name ?? "");
     setOperationId(defaultOperation?.id ?? "");
-  }, [providerId, providers, settings.defaultProvider]);
+  }, [
+    currentGenerationKind,
+    providerId,
+    providers,
+    settings.defaultImageProvider,
+    settings.defaultVideoProvider,
+  ]);
 
   useEffect(() => {
     const pending = settings.pendingReuseDraft;
@@ -642,7 +656,24 @@ export function CreatePage(props: Props) {
     onSuccess: async (response) => {
       setLastSubmittedTaskId(response.task_id);
       setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
-      settings.setSettings({ defaultProvider: providerId });
+      const nextProviderDefaults = captureProviderDefaultsFromValues(
+        settings,
+        providerId,
+        selectedOperation,
+        values,
+      );
+      const nextSettings: Partial<AppSettingsState> = {
+        providerDefaults: {
+          ...settings.providerDefaults,
+          [providerId]: nextProviderDefaults,
+        },
+      };
+      if (selectedProvider && isImageProviderType(selectedProvider.type)) {
+        nextSettings.defaultImageProvider = providerId;
+      } else {
+        nextSettings.defaultVideoProvider = providerId;
+      }
+      settings.setSettings(nextSettings);
       if (settings.savePromptHistory && promptField) {
         const promptValue = (values[fieldKey(promptField)] ?? "").trim();
         if (promptValue) {
@@ -719,7 +750,9 @@ export function CreatePage(props: Props) {
     if (nextKind === currentGenerationKind) {
       return;
     }
-    const nextProvider = pickProviderByKind(providers, nextKind, settings.defaultProvider);
+    const preferredProviderId =
+      nextKind === "image" ? settings.defaultImageProvider : settings.defaultVideoProvider;
+    const nextProvider = pickProviderByKind(providers, nextKind, preferredProviderId);
     if (!nextProvider) {
       return;
     }
@@ -2107,6 +2140,77 @@ function applySettingDefaults(
   }
 }
 
+function captureProviderDefaultsFromValues(
+  settings: AppSettingsState,
+  providerId: string,
+  operation: ProviderModelOperationInfo | null,
+  values: Record<string, string>,
+): ProviderGenerationDefaults {
+  const fallback = resolveGenerationDefaults(settings, providerId);
+  if (!operation) {
+    return fallback;
+  }
+
+  let nextRatio = fallback.defaultRatio;
+  let nextDurationSec = fallback.defaultDurationSec;
+  let nextQuality = fallback.defaultQuality;
+  let nextNegativePrompt = fallback.defaultNegativePrompt;
+
+  const durationField = findField(operation, "duration_sec");
+  if (durationField) {
+    const parsed = Number((values[fieldKey(durationField)] ?? "").trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      nextDurationSec = parsed;
+    }
+  }
+
+  const negativeField = findField(operation, "negative_prompt");
+  if (negativeField) {
+    nextNegativePrompt = values[fieldKey(negativeField)] ?? "";
+  }
+
+  const qualityField =
+    operation.fields.find(
+      (field) =>
+        field.key === "quality" &&
+        (field.target === "provider_options" || field.target === "request"),
+    ) ?? null;
+  if (qualityField) {
+    const nextValue = (values[fieldKey(qualityField)] ?? "").trim();
+    if (nextValue) {
+      nextQuality = nextValue;
+    }
+  }
+
+  const resolutionField = findField(operation, "resolution");
+  if (resolutionField) {
+    const fromResolution = normalizeDefaultRatio(values[fieldKey(resolutionField)] ?? "");
+    if (fromResolution) {
+      nextRatio = fromResolution;
+    }
+  }
+
+  const aspectRatioField =
+    operation.fields.find(
+      (field) =>
+        field.key === "aspect_ratio" &&
+        (field.target === "provider_options" || field.target === "request"),
+    ) ?? null;
+  if (aspectRatioField) {
+    const fromAspectRatio = normalizeDefaultRatio(values[fieldKey(aspectRatioField)] ?? "");
+    if (fromAspectRatio) {
+      nextRatio = fromAspectRatio;
+    }
+  }
+
+  return {
+    defaultRatio: nextRatio,
+    defaultDurationSec: nextDurationSec,
+    defaultQuality: nextQuality,
+    defaultNegativePrompt: nextNegativePrompt,
+  };
+}
+
 function resolveGenerationDefaults(
   settings: AppSettingsState,
   providerId: string,
@@ -2124,6 +2228,29 @@ function resolveGenerationDefaults(
     defaultNegativePrompt:
       providerDefaults?.defaultNegativePrompt ?? settings.defaultNegativePrompt,
   };
+}
+
+function normalizeDefaultRatio(raw: string): "16:9" | "9:16" | null {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes("portrait") || normalized.includes("vertical")) {
+    return "9:16";
+  }
+  if (normalized.includes("landscape") || normalized.includes("horizontal")) {
+    return "16:9";
+  }
+  const match = normalized.match(/(\d+(?:\.\d+)?)\s*[:x/]\s*(\d+(?:\.\d+)?)/);
+  if (!match) {
+    return null;
+  }
+  const left = Number(match[1]);
+  const right = Number(match[2]);
+  if (!Number.isFinite(left) || !Number.isFinite(right) || left <= 0 || right <= 0) {
+    return null;
+  }
+  return left >= right ? "16:9" : "9:16";
 }
 
 function toDraft(task: VideoTaskDetail): NonNullable<AppSettingsState["pendingReuseDraft"]> {

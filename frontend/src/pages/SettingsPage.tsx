@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import type { LanguagePreference, ProviderGenerationDefaults } from "../state";
+import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
-import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY, supportedDurationOptions } from "../utils";
+import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
 
 interface Props {
@@ -18,7 +18,7 @@ type SettingCategory =
 
 const SETTINGS_STORE_KEY = "scenewords_gateway_settings_v1";
 const SCENEWORDS_CACHE_PREFIX = "scenewords_";
-const SETTINGS_MANUAL_SNAPSHOT_KEY = "scenewords_settings_manual_checkpoint_v1";
+const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 
 export function SettingsPage(props: Props) {
   const { locale, t } = useI18n();
@@ -29,8 +29,16 @@ export function SettingsPage(props: Props) {
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("language_gateway");
   const [cacheRevision, setCacheRevision] = useState(0);
 
-  const durationOptions = useMemo(
-    () => supportedDurationOptions(props.providers),
+  const imageProviders = useMemo(
+    () => props.providers.filter((provider) => isImageProviderType(provider.type)),
+    [props.providers],
+  );
+  const videoProviders = useMemo(
+    () =>
+      props.providers.filter(
+        (provider) =>
+          !isImageProviderType(provider.type) && !HIDDEN_VIDEO_PROVIDER_IDS.has(provider.id),
+      ),
     [props.providers],
   );
 
@@ -42,24 +50,22 @@ export function SettingsPage(props: Props) {
   }, [props.pricingVersion, settings.pricingVersion, settings.setSettings]);
 
   useEffect(() => {
-    if (!settings.defaultProvider) {
+    if (!settings.defaultImageProvider) {
       return;
     }
-    const exists = props.providers.some((provider) => provider.id === settings.defaultProvider);
-    if (!exists) {
-      settings.setSettings({ defaultProvider: "" });
+    if (!imageProviders.some((provider) => provider.id === settings.defaultImageProvider)) {
+      settings.setSettings({ defaultImageProvider: "" });
     }
-  }, [props.providers, settings.defaultProvider, settings.setSettings]);
+  }, [imageProviders, settings.defaultImageProvider, settings.setSettings]);
 
   useEffect(() => {
-    if (!durationOptions.length) {
+    if (!settings.defaultVideoProvider) {
       return;
     }
-    if (durationOptions.includes(settings.defaultDurationSec)) {
-      return;
+    if (!videoProviders.some((provider) => provider.id === settings.defaultVideoProvider)) {
+      settings.setSettings({ defaultVideoProvider: "" });
     }
-    settings.setSettings({ defaultDurationSec: durationOptions[0] });
-  }, [durationOptions, settings.defaultDurationSec, settings.setSettings]);
+  }, [settings.defaultVideoProvider, settings.setSettings, videoProviders]);
 
   const sectionIds: Record<SettingCategory, string> = {
     language_gateway: "settings_language_gateway",
@@ -76,57 +82,6 @@ export function SettingsPage(props: Props) {
     : isZh
       ? "关闭"
       : "Off";
-
-  const resolveProviderDefaults = (providerId: string): ProviderGenerationDefaults => {
-    const scoped = settings.providerDefaults[providerId];
-    return {
-      defaultRatio: scoped?.defaultRatio ?? settings.defaultRatio,
-      defaultDurationSec: scoped?.defaultDurationSec ?? settings.defaultDurationSec,
-      defaultQuality: scoped?.defaultQuality ?? settings.defaultQuality,
-      defaultNegativePrompt: scoped?.defaultNegativePrompt ?? settings.defaultNegativePrompt,
-    };
-  };
-
-  const updateGenerationDefaults = (
-    partial: Partial<Pick<ProviderGenerationDefaults, "defaultRatio" | "defaultDurationSec" | "defaultQuality" | "defaultNegativePrompt">>,
-  ) => {
-    const nextDefaults: ProviderGenerationDefaults = {
-      defaultRatio: partial.defaultRatio ?? settings.defaultRatio,
-      defaultDurationSec: partial.defaultDurationSec ?? settings.defaultDurationSec,
-      defaultQuality: partial.defaultQuality ?? settings.defaultQuality,
-      defaultNegativePrompt: partial.defaultNegativePrompt ?? settings.defaultNegativePrompt,
-    };
-
-    const updatePayload: Partial<typeof settings> = {
-      ...partial,
-    };
-    if (settings.defaultProvider) {
-      updatePayload.providerDefaults = {
-        ...settings.providerDefaults,
-        [settings.defaultProvider]: nextDefaults,
-      };
-    }
-    settings.setSettings(updatePayload);
-  };
-
-  const applyProviderDefaults = (providerId: string) => {
-    if (!providerId) {
-      settings.setSettings({ defaultProvider: "" });
-      return;
-    }
-    const scoped = resolveProviderDefaults(providerId);
-    settings.setSettings({
-      defaultProvider: providerId,
-      defaultRatio: scoped.defaultRatio,
-      defaultDurationSec: scoped.defaultDurationSec,
-      defaultQuality: scoped.defaultQuality,
-      defaultNegativePrompt: scoped.defaultNegativePrompt,
-      providerDefaults: {
-        ...settings.providerDefaults,
-        [providerId]: scoped,
-      },
-    });
-  };
 
   const jumpToCategory = (category: SettingCategory) => {
     setActiveCategory(category);
@@ -147,9 +102,10 @@ export function SettingsPage(props: Props) {
 
     settings.setSettings({
       language: "system",
-      defaultProvider: "",
+      defaultImageProvider: "",
+      defaultVideoProvider: "",
       defaultRatio: "16:9",
-      defaultDurationSec: durationOptions[0] ?? 8,
+      defaultDurationSec: 8,
       defaultQuality: "standard",
       defaultNegativePrompt: "",
       restoreLastSession: true,
@@ -170,34 +126,6 @@ export function SettingsPage(props: Props) {
       theme: "system",
     });
     setHint(isZh ? "已恢复默认设置（Token 保留）。" : "Defaults restored (token kept).");
-  };
-
-  const handleSaveSettings = () => {
-    const snapshot = {
-      savedAt: new Date().toISOString(),
-      settings: {
-        language: settings.language,
-        gatewayToken: settings.gatewayToken,
-        defaultProvider: settings.defaultProvider,
-        defaultRatio: settings.defaultRatio,
-        defaultDurationSec: settings.defaultDurationSec,
-        defaultQuality: settings.defaultQuality,
-        defaultNegativePrompt: settings.defaultNegativePrompt,
-        notifyOnSuccess: settings.notifyOnSuccess,
-        notifyOnFailure: settings.notifyOnFailure,
-        notifySound: settings.notifySound,
-        notifyBadge: settings.notifyBadge,
-        savePromptHistory: settings.savePromptHistory,
-        historyRetentionDays: settings.historyRetentionDays,
-        providerDefaults: settings.providerDefaults,
-      },
-    };
-    localStorage.setItem(SETTINGS_MANUAL_SNAPSHOT_KEY, JSON.stringify(snapshot));
-    setHint(
-      isZh
-        ? "设置已保存（含手动快照）。"
-        : "Settings saved (manual checkpoint created).",
-    );
   };
 
   const requestNotificationPermission = async () => {
@@ -236,13 +164,6 @@ export function SettingsPage(props: Props) {
               className="rounded-lg bg-[#ECE7DC] px-3 py-1.5 text-xs font-semibold text-[#57534E] transition-colors hover:bg-[#E0D8C8]"
             >
               {isZh ? "恢复默认" : "Restore Defaults"}
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              className="rounded-lg bg-[#EA580C] px-3 py-1.5 text-xs font-semibold text-[#FFF7ED] transition-colors hover:bg-[#D94E08]"
-            >
-              {isZh ? "保存设置" : "Save Settings"}
             </button>
           </div>
         </div>
@@ -348,14 +269,14 @@ export function SettingsPage(props: Props) {
           >
             <h3 className="m-0 text-sm font-semibold text-[#1C1917]">{t("settings.generationDefaults")}</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <SettingField label={t("settings.defaultProvider")}>
+              <SettingField label={t("settings.defaultImageProvider")}>
                 <select
-                  value={settings.defaultProvider}
-                  onChange={(event) => applyProviderDefaults(event.target.value)}
+                  value={settings.defaultImageProvider}
+                  onChange={(event) => settings.setSettings({ defaultImageProvider: event.target.value })}
                   className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
                 >
                   <option value="">{t("settings.defaultProviderAuto")}</option>
-                  {props.providers.map((provider) => (
+                  {imageProviders.map((provider) => (
                     <option key={provider.id} value={provider.id}>
                       {provider.display_name}
                     </option>
@@ -363,93 +284,27 @@ export function SettingsPage(props: Props) {
                 </select>
               </SettingField>
 
-              <SettingField label={t("settings.defaultRatio")}>
-                <div className="inline-flex w-full items-center gap-1 rounded-lg bg-[#ECE7DC] p-1">
-                  <RatioButton
-                    label="16:9"
-                    active={settings.defaultRatio === "16:9"}
-                    onClick={() => updateGenerationDefaults({ defaultRatio: "16:9" })}
-                  />
-                  <RatioButton
-                    label="9:16"
-                    active={settings.defaultRatio === "9:16"}
-                    onClick={() => updateGenerationDefaults({ defaultRatio: "9:16" })}
-                  />
-                </div>
-              </SettingField>
-
-              <SettingField label={t("settings.defaultDuration")}>
+              <SettingField label={t("settings.defaultVideoProvider")}>
                 <select
-                  value={String(settings.defaultDurationSec)}
-                  onChange={(event) =>
-                    updateGenerationDefaults({ defaultDurationSec: Number(event.target.value) || 8 })
-                  }
+                  value={settings.defaultVideoProvider}
+                  onChange={(event) => settings.setSettings({ defaultVideoProvider: event.target.value })}
                   className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
                 >
-                  {durationOptions.map((seconds) => (
-                    <option key={seconds} value={String(seconds)}>
-                      {seconds}
+                  <option value="">{t("settings.defaultProviderAuto")}</option>
+                  {videoProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.display_name}
                     </option>
                   ))}
                 </select>
-              </SettingField>
-
-              <SettingField label={t("settings.defaultQuality")}>
-                <input
-                  value={settings.defaultQuality}
-                  onChange={(event) => updateGenerationDefaults({ defaultQuality: event.target.value })}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
-                />
               </SettingField>
             </div>
 
             <p className="mb-0 mt-3 text-xs text-[#78716C]">
               {isZh
-                ? "不同 Provider 可维护独立默认值（比例/时长/质量/负向提示词），切换时会自动回填。"
-                : "Each provider can keep independent defaults (ratio/duration/quality/negative prompt), auto-applied on switch."}
+                ? "该 Provider 的比例/时长/质量等参数会按最近一次生成时的实际选择自动记忆。"
+                : "Ratio/duration/quality defaults are auto-remembered per provider from your latest generation."}
             </p>
-
-            <div className="mt-3 flex flex-col gap-2">
-              {props.providers.map((provider) => {
-                const isDefault = settings.defaultProvider === provider.id;
-                const scoped = resolveProviderDefaults(provider.id);
-                return (
-                  <div
-                    key={provider.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F6F3EC] px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="m-0 text-sm font-semibold text-[#2A2520]">{provider.display_name}</p>
-                      <p className="m-0 text-[11px] text-[#78716C]">
-                        {scoped.defaultRatio} · {scoped.defaultDurationSec}s · {scoped.defaultQuality}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => applyProviderDefaults(provider.id)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                        isDefault
-                          ? "bg-[#ECE7DC] text-[#57534E]"
-                          : "bg-[#FBF8F2] text-[#57534E] hover:bg-[#EEE7DA]"
-                      }`}
-                    >
-                      {isDefault ? (isZh ? "已设为默认" : "Default") : (isZh ? "设为默认" : "Set")}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-
-            <SettingField className="mt-3" label={t("settings.defaultNegativePrompt")}>
-              <textarea
-                rows={3}
-                value={settings.defaultNegativePrompt}
-                onChange={(event) =>
-                  updateGenerationDefaults({ defaultNegativePrompt: event.target.value })
-                }
-                className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none transition-colors placeholder:text-[#A8A29E] focus:border-[#CFC5B4]"
-              />
-            </SettingField>
 
             <div className="mt-3">
               <ToggleRow
@@ -708,28 +563,6 @@ function LanguageSwitcher({
   );
 }
 
-function RatioButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-        active ? "bg-[#EA580C] text-[#FFF7ED]" : "text-[#57534E] hover:bg-[#E4DCCF]"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
 function ToggleRow({
   label,
   checked,
@@ -757,6 +590,10 @@ function ToggleRow({
       </button>
     </div>
   );
+}
+
+function isImageProviderType(providerType: string): boolean {
+  return providerType.toLowerCase().includes("image");
 }
 
 function collectSceneWordsCacheStats(): { keyCount: number; sizeBytes: number } {
