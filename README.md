@@ -100,6 +100,15 @@ pnpm build
 
 构建后继续按原方式启动 FastAPI 即可。
 
+## 通过 Cloudflare Tunnel 公开（仅家人访问）
+
+参见 `docs/cloudflare-tunnel-access.md`。
+
+该方案使用：
+
+- Cloudflare Tunnel 暴露本地服务到自有域名
+- Cloudflare Access 做邮箱白名单认证（OTP/Google）
+
 ## 测试
 
 ```bash

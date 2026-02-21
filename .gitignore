@@ -11,3 +11,4 @@ app/static/app.js
 app/static/styles.css
 
 ui_design
+.cloudflared/config.yml
