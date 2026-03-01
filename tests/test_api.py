@@ -183,6 +183,59 @@ def test_list_video_tasks_default_empty(client_factory) -> None:
     assert response.json() == []
 
 
+def test_list_video_tasks_summary_view_strips_raw_payloads(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_task(client)
+        client.app.state.store.set_result(
+            task_id=task_id,
+            result={
+                "video_url": "https://example.com/video.mp4",
+                "local_video_url": "/v1/assets/video.mp4",
+                "raw_response": {"huge": {"nested": True}},
+                "images": [
+                    {"url": "https://example.com/image-1.png", "meta": {"ignored": 1}},
+                    {"download_url": "https://example.com/image-2.png", "foo": "bar"},
+                ],
+            },
+        )
+        summary_response = client.get("/v1/video/tasks?view=summary")
+        full_response = client.get("/v1/video/tasks?view=full")
+    assert summary_response.status_code == 200
+    assert full_response.status_code == 200
+    summary_task = summary_response.json()[0]
+    full_task = full_response.json()[0]
+    assert "raw_response" not in (summary_task["result"] or {})
+    assert summary_task["result"]["video_url"] == "https://example.com/video.mp4"
+    assert summary_task["result"]["local_video_url"] == "/v1/assets/video.mp4"
+    assert summary_task["result"]["images"] == [
+        {"url": "https://example.com/image-1.png"},
+        {"download_url": "https://example.com/image-2.png"},
+    ]
+    assert "raw_response" in (full_task["result"] or {})
+
+
+def test_list_video_tasks_summary_view_strips_raw_error_details(client_factory) -> None:
+    with client_factory() as client:
+        task_id = _seed_task(client)
+        client.app.state.store.set_error(
+            task_id=task_id,
+            code="upstream_error",
+            message="failed to generate",
+            raw_error={"provider": {"trace": "verbose"}},
+        )
+        summary_response = client.get("/v1/video/tasks?view=summary")
+        full_response = client.get("/v1/video/tasks?view=full")
+    assert summary_response.status_code == 200
+    assert full_response.status_code == 200
+    summary_task = summary_response.json()[0]
+    full_task = full_response.json()[0]
+    assert summary_task["error"] == {
+        "code": "upstream_error",
+        "message": "failed to generate",
+    }
+    assert full_task["error"]["raw_error"] == {"provider": {"trace": "verbose"}}
+
+
 def _seed_task(client: TestClient) -> str:
     task_id = str(uuid4())
     client.app.state.store.create_task(

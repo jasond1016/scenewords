@@ -11,6 +11,8 @@ import type {
   VideoTaskResponse,
 } from "./types";
 
+export type TasksView = "full" | "summary";
+
 function toErrorMessage(detail: unknown, fallback: string): string {
   if (typeof detail === "string") {
     return detail;
@@ -93,15 +95,20 @@ export function retryVideoTask(
   );
 }
 
-export function fetchTasks(limit: number, token: string): Promise<VideoTaskDetail[]> {
+export function fetchTasks(
+  limit: number,
+  token: string,
+  view: TasksView = "summary",
+): Promise<VideoTaskDetail[]> {
+  const query = `limit=${encodeURIComponent(String(limit))}&view=${encodeURIComponent(view)}`;
   return Promise.all([
     request<VideoTaskDetail[]>(
-      `/v1/video/tasks?limit=${encodeURIComponent(String(limit))}`,
+      `/v1/video/tasks?${query}`,
       {},
       token,
     ),
     request<VideoTaskDetail[]>(
-      `/v1/image/tasks?limit=${encodeURIComponent(String(limit))}`,
+      `/v1/image/tasks?${query}`,
       {},
       token,
     ),
@@ -114,6 +121,15 @@ export function fetchTasks(limit: number, token: string): Promise<VideoTaskDetai
       return safeRight - safeLeft;
     }),
   );
+}
+
+export function fetchTaskDetail(
+  taskId: string,
+  token: string,
+  assetType: AssetType,
+): Promise<VideoTaskDetail> {
+  const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
+  return request<VideoTaskDetail>(`${root}/${encodeURIComponent(taskId)}`, {}, token);
 }
 
 export function deleteVideoTask(

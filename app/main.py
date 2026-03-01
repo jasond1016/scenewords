@@ -10,7 +10,7 @@ from datetime import datetime
 import mimetypes
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import httpx
@@ -63,6 +63,23 @@ MIME_TO_EXTENSION = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+}
+TASK_LIST_VIEW_SUMMARY = "summary"
+TASK_LIST_VIEW_FULL = "full"
+TASK_SUMMARY_RESULT_KEYS = {
+    "local_video_url",
+    "video_url",
+    "url",
+    "download_url",
+    "local_image_urls",
+    "image_urls",
+    "thumbnail_url",
+    "local_thumbnail_url",
+    "poster_url",
+    "local_poster_url",
+    "cover_url",
+    "preview_image_url",
+    "first_frame_url",
 }
 
 
@@ -430,13 +447,15 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/video/tasks", response_model=list[VideoTaskDetail])
     async def list_video_tasks(
-        limit: int = 20, _: None = Depends(require_auth)
+        limit: int = 20,
+        view: Literal["full", "summary"] = TASK_LIST_VIEW_FULL,
+        _: None = Depends(require_auth),
     ) -> list[VideoTaskDetail]:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
         tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="video")
         queue_map = _build_queue_position_map(asset_type="video")
-        return [_to_task_detail(task, queue_map=queue_map) for task in tasks]
+        return [_to_task_detail(task, queue_map=queue_map, view=view) for task in tasks]
 
     @app.get("/v1/video/tasks/{task_id}", response_model=VideoTaskDetail)
     async def get_video_task(
@@ -579,13 +598,15 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/image/tasks", response_model=list[VideoTaskDetail])
     async def list_image_tasks(
-        limit: int = 20, _: None = Depends(require_auth)
+        limit: int = 20,
+        view: Literal["full", "summary"] = TASK_LIST_VIEW_FULL,
+        _: None = Depends(require_auth),
     ) -> list[VideoTaskDetail]:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
         tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="image")
         queue_map = _build_queue_position_map(asset_type="image")
-        return [_to_task_detail(task, queue_map=queue_map) for task in tasks]
+        return [_to_task_detail(task, queue_map=queue_map, view=view) for task in tasks]
 
     @app.get("/v1/image/tasks/{task_id}", response_model=VideoTaskDetail)
     async def get_image_task(
@@ -1014,6 +1035,7 @@ def _to_task_detail(
     task: dict[str, Any],
     *,
     queue_map: dict[str, int] | None = None,
+    view: Literal["full", "summary"] = TASK_LIST_VIEW_FULL,
 ) -> VideoTaskDetail:
     request_payload = task.get("request") or {}
     provider_options = request_payload.get("provider_options")
@@ -1028,6 +1050,11 @@ def _to_task_detail(
     queue_position = None
     if queue_map is not None:
         queue_position = queue_map.get(task["task_id"])
+    result_payload = task["result"]
+    error_payload = task["error"]
+    if view == TASK_LIST_VIEW_SUMMARY:
+        result_payload = _summarize_task_result_payload(result_payload)
+        error_payload = _summarize_task_error_payload(error_payload)
 
     return VideoTaskDetail(
         task_id=task["task_id"],
@@ -1051,11 +1078,49 @@ def _to_task_detail(
         actual_cost=task.get("actual_cost"),
         currency=task.get("currency"),
         cost_source=cost_source,  # type: ignore[arg-type]
-        result=task["result"],
-        error=task["error"],
+        result=result_payload,
+        error=error_payload,
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
     )
+
+
+def _summarize_task_result_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    summarized: dict[str, Any] = {}
+    for key in TASK_SUMMARY_RESULT_KEYS:
+        value = payload.get(key)
+        if value is not None:
+            summarized[key] = value
+
+    images = payload.get("images")
+    if isinstance(images, list):
+        lightweight_images: list[dict[str, Any]] = []
+        for item in images:
+            if not isinstance(item, dict):
+                continue
+            entry: dict[str, Any] = {}
+            for nested_key in ("url", "download_url"):
+                nested_value = item.get(nested_key)
+                if isinstance(nested_value, str) and nested_value.strip():
+                    entry[nested_key] = nested_value.strip()
+            if entry:
+                lightweight_images.append(entry)
+        if lightweight_images:
+            summarized["images"] = lightweight_images
+    return summarized or None
+
+
+def _summarize_task_error_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    summarized: dict[str, Any] = {}
+    for key in ("code", "message"):
+        value = payload.get(key)
+        if value is not None:
+            summarized[key] = value
+    return summarized or None
 
 
 def _strip_internal_provider_options(options: dict[str, Any]) -> dict[str, Any]:

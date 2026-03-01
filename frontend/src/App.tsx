@@ -5,11 +5,13 @@ import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
 import { useTaskNotifications, type TaskToastNotice } from "./useTaskNotifications";
+import type { VideoTaskDetail } from "./types";
 import { CreatePage } from "./pages/CreatePage";
 import { JobsPage } from "./pages/JobsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
-const TASK_POLL_INTERVAL_MS = 4000;
+const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
+const IDLE_TASK_POLL_INTERVAL_MS = 20000;
 const TOAST_TTL_MS = 5200;
 const LOGO_MARK_SRC = `${import.meta.env.BASE_URL}logo-mark-header.png`;
 
@@ -28,8 +30,17 @@ export default function App() {
   );
   const tasksQuery = useQuery({
     queryKey: ["tasks", settings.gatewayToken],
-    queryFn: () => fetchTasks(60, settings.gatewayToken),
-    refetchInterval: TASK_POLL_INTERVAL_MS,
+    queryFn: () => fetchTasks(60, settings.gatewayToken, "summary"),
+    refetchInterval: (query) => {
+      if (visibility !== "visible") {
+        return false;
+      }
+      const tasks = (query.state.data as VideoTaskDetail[] | undefined) ?? [];
+      const hasInProgress = tasks.some(
+        (task) => task.status === "queued" || task.status === "running",
+      );
+      return hasInProgress ? ACTIVE_TASK_POLL_INTERVAL_MS : IDLE_TASK_POLL_INTERVAL_MS;
+    },
   });
   const catalogQuery = useQuery({
     queryKey: ["catalog", settings.gatewayToken],

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { cancelVideoTask, deleteVideoTask, retryVideoTask } from "../api";
+import { cancelVideoTask, deleteVideoTask, fetchTaskDetail, retryVideoTask } from "../api";
 import { useI18n, type TranslateFn } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
@@ -111,7 +111,36 @@ export function JobsPage(props: Props) {
     ? tasks.find((task) => task.task_id === lightboxItem.taskId) ?? null
     : null;
   const currentLightboxIsPortrait = currentLightboxTask ? inferTaskPortrait(currentLightboxTask) : false;
+  const [isRawResultOpen, setIsRawResultOpen] = useState(false);
   const isLightboxOpen = lightboxState !== null;
+
+  const taskDetailQuery = useQuery({
+    queryKey: [
+      "task-detail",
+      settings.gatewayToken,
+      currentLightboxTask?.asset_type,
+      currentLightboxTask?.task_id,
+    ],
+    queryFn: async () => {
+      if (!currentLightboxTask) {
+        throw new Error("Missing task context");
+      }
+      return fetchTaskDetail(
+        currentLightboxTask.task_id,
+        settings.gatewayToken,
+        currentLightboxTask.asset_type,
+      );
+    },
+    enabled: isRawResultOpen && Boolean(currentLightboxTask),
+    staleTime: 30_000,
+  });
+  const rawResultTask = taskDetailQuery.data ?? currentLightboxTask;
+  const rawResultPayload = useMemo(() => {
+    if (!isRawResultOpen || !rawResultTask) {
+      return "";
+    }
+    return formatRawDebugPayload(rawResultTask);
+  }, [isRawResultOpen, rawResultTask]);
 
   useEffect(() => {
     if (!isLightboxOpen) {
@@ -122,6 +151,10 @@ export function JobsPage(props: Props) {
       typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches;
     setIsInfoHidden(prefersCompactInfo);
   }, [isLightboxOpen]);
+
+  useEffect(() => {
+    setIsRawResultOpen(false);
+  }, [currentLightboxTask?.task_id]);
 
   useLayoutEffect(() => {
     if (!isLightboxOpen) {
@@ -638,19 +671,24 @@ export function JobsPage(props: Props) {
 
                   <div className="min-h-0 rounded-xl border border-[#E2DBC9] bg-white p-3">
                     <p className="m-0 mb-1 text-[11px] font-semibold text-[#675E52]">Prompt</p>
-                    <p className="m-0 whitespace-pre-wrap text-xs leading-relaxed text-[#302822]">
-                      {currentLightboxTask.prompt || t("jobs.emptyPrompt")}
-                    </p>
-                    {currentLightboxTask.negative_prompt ? (
-                      <div className="mt-2 border-t border-[#F0EBE2] pt-2">
-                        <p className="m-0 mb-1 text-[11px] font-semibold text-[#776E62]">
-                          {locale === "zh-CN" ? "负向提示词" : "Negative Prompt"}
-                        </p>
-                        <p className="m-0 text-[11px] leading-relaxed text-[#6A6054]">
-                          {currentLightboxTask.negative_prompt}
-                        </p>
-                      </div>
-                    ) : null}
+                    <div
+                      className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
+                      data-overlay-scroll="allow"
+                    >
+                      <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-[#302822]">
+                        {currentLightboxTask.prompt || t("jobs.emptyPrompt")}
+                      </p>
+                      {currentLightboxTask.negative_prompt ? (
+                        <div className="mt-2 border-t border-[#F0EBE2] pt-2">
+                          <p className="m-0 mb-1 text-[11px] font-semibold text-[#776E62]">
+                            {locale === "zh-CN" ? "负向提示词" : "Negative Prompt"}
+                          </p>
+                          <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[#6A6054]">
+                            {currentLightboxTask.negative_prompt}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
@@ -813,13 +851,30 @@ export function JobsPage(props: Props) {
                       >
                         {t("jobs.copyRequestJson")}
                       </button>
-                      <details>
+                      <details
+                        open={isRawResultOpen}
+                        onToggle={(event) => {
+                          setIsRawResultOpen(event.currentTarget.open);
+                        }}
+                      >
                         <summary className="cursor-pointer text-xs text-[#5B5146]">
                           {t("jobs.rawResult")}
                         </summary>
-                        <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-[#EEE6D8] bg-[#F8F4EC] p-2 text-[10px] text-[#5E5449]">
-                          {formatRawDebugPayload(currentLightboxTask)}
-                        </pre>
+                        {isRawResultOpen ? (
+                          taskDetailQuery.isPending ? (
+                            <p className="m-0 mt-2 text-[11px] text-[#776C60]">
+                              {locale === "zh-CN" ? "加载中..." : "Loading..."}
+                            </p>
+                          ) : taskDetailQuery.error ? (
+                            <p className="m-0 mt-2 text-[11px] text-[#A04431]">
+                              {(taskDetailQuery.error as Error).message}
+                            </p>
+                          ) : (
+                            <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-[#EEE6D8] bg-[#F8F4EC] p-2 text-[10px] text-[#5E5449]">
+                              {rawResultPayload}
+                            </pre>
+                          )
+                        ) : null}
                       </details>
                     </div>
                   </details>
@@ -1209,7 +1264,7 @@ function AssetCardMedia({
           poster={videoPoster ?? thumb ?? undefined}
           muted
           playsInline
-          preload="metadata"
+          preload={isHovered ? "metadata" : "none"}
           autoPlay={isHovered}
           loop
           onLoadedData={() => setIsVideoReady(true)}
@@ -1286,7 +1341,7 @@ function AssetCardMedia({
         src={videoUrl ?? undefined}
         muted
         playsInline
-        preload="metadata"
+        preload={isHovered ? "metadata" : "none"}
         autoPlay={isHovered}
         loop
         onError={() => setHasError(true)}
