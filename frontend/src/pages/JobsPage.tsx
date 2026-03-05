@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cancelVideoTask, deleteVideoTask, fetchTaskDetail, retryVideoTask } from "../api";
+import { ZoomableImage } from "../components/ZoomableImage";
 import { useI18n, type TranslateFn } from "../i18n";
 import { useAppSettingsStore } from "../state";
 import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
@@ -167,6 +168,7 @@ export function JobsPage(props: Props) {
     const prevRootOverscrollBehavior = root.style.overscrollBehavior;
     const prevBodyOverscrollBehavior = body.style.overscrollBehavior;
     const allowScrollSelector = "[data-overlay-scroll='allow']";
+    const allowGestureSelector = "[data-overlay-gesture='allow']";
 
     let lastTouchY: number | null = null;
 
@@ -176,6 +178,13 @@ export function JobsPage(props: Props) {
       }
       const container = target.closest(allowScrollSelector);
       return container instanceof HTMLElement ? container : null;
+    };
+
+    const isGestureTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) {
+        return false;
+      }
+      return Boolean(target.closest(allowGestureSelector));
     };
 
     const canScrollContainer = (container: HTMLElement, deltaY: number): boolean => {
@@ -205,6 +214,9 @@ export function JobsPage(props: Props) {
       lastTouchY = null;
     };
     const onTouchMove = (event: TouchEvent) => {
+      if (isGestureTarget(event.target)) {
+        return;
+      }
       const container = getAllowedContainer(event.target);
       if (!container) {
         event.preventDefault();
@@ -219,6 +231,9 @@ export function JobsPage(props: Props) {
       }
     };
     const onWheel = (event: WheelEvent) => {
+      if (isGestureTarget(event.target)) {
+        return;
+      }
       const container = getAllowedContainer(event.target);
       if (!container) {
         event.preventDefault();
@@ -951,7 +966,7 @@ function renderLightboxMediaItem({
       />
     );
   }
-  return <img className={mediaClass} src={item.url} alt={item.taskId} />;
+  return <ZoomableImage className={mediaClass} src={item.url} alt={item.taskId} />;
 }
 
 function InfoCell({ label, value }: { label: string; value: string }) {
