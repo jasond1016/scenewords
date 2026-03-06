@@ -1,11 +1,45 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { cancelVideoTask, deleteVideoTask, fetchTaskDetail, retryVideoTask } from "../api";
-import { ZoomableImage } from "../components/ZoomableImage";
+import { fetchTaskDetail } from "../api";
+import { AppLightboxStage } from "../components/AppLightboxStage";
+import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
+import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
+import {
+  buildLightboxItems,
+  extractVideoPoster,
+  inferTaskPortrait,
+  type LightboxKind,
+} from "../lightbox";
+import {
+  buildTaskRequestPayload,
+  copyText,
+  formatRawDebugPayload,
+  toDraft,
+} from "../overlayTaskUtils";
+import {
+  formatRetryErrorMessage,
+  formatRetryQueuedMessage,
+  formatTaskActionErrorMessage,
+  formatTaskActionSuccessMessage,
+  type RetryTaskPayload,
+  type TaskActionPayload,
+  runRetryTask,
+  runTaskAction,
+} from "../overlayTaskActions";
+import {
+  buildMediaSidebarActions,
+  formatOverlayTaskStatus,
+} from "../overlayTaskPresentation";
 import { useAppSettingsStore } from "../state";
-import type { AssetType, RetryMode, VideoTaskDetail } from "../types";
+import {
+  readFavoriteTaskIds,
+  useCompactOverlayInfo,
+  useEscapeToClose,
+  useOverlayScrollLock,
+} from "../useMediaOverlay";
+import type { VideoTaskDetail, VideoTaskResponse } from "../types";
 import {
   errorMessage,
   extractImageUrls,
@@ -21,14 +55,6 @@ interface Props {
 const WORKS_FAVORITES_KEY = "scenewords_works_favorites_v1";
 
 type BrowseFilter = "all" | "image" | "video" | "favorite";
-type LightboxKind = "image" | "video" | "failed";
-
-interface LightboxMediaItem {
-  key: string;
-  taskId: string;
-  url: string;
-  kind: LightboxKind;
-}
 
 export function JobsPage(props: Props) {
   const { tasks, loading } = props;
@@ -43,9 +69,16 @@ export function JobsPage(props: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [hint, setHint] = useState("");
   const [hoverVideoTaskId, setHoverVideoTaskId] = useState<string | null>(null);
-  const [favoriteTaskIds, setFavoriteTaskIds] = useState<string[]>(() => readFavoriteTaskIds());
+  const [favoriteTaskIds, setFavoriteTaskIds] = useState<string[]>(() =>
+    readFavoriteTaskIds(WORKS_FAVORITES_KEY),
+  );
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
-  const [isInfoHidden, setIsInfoHidden] = useState(false);
+  const isLightboxOpen = lightboxState !== null;
+  const { isInfoHidden, setIsInfoHidden } = useCompactOverlayInfo(isLightboxOpen);
+  const taskById = useMemo(
+    () => new Map(tasks.map((task) => [task.task_id, task])),
+    [tasks],
+  );
 
   const inProgressTasks = useMemo(
     () => tasks.filter((task) => task.status === "queued" || task.status === "running"),
@@ -109,11 +142,10 @@ export function JobsPage(props: Props) {
     return lightboxItems[lightboxIndex];
   }, [lightboxIndex, lightboxItems]);
   const currentLightboxTask = lightboxItem
-    ? tasks.find((task) => task.task_id === lightboxItem.taskId) ?? null
+    ? taskById.get(lightboxItem.taskId) ?? null
     : null;
   const currentLightboxIsPortrait = currentLightboxTask ? inferTaskPortrait(currentLightboxTask) : false;
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
-  const isLightboxOpen = lightboxState !== null;
 
   const taskDetailQuery = useQuery({
     queryKey: [
@@ -144,128 +176,10 @@ export function JobsPage(props: Props) {
   }, [isRawResultOpen, rawResultTask]);
 
   useEffect(() => {
-    if (!isLightboxOpen) {
-      setIsInfoHidden(false);
-      return;
-    }
-    const prefersCompactInfo =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches;
-    setIsInfoHidden(prefersCompactInfo);
-  }, [isLightboxOpen]);
-
-  useEffect(() => {
     setIsRawResultOpen(false);
   }, [currentLightboxTask?.task_id]);
 
-  useLayoutEffect(() => {
-    if (!isLightboxOpen) {
-      return;
-    }
-    const root = document.documentElement;
-    const body = document.body;
-    const prevRootOverflow = root.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-    const prevRootOverscrollBehavior = root.style.overscrollBehavior;
-    const prevBodyOverscrollBehavior = body.style.overscrollBehavior;
-    const allowScrollSelector = "[data-overlay-scroll='allow']";
-    const allowGestureSelector = "[data-overlay-gesture='allow']";
-
-    let lastTouchY: number | null = null;
-
-    const getAllowedContainer = (target: EventTarget | null): HTMLElement | null => {
-      if (!(target instanceof Element)) {
-        return null;
-      }
-      const container = target.closest(allowScrollSelector);
-      return container instanceof HTMLElement ? container : null;
-    };
-
-    const isGestureTarget = (target: EventTarget | null): boolean => {
-      if (!(target instanceof Element)) {
-        return false;
-      }
-      return Boolean(target.closest(allowGestureSelector));
-    };
-
-    const canScrollContainer = (container: HTMLElement, deltaY: number): boolean => {
-      const maxScrollTop = container.scrollHeight - container.clientHeight;
-      if (maxScrollTop <= 0) {
-        return false;
-      }
-      const atTop = container.scrollTop <= 0;
-      const atBottom = container.scrollTop >= maxScrollTop - 1;
-      if (deltaY < 0 && atTop) {
-        return false;
-      }
-      if (deltaY > 0 && atBottom) {
-        return false;
-      }
-      return true;
-    };
-
-    const onTouchStart = (event: TouchEvent) => {
-      if (!event.touches.length) {
-        lastTouchY = null;
-        return;
-      }
-      lastTouchY = event.touches[0].clientY;
-    };
-    const onTouchEnd = () => {
-      lastTouchY = null;
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      if (isGestureTarget(event.target)) {
-        return;
-      }
-      const container = getAllowedContainer(event.target);
-      if (!container) {
-        event.preventDefault();
-        return;
-      }
-      const currentY = event.touches[0]?.clientY ?? lastTouchY ?? 0;
-      const deltaY = currentY - (lastTouchY ?? currentY);
-      lastTouchY = currentY;
-      const intendedScrollDelta = -deltaY;
-      if (!canScrollContainer(container, intendedScrollDelta)) {
-        event.preventDefault();
-      }
-    };
-    const onWheel = (event: WheelEvent) => {
-      if (isGestureTarget(event.target)) {
-        return;
-      }
-      const container = getAllowedContainer(event.target);
-      if (!container) {
-        event.preventDefault();
-        return;
-      }
-      if (!canScrollContainer(container, event.deltaY)) {
-        event.preventDefault();
-      }
-    };
-
-    root.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-    root.style.overscrollBehavior = "none";
-    body.style.overscrollBehavior = "contain";
-    document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true, capture: true });
-    document.addEventListener("touchcancel", onTouchEnd, { passive: true, capture: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
-    document.addEventListener("wheel", onWheel, { passive: false, capture: true });
-
-    return () => {
-      document.removeEventListener("touchstart", onTouchStart, true);
-      document.removeEventListener("touchend", onTouchEnd, true);
-      document.removeEventListener("touchcancel", onTouchEnd, true);
-      document.removeEventListener("touchmove", onTouchMove, true);
-      document.removeEventListener("wheel", onWheel, true);
-      root.style.overflow = prevRootOverflow;
-      body.style.overflow = prevBodyOverflow;
-      root.style.overscrollBehavior = prevRootOverscrollBehavior;
-      body.style.overscrollBehavior = prevBodyOverscrollBehavior;
-    };
-  }, [isLightboxOpen]);
+  useOverlayScrollLock(isLightboxOpen);
 
   useEffect(() => {
     if (!lightboxItems.length) {
@@ -279,38 +193,7 @@ export function JobsPage(props: Props) {
     }
   }, [lightboxIndex, lightboxItems]);
 
-  const setLightboxByOffset = (offset: -1 | 1) => {
-    if (!lightboxItems.length || lightboxIndex == null) {
-      return;
-    }
-    const nextIndex =
-      (lightboxIndex + offset + lightboxItems.length) %
-      lightboxItems.length;
-    setLightboxState((current) => (current ? { ...current, index: nextIndex } : null));
-  };
-
-  useEffect(() => {
-    if (lightboxIndex == null) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setLightboxState(null);
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        setLightboxByOffset(-1);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        setLightboxByOffset(1);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [lightboxIndex, lightboxItems.length]);
+  useEscapeToClose(lightboxIndex != null, () => setLightboxState(null));
 
   const openImageLightbox = (taskId: string, imageUrl?: string) => {
     const index = imageLightboxItems.findIndex(
@@ -361,53 +244,26 @@ export function JobsPage(props: Props) {
     }
   }, [allImageLightboxItems, allVideoLightboxItems, completedTasks, location.search]);
 
-  const deleteMutation = useMutation({
-    mutationFn: async (payload: {
-      taskId: string;
-      assetType: AssetType;
-      action: "cancel" | "delete";
-    }) => {
-      if (payload.action === "cancel") {
-        return cancelVideoTask(payload.taskId, settings.gatewayToken, payload.assetType);
-      }
-      return deleteVideoTask(payload.taskId, settings.gatewayToken, payload.assetType);
-    },
+  const deleteMutation = useMutation<unknown, Error, TaskActionPayload>({
+    mutationFn: (payload) => runTaskAction(payload, settings.gatewayToken),
     onSuccess: async (_data, payload) => {
-      setHint(
-        payload.action === "cancel"
-          ? t("jobs.cancelSuccess", { taskId: payload.taskId.slice(0, 8) })
-          : t("jobs.deleteSuccess", { taskId: payload.taskId.slice(0, 8) }),
-      );
+      setHint(formatTaskActionSuccessMessage(payload, t));
       setSelectedTaskId((current) => (current === payload.taskId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
     onError: (error: Error, payload) => {
-      setHint(
-        payload.action === "cancel"
-          ? t("jobs.cancelFailed", { message: error.message })
-          : t("jobs.deleteFailed", { message: error.message }),
-      );
+      setHint(formatTaskActionErrorMessage(payload, error, t));
     },
   });
 
-  const retryMutation = useMutation({
-    mutationFn: async (payload: {
-      task: VideoTaskDetail;
-      mode: RetryMode;
-    }) =>
-      retryVideoTask(
-        payload.task.task_id,
-        payload.mode,
-        payload.task.prompt || null,
-        settings.gatewayToken,
-        payload.task.asset_type,
-      ),
+  const retryMutation = useMutation<VideoTaskResponse, Error, RetryTaskPayload>({
+    mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
     onSuccess: async (response) => {
-      setHint(t("jobs.retryQueued", { taskId: response.task_id.slice(0, 8) }));
+      setHint(formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
     onError: (error: Error) => {
-      setHint(t("jobs.retryFailed", { message: error.message }));
+      setHint(formatRetryErrorMessage(error, t));
     },
   });
 
@@ -416,46 +272,6 @@ export function JobsPage(props: Props) {
     const translated = t(key);
     return translated === key ? null : translated;
   };
-  const statusLabel = (status: string): string => {
-    const key = `status.${status}`;
-    const translated = t(key);
-    return translated === key ? status : translated;
-  };
-  const formatLocalizedStatus = (task: VideoTaskDetail): string => {
-    if (task.asset_type === "image") {
-      if (task.status === "queued") {
-        if (task.queue_position != null) {
-          return t("jobs.imageStatusQueuedWithPosition", { position: task.queue_position });
-        }
-        return t("jobs.imageStatusQueued");
-      }
-      if (task.status === "running") {
-        return t("jobs.imageStatusRunning");
-      }
-      if (task.status === "succeeded") {
-        return t("jobs.imageStatusSucceeded");
-      }
-    }
-    if (task.asset_type === "video") {
-      if (task.status === "queued") {
-        if (task.queue_position != null) {
-          return t("jobs.videoStatusQueuedWithPosition", { position: task.queue_position });
-        }
-        return t("jobs.videoStatusQueued");
-      }
-      if (task.status === "running") {
-        return t("jobs.videoStatusRunning");
-      }
-      if (task.status === "succeeded") {
-        return t("jobs.videoStatusSucceeded");
-      }
-    }
-    if (task.status === "queued" && task.queue_position != null) {
-      return t("jobs.statusQueuedWithPosition", { position: task.queue_position });
-    }
-    return statusLabel(task.status);
-  };
-
   const worksCount = completedTasks.length;
   const imageCount = completedTasks.filter((task) => task.asset_type === "image").length;
   const videoCount = completedTasks.filter((task) => task.asset_type === "video").length;
@@ -465,6 +281,36 @@ export function JobsPage(props: Props) {
       current.includes(taskId) ? current.filter((id) => id !== taskId) : [taskId, ...current],
     );
   };
+  const sidebarActions = currentLightboxTask
+    ? buildMediaSidebarActions({
+        task: currentLightboxTask,
+        t,
+        deleteDisabled: deleteMutation.isPending,
+        retryDisabled: retryMutation.isPending,
+        showBothRetryActions: settings.showBothRetryActions,
+        retryModeDefault: settings.retryModeDefault,
+        onDeleteConfirmed: () => {
+          deleteMutation.mutate({
+            taskId: currentLightboxTask.task_id,
+            assetType: currentLightboxTask.asset_type,
+            action: "delete",
+          });
+          setLightboxState(null);
+        },
+        onCancelConfirmed: () => {
+          deleteMutation.mutate({
+            taskId: currentLightboxTask.task_id,
+            assetType: currentLightboxTask.asset_type,
+            action: "cancel",
+          });
+        },
+        onRetry: (mode) =>
+          retryMutation.mutate({
+            task: currentLightboxTask,
+            mode,
+          }),
+      })
+    : null;
 
   if (loading) {
     return (
@@ -563,622 +409,76 @@ export function JobsPage(props: Props) {
       {hint ? <p className="m-0 text-xs text-[#736B5E]">{hint}</p> : null}
 
       {lightboxItem && currentLightboxTask ? (
-        <div
-          className="fixed inset-0 z-50 h-dvh bg-[#241F1A]/40 p-1.5 backdrop-blur-[2px] sm:p-3"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setLightboxState(null)}
-        >
-          <div
-            className="relative flex h-full w-full overflow-hidden rounded-2xl border border-[#DCD4C7] bg-[#F7F4EE] sm:flex-row"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="relative flex min-w-0 flex-1 flex-col">
-              <div className="flex items-center justify-between border-b border-[#E0D9CD] px-3 py-2 sm:px-4">
-                <strong className="text-sm text-[#2C241E]">
-                  {locale === "zh-CN" ? "作品预览" : "Work Preview"}
-                </strong>
-                <div className="flex items-center gap-2">
-                  {lightboxItems.length > 1 ? (
-                    <span className="rounded-full bg-[#EFE8DB] px-2 py-1 text-[11px] font-semibold text-[#7A6F62]">
-                      {(lightboxIndex ?? 0) + 1} / {lightboxItems.length}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="rounded-full border border-[#D7CFBF] bg-white px-3 py-1 text-xs font-semibold text-[#5D5349] transition-colors hover:bg-[#F8F4EC]"
-                    onClick={() => setIsInfoHidden((current) => !current)}
-                  >
-                    {isInfoHidden ? (locale === "zh-CN" ? "显示信息" : "Show Info") : (locale === "zh-CN" ? "隐藏信息" : "Hide Info")}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-full bg-[#E8692A] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#D95E22]"
-                    onClick={() => setLightboxState(null)}
-                  >
-                    {locale === "zh-CN" ? "返回浏览" : "Back"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="relative flex min-h-0 flex-1 items-center justify-center p-1.5 sm:p-4">
-                {lightboxItems.length > 1 ? (
-                  <button
-                    type="button"
-                    className="absolute left-1.5 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#D6CEBF] bg-white/90 text-xl text-[#5D5349] transition-colors hover:bg-white sm:left-3 sm:h-10 sm:w-10"
-                    onClick={() => setLightboxByOffset(-1)}
-                    aria-label={t("jobs.lightboxPrev")}
-                  >
-                    ‹
-                  </button>
-                ) : null}
-
-                <div className="flex h-full w-full items-center justify-center rounded-xl border border-[#E4DDD0] bg-[#EFEAE2] px-2 py-2 sm:px-4 sm:py-4">
-                  {renderLightboxMediaItem({
-                    item: lightboxItem,
-                    isActive: true,
-                    isPortraitMode: currentLightboxIsPortrait,
-                    t,
-                  })}
-                </div>
-
-                {lightboxItems.length > 1 ? (
-                  <button
-                    type="button"
-                    className="absolute right-1.5 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#D6CEBF] bg-white/90 text-xl text-[#5D5349] transition-colors hover:bg-white sm:right-3 sm:h-10 sm:w-10"
-                    onClick={() => setLightboxByOffset(1)}
-                    aria-label={t("jobs.lightboxNext")}
-                  >
-                    ›
-                  </button>
-                ) : null}
-              </div>
-
-              <p className="m-0 hidden border-t border-[#E0D9CD] px-4 py-2 text-[11px] text-[#8A7E71] sm:block">
-                {currentLightboxIsPortrait
-                  ? locale === "zh-CN"
-                    ? "纵向作品：保持原始纵向比例展示。"
-                    : "Portrait asset: keeps vertical composition."
-                  : locale === "zh-CN"
-                    ? "横向作品：优先铺宽展示。"
-                    : "Landscape asset: rendered with wide priority."}
-              </p>
-            </div>
-
-            {!isInfoHidden ? (
-              <aside className="absolute inset-x-2 bottom-2 top-[62px] z-30 overflow-hidden rounded-xl border border-[#E0D9CD] bg-[#FAF8F3]/95 p-3 shadow-[0_16px_40px_rgba(36,31,26,0.2)] backdrop-blur-[1.5px] sm:static sm:inset-auto sm:w-[360px] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:bg-[#FAF8F3] sm:p-3 sm:shadow-none sm:backdrop-blur-none">
-                <div
-                  className="flex h-full flex-col gap-3 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
-                  data-overlay-scroll="allow"
-                >
-                  <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h3 className="m-0 text-sm font-semibold text-[#2C241E]">{t("jobs.assetDetailTitle")}</h3>
-                        <p className="m-0 mt-1 truncate font-mono text-[11px] text-[#7C7266]">
-                          {currentLightboxTask.task_id}
-                        </p>
-                        {currentLightboxTask.provider_job_id ? (
-                          <p className="m-0 mt-1 truncate text-[10px] text-[#8A7E71]">
-                            {t("jobs.upstreamJob")}: {currentLightboxTask.provider_job_id}
-                          </p>
-                        ) : null}
-                        {currentLightboxTask.provider_status ? (
-                          <p className="m-0 mt-0.5 truncate text-[10px] text-[#8A7E71]">
-                            {t("jobs.upstreamStatus")}: {currentLightboxTask.provider_status}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className="rounded-full bg-[#EEE8DB] px-2 py-1 text-[10px] font-semibold text-[#6B6257] whitespace-nowrap">
-                        {formatLocalizedStatus(currentLightboxTask)}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px] text-[#6D6459]">
-                      <InfoCell label={t("jobs.provider")} value={currentLightboxTask.provider} />
-                      <InfoCell label={t("jobs.model")} value={currentLightboxTask.model} />
-                      <InfoCell label={t("jobs.resolution")} value={currentLightboxTask.resolution ?? t("common.na")} />
-                      <InfoCell
-                        label={t("jobs.created")}
-                        value={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="min-h-0 rounded-xl border border-[#E2DBC9] bg-white p-3">
-                    <p className="m-0 mb-1 text-[11px] font-semibold text-[#675E52]">Prompt</p>
-                    <div
-                      className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
-                      data-overlay-scroll="allow"
-                    >
-                      <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-[#302822]">
-                        {currentLightboxTask.prompt || t("jobs.emptyPrompt")}
-                      </p>
-                      {currentLightboxTask.negative_prompt ? (
-                        <div className="mt-2 border-t border-[#F0EBE2] pt-2">
-                          <p className="m-0 mb-1 text-[11px] font-semibold text-[#776E62]">
-                            {locale === "zh-CN" ? "负向提示词" : "Negative Prompt"}
-                          </p>
-                          <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[#6A6054]">
-                            {currentLightboxTask.negative_prompt}
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      {favoriteTaskIds.includes(currentLightboxTask.task_id) ? (
-                        <span className="rounded-full bg-[#FFF1E8] px-2 py-1 text-[10px] font-semibold text-[#A25329]">
-                          {locale === "zh-CN" ? "已收藏" : "Favorited"}
-                        </span>
-                      ) : null}
-                      <span className="rounded-full bg-[#ECE9FF] px-2 py-1 text-[10px] font-semibold text-[#4B43A0]">
-                        {currentLightboxTask.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg bg-[#E8692A] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#D95E22]"
-                        onClick={() => {
-                          settings.setPendingReuseDraft(toDraft(currentLightboxTask));
-                          navigate("/create");
-                        }}
-                    >
-                      {t("jobs.reusePrompt")}
-                    </button>
-                    {lightboxItem.url ? (
-                        <a
-                          href={lightboxItem.url}
-                          download
-                          className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                          title={t("jobs.download")}
-                        >
-                          {t("jobs.download")}
-                        </a>
-                      ) : null}
-                      {currentLightboxTask.status === "queued" || currentLightboxTask.status === "running" ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[#E4C9BD] bg-[#FFF8F5] px-3 py-2 text-xs font-semibold text-[#A64633] transition-colors hover:bg-[#FDEDE6]"
-                          onClick={() => {
-                            const confirmed = window.confirm(
-                              t("jobs.cancelConfirm", { taskId: currentLightboxTask.task_id.slice(0, 8) }),
-                            );
-                            if (!confirmed) {
-                              return;
-                            }
-                            deleteMutation.mutate({
-                              taskId: currentLightboxTask.task_id,
-                              assetType: currentLightboxTask.asset_type,
-                              action: "cancel",
-                            });
-                          }}
-                          disabled={deleteMutation.isPending}
-                        >
-                          {t("jobs.cancelInProgress")}
-                        </button>
-                      ) : null}
-                      {currentLightboxTask.status !== "queued" && currentLightboxTask.status !== "running" ? (
-                        settings.showBothRetryActions ? (
-                          <>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                              onClick={() =>
-                                retryMutation.mutate({
-                                  task: currentLightboxTask,
-                                  mode: "same_seed",
-                                })
-                              }
-                              disabled={retryMutation.isPending}
-                            >
-                              {t("jobs.retry", { mode: t("common.retrySameSeed") })}
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                              onClick={() =>
-                                retryMutation.mutate({
-                                  task: currentLightboxTask,
-                                  mode: "new_seed",
-                                })
-                              }
-                              disabled={retryMutation.isPending}
-                            >
-                              {t("jobs.retry", { mode: t("common.retryNewSeed") })}
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                            onClick={() =>
-                              retryMutation.mutate({
-                                task: currentLightboxTask,
-                                mode: settings.retryModeDefault,
-                              })
-                            }
-                            disabled={retryMutation.isPending}
-                          >
-                            {t(
-                              "jobs.retry",
-                              {
-                                mode:
-                                  settings.retryModeDefault === "same_seed"
-                                    ? t("common.retrySameSeed")
-                                    : t("common.retryNewSeed"),
-                              },
-                            )}
-                          </button>
-                        )
-                      ) : null}
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                        onClick={() => toggleFavorite(currentLightboxTask.task_id)}
-                      >
-                        {favoriteTaskIds.includes(currentLightboxTask.task_id)
-                          ? locale === "zh-CN" ? "取消收藏" : "Unfavorite"
-                          : locale === "zh-CN" ? "加入收藏" : "Favorite"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[#E4C9BD] bg-[#FFF8F5] px-3 py-2 text-xs font-semibold text-[#A64633] transition-colors hover:bg-[#FDEDE6]"
-                        onClick={() => {
-                          const confirmed = window.confirm(
-                            t("jobs.deleteConfirm", { taskId: currentLightboxTask.task_id.slice(0, 8) }),
-                          );
-                          if (!confirmed) {
-                            return;
-                          }
-                          deleteMutation.mutate({
-                            taskId: currentLightboxTask.task_id,
-                            assetType: currentLightboxTask.asset_type,
-                            action: "delete",
-                          });
-                          setLightboxState(null);
-                        }}
-                        disabled={deleteMutation.isPending}
-                      >
-                        {t("jobs.delete")}
-                      </button>
-                    </div>
-                  </div>
-
-                  <details className="rounded-xl border border-[#E2DBC9] bg-white p-3">
-                    <summary className="cursor-pointer text-xs font-semibold text-[#6E6458]">
-                      {t("jobs.moreActions")}
-                    </summary>
-                    <div className="mt-2 flex flex-col gap-2">
-                      <button
-                        type="button"
-                        className="text-left text-xs text-[#5B5146] underline decoration-dotted underline-offset-2 hover:text-[#2F271F]"
-                        onClick={() => {
-                          const payload = buildTaskRequestPayload(currentLightboxTask);
-                          const text = JSON.stringify(payload, null, 2);
-                          void copyText(text).then(
-                            () => setHint(t("jobs.copyJsonSuccess")),
-                            () => setHint(t("jobs.copyJsonFailed")),
-                          );
-                        }}
-                      >
-                        {t("jobs.copyRequestJson")}
-                      </button>
-                      <details
-                        open={isRawResultOpen}
-                        onToggle={(event) => {
-                          setIsRawResultOpen(event.currentTarget.open);
-                        }}
-                      >
-                        <summary className="cursor-pointer text-xs text-[#5B5146]">
-                          {t("jobs.rawResult")}
-                        </summary>
-                        {isRawResultOpen ? (
-                          taskDetailQuery.isPending ? (
-                            <p className="m-0 mt-2 text-[11px] text-[#776C60]">
-                              {locale === "zh-CN" ? "加载中..." : "Loading..."}
-                            </p>
-                          ) : taskDetailQuery.error ? (
-                            <p className="m-0 mt-2 text-[11px] text-[#A04431]">
-                              {(taskDetailQuery.error as Error).message}
-                            </p>
-                          ) : (
-                            <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-[#EEE6D8] bg-[#F8F4EC] p-2 text-[10px] text-[#5E5449]">
-                              {rawResultPayload}
-                            </pre>
-                          )
-                        ) : null}
-                      </details>
-                    </div>
-                  </details>
-
-                  {errorMessage(currentLightboxTask, {
-                    mapErrorCode,
-                    fallbackMessage: t("error.defaultFailure"),
-                  }) ? (
-                    <p className="m-0 rounded-lg border border-[#F1D7CF] bg-[#FFF1ED] px-2.5 py-2 text-xs text-[#A04431]">
-                      {errorMessage(currentLightboxTask, {
-                        mapErrorCode,
-                        fallbackMessage: t("error.defaultFailure"),
-                      })}
-                    </p>
-                  ) : null}
-                </div>
-              </aside>
-            ) : null}
-          </div>
-        </div>
+        <MediaOverlayFrame
+          title={locale === "zh-CN" ? "作品预览" : "Work Preview"}
+          currentIndex={lightboxIndex}
+          totalItems={lightboxItems.length}
+          isInfoHidden={isInfoHidden}
+          onToggleInfo={() => setIsInfoHidden((current) => !current)}
+          onClose={() => setLightboxState(null)}
+          showInfoLabel={locale === "zh-CN" ? "显示信息" : "Show Info"}
+          hideInfoLabel={locale === "zh-CN" ? "隐藏信息" : "Hide Info"}
+          backLabel={locale === "zh-CN" ? "返回浏览" : "Back"}
+          media={
+            <AppLightboxStage
+              items={lightboxItems}
+              index={lightboxIndex ?? 0}
+              taskById={taskById}
+              onIndexChange={(nextIndex) =>
+                setLightboxState((current) =>
+                  current ? { ...current, index: nextIndex } : null,
+                )
+              }
+            />
+          }
+          mediaHint={
+            currentLightboxIsPortrait
+              ? locale === "zh-CN"
+                ? "纵向作品：保持原始纵向比例展示。"
+                : "Portrait asset: keeps vertical composition."
+              : locale === "zh-CN"
+                ? "横向作品：优先铺宽展示。"
+                : "Landscape asset: rendered with wide priority."
+          }
+          sidebar={
+            <MediaDetailSidebar
+              task={currentLightboxTask}
+              statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
+              updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+              isFavorited={favoriteTaskIds.includes(currentLightboxTask.task_id)}
+              downloadUrl={lightboxItem.url}
+              onReuse={() => {
+                settings.setPendingReuseDraft(toDraft(currentLightboxTask));
+                navigate("/create");
+              }}
+              onToggleFavorite={() => toggleFavorite(currentLightboxTask.task_id)}
+              onDelete={sidebarActions?.onDelete ?? (() => undefined)}
+              deleteDisabled={sidebarActions?.deleteDisabled}
+              cancelAction={sidebarActions?.cancelAction}
+              retryActions={sidebarActions?.retryActions}
+              onCopyRequestJson={() => {
+                const payload = buildTaskRequestPayload(currentLightboxTask);
+                const text = JSON.stringify(payload, null, 2);
+                void copyText(text).then(
+                  () => setHint(t("jobs.copyJsonSuccess")),
+                  () => setHint(t("jobs.copyJsonFailed")),
+                );
+              }}
+              isRawResultOpen={isRawResultOpen}
+              onRawResultOpenChange={setIsRawResultOpen}
+              rawResultPending={taskDetailQuery.isPending}
+              rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
+              rawResultPayload={rawResultPayload}
+              errorText={errorMessage(currentLightboxTask, {
+                mapErrorCode,
+                fallbackMessage: t("error.defaultFailure"),
+              })}
+            />
+          }
+        />
       ) : null}
     </div>
   );
-}
-
-function renderLightboxMediaItem({
-  item,
-  isActive,
-  isPortraitMode,
-  t,
-}: {
-  item: LightboxMediaItem;
-  isActive: boolean;
-  isPortraitMode: boolean;
-  t: TranslateFn;
-}) {
-  const mediaClass = isPortraitMode
-    ? "max-h-full max-w-[min(92vw,460px)] object-contain rounded-lg border border-[#DDD6C8] bg-[#EDE8DF] shadow-[0_16px_40px_rgba(56,48,40,0.14)] sm:max-w-[min(72vw,620px)]"
-    : "max-h-full max-w-full object-contain rounded-lg border border-[#DDD6C8] bg-[#EDE8DF] shadow-[0_16px_40px_rgba(56,48,40,0.14)]";
-
-  if (item.kind === "failed") {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-[#7F7364]">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="52"
-          height="52"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <line x1="12" x2="12" y1="8" y2="12" />
-          <line x1="12" x2="12.01" y1="16" y2="16" />
-        </svg>
-        <p className="m-0 text-sm font-semibold">{t("jobs.generationFailed")}</p>
-      </div>
-    );
-  }
-  if (item.kind === "video") {
-    return (
-      <video
-        className={mediaClass}
-        src={item.url}
-        controls={isActive}
-        autoPlay={isActive}
-        loop
-        playsInline
-        muted={!isActive}
-        preload={isActive ? "metadata" : "none"}
-      />
-    );
-  }
-  return <ZoomableImage className={mediaClass} src={item.url} alt={item.taskId} />;
-}
-
-function InfoCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="m-0 text-[10px] uppercase tracking-wide text-[#8B8174]">{label}</p>
-      <p className="m-0 mt-0.5 truncate text-[11px] font-semibold text-[#4A4035]">{value}</p>
-    </div>
-  );
-}
-
-function buildLightboxItems(tasks: VideoTaskDetail[], kind: "image" | "video"): LightboxMediaItem[] {
-  const items: LightboxMediaItem[] = [];
-  for (const task of tasks) {
-    if (kind === "image") {
-      if (task.asset_type !== "image") {
-        continue;
-      }
-      if (task.status === "failed") {
-        items.push({ key: `${task.task_id}_failed`, taskId: task.task_id, url: "", kind: "failed" });
-        continue;
-      }
-      const urls = extractImageUrls(task);
-      urls.forEach((url, index) => {
-        items.push({ key: `${task.task_id}_img_${index}_${url}`, taskId: task.task_id, url, kind: "image" });
-      });
-      continue;
-    }
-    if (task.asset_type !== "video") {
-      continue;
-    }
-    if (task.status === "failed") {
-      items.push({ key: `${task.task_id}_failed`, taskId: task.task_id, url: "", kind: "failed" });
-      continue;
-    }
-    const url = extractVideoUrl(task);
-    if (!url) {
-      continue;
-    }
-    items.push({ key: `${task.task_id}_video_${url}`, taskId: task.task_id, url, kind: "video" });
-  }
-  return items;
-}
-
-function extractVideoPoster(task: VideoTaskDetail): string | null {
-  const result = task.result;
-  if (!result || typeof result !== "object") {
-    return null;
-  }
-  const candidates = [
-    "local_thumbnail_url",
-    "thumbnail_url",
-    "local_poster_url",
-    "poster_url",
-    "cover_url",
-    "preview_image_url",
-    "first_frame_url",
-  ];
-  for (const key of candidates) {
-    const value = (result as Record<string, unknown>)[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function readFavoriteTaskIds(): string[] {
-  const raw = localStorage.getItem(WORKS_FAVORITES_KEY);
-  if (!raw) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.filter((item): item is string => typeof item === "string");
-  } catch {
-    return [];
-  }
-}
-
-function inferTaskPortrait(task: VideoTaskDetail): boolean {
-  const ratio = parseResolutionRatio(task.resolution);
-  if (ratio != null) {
-    return ratio < 1;
-  }
-  const providerWidth = readNumber(task.provider_options, "width");
-  const providerHeight = readNumber(task.provider_options, "height");
-  if (providerWidth != null && providerHeight != null && providerWidth > 0) {
-    return providerHeight / providerWidth > 1;
-  }
-  const providerRatio = readAspectRatio(task.provider_options, "aspect_ratio");
-  if (providerRatio != null) {
-    return providerRatio < 1;
-  }
-  return false;
-}
-
-function parseResolutionRatio(value: string | null): number | null {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.includes("portrait") || normalized.includes("vertical")) {
-    return 9 / 16;
-  }
-  if (normalized.includes("landscape") || normalized.includes("horizontal")) {
-    return 16 / 9;
-  }
-  const match = normalized.match(/(\d+(?:\.\d+)?)\s*[:x/]\s*(\d+(?:\.\d+)?)/);
-  if (!match) {
-    return null;
-  }
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) {
-    return null;
-  }
-  return width / height;
-}
-
-function readNumber(source: Record<string, unknown>, key: string): number | null {
-  const value = source[key];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value.trim());
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function readAspectRatio(source: Record<string, unknown>, key: string): number | null {
-  const value = source[key];
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return null;
-  }
-  const ratio = parseResolutionRatio(value);
-  return ratio != null && ratio > 0 ? ratio : null;
-}
-
-function toDraft(task: VideoTaskDetail) {
-  return {
-    provider: task.provider,
-    model: task.model,
-    operation: task.operation ?? "generate",
-    prompt: task.prompt,
-    negativePrompt: task.negative_prompt ?? "",
-    durationSec: task.duration_sec,
-    resolution: task.resolution ?? "",
-    fps: task.fps,
-    seed: task.seed,
-    providerOptions: task.provider_options ?? {},
-  };
-}
-
-function buildTaskRequestPayload(task: VideoTaskDetail) {
-  return {
-    provider: task.provider,
-    model: task.model,
-    operation: task.operation ?? "generate",
-    prompt: task.prompt,
-    negative_prompt: task.negative_prompt,
-    duration_sec: task.duration_sec,
-    resolution: task.resolution,
-    fps: task.fps,
-    seed: task.seed,
-    provider_options: task.provider_options ?? {},
-  };
-}
-
-function formatRawDebugPayload(task: VideoTaskDetail): string {
-  if (task.status === "failed" && task.error) {
-    const rawError = task.error.raw_error;
-    if (rawError !== undefined) {
-      return JSON.stringify(rawError, null, 2);
-    }
-    return JSON.stringify(task.error, null, 2);
-  }
-  return JSON.stringify(task.result, null, 2);
-}
-
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    const success = document.execCommand("copy");
-    if (!success) {
-      throw new Error("copy command failed");
-    }
-  } finally {
-    document.body.removeChild(textarea);
-  }
 }
 
 function AssetCardMedia({
