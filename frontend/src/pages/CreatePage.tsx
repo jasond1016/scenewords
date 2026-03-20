@@ -9,6 +9,13 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  ArrowsClockwise,
+  CloudArrowUp,
+  ImageSquare,
+  PaperPlaneTilt,
+  VideoCamera,
+} from "@phosphor-icons/react";
+import {
   createVideoTask,
   fetchUploadedFileBinary,
   uploadFile,
@@ -216,14 +223,6 @@ export function CreatePage(props: Props) {
     () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
     [tasks],
   );
-  const successCount = useMemo(
-    () => tasks.filter((task) => task.status === "succeeded").length,
-    [tasks],
-  );
-  const failedCount = useMemo(
-    () => tasks.filter((task) => task.status === "failed" || task.status === "canceled").length,
-    [tasks],
-  );
   const recentTasks = useMemo(
     () =>
       [...tasks]
@@ -349,27 +348,6 @@ export function CreatePage(props: Props) {
     return t("create.promptPlaceholder");
   }, [promptField, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
-  const hasPromptValue = promptValue.trim().length > 0;
-  const hasAttachedAssets = useMemo(
-    () =>
-      quickMediaFields.some((field) => {
-        const key = fieldKey(field);
-        return (files[key]?.length ?? 0) > 0 || (reusedFileIds[key]?.length ?? 0) > 0;
-      }),
-    [files, quickMediaFields, reusedFileIds],
-  );
-  const activeWorkflowStep = useMemo(() => {
-    if (lastSubmittedTaskId) {
-      return 4;
-    }
-    if (hasAttachedAssets) {
-      return 3;
-    }
-    if (hasPromptValue) {
-      return 2;
-    }
-    return 1;
-  }, [hasAttachedAssets, hasPromptValue, lastSubmittedTaskId]);
 
   useEffect(() => {
     if (currentGenerationKind !== "video" || !videoProviders.length) {
@@ -841,153 +819,138 @@ export function CreatePage(props: Props) {
   };
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
-        {t("create.loadingCatalog")}
+      <div className="flex flex-col items-center justify-center gap-4 py-32">
+        <div className="skeleton h-8 w-48" />
+        <div className="skeleton h-4 w-64" />
+        <p className="text-sm text-[var(--c-text-tertiary)]">{t("create.loadingCatalog")}</p>
       </div>
     );
   }
   if (!selectedProvider || !selectedModel || !selectedOperation) {
     return (
-      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
-        {t("create.noAvailable")}
+      <div className="flex flex-col items-center justify-center gap-3 py-32">
+        <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1366px] flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="flex w-full flex-col gap-8">
       <form
-        className="w-full flex flex-col gap-4"
+        className="w-full flex flex-col gap-8"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-stone-900 m-0">Workflow First · Create</h1>
-              <p className="text-xs text-stone-500 m-0 mt-1">默认只展示高频参数；低频参数折叠到 Advanced。</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {canSwitchGenerationKind ? (
-                <div className="inline-flex rounded-full bg-[#ECE7DC] p-1">
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                      currentGenerationKind === "image"
-                        ? "bg-white text-stone-900"
-                        : "text-stone-600 hover:text-stone-900"
-                    }`}
-                    onClick={() => onGenerationKindChanged("image")}
-                  >
-                    {t("create.quickImage")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                      currentGenerationKind === "video"
-                        ? "bg-[#EA580C] text-[#FFF7ED]"
-                        : "text-stone-600 hover:text-stone-900"
-                    }`}
-                    onClick={() => onGenerationKindChanged("video")}
-                  >
-                    {t("create.quickVideo")}
-                  </button>
-                </div>
-              ) : null}
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Queue {inProgressCount}</span>
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Success {successCount}</span>
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Fail {failedCount}</span>
-            </div>
+        {/* ── Page Header ────────────────────────────── */}
+        <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-display m-0">{t("nav.create")}</h1>
+            <p className="m-0 mt-2 max-w-lg text-sm text-[var(--c-text-secondary)]">
+              {locale === "zh-CN"
+                ? "选择模型，输入提示词，生成图片或视频。"
+                : "Choose a model, write your prompt, generate images or video."}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {["1 Prompt", "2 Mode", "3 Assets", "4 Generate"].map((label, index) => (
-              <span
-                key={label}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
-                  index + 1 === activeWorkflowStep
-                    ? "bg-[#EA580C] text-[#FFF7ED]"
-                    : "bg-[#ECE7DC] text-stone-700"
-                }`}
-              >
-                {label}
-              </span>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {canSwitchGenerationKind ? (
+              <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
+                    currentGenerationKind === "image"
+                      ? "bg-cta text-cta-text"
+                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
+                  }`}
+                  onClick={() => onGenerationKindChanged("image")}
+                >
+                  <ImageSquare size={14} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
+                  {t("create.quickImage")}
+                </button>
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
+                    currentGenerationKind === "video"
+                      ? "bg-cta text-cta-text"
+                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
+                  }`}
+                  onClick={() => onGenerationKindChanged("video")}
+                >
+                  <VideoCamera size={14} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
+                  {t("create.quickVideo")}
+                </button>
+              </div>
+            ) : null}
+            {inProgressCount > 0 ? (
+              <span className="tag tag-warning">{t("app.topbar.queue", { count: inProgressCount })}</span>
+            ) : null}
           </div>
         </section>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_370px]">
-          <div className="flex flex-col gap-4">
-            <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-4">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <h2 className="text-base font-bold text-stone-900 m-0">Prompt 主编辑区</h2>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {promptField ? (
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-stone-300 text-stone-600 hover:text-stone-900 hover:border-stone-400 transition-colors"
-                        onClick={() => onFieldChanged(promptField, "")}
-                      >
-                        {t("create.clearPrompt")}
-                      </button>
-                    ) : null}
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#EA580C] text-[#FFF7ED] hover:bg-[#C2410C] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitMutation.isPending}
-                    >
-                      {submitMutation.isPending
-                        ? t("create.submitting")
-                        : selectedProvider.type === "tuzi_image"
-                          ? t("create.generateImage")
-                          : t("create.generateVideo")}
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.provider")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={providerId}
-                      onChange={(event) => setProviderId(event.target.value)}
-                    >
-                      {providerChoices.map((provider) => (
-                        <option key={provider.id} value={provider.id}>{provider.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.model")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={modelName}
-                      onChange={(event) => setModelName(event.target.value)}
-                    >
-                      {selectedProvider.models.map((model) => (
-                        <option key={model.name} value={model.name}>{model.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.quickMode")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={selectedOperation.id}
-                      onChange={(event) => setOperationId(event.target.value)}
-                    >
-                      {selectedModel.operations.map((operation) => (
-                        <option key={operation.id} value={operation.id}>{operation.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex flex-col gap-6">
+            {/* ── Prompt & Controls ──────────────────── */}
+            <section className="card space-y-5">
+              {/* Provider / Model / Operation row */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.provider")}</span>
+                  <select
+                    className="input-base"
+                    value={providerId}
+                    onChange={(event) => setProviderId(event.target.value)}
+                  >
+                    {providerChoices.map((provider) => (
+                      <option key={provider.id} value={provider.id}>{provider.display_name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.model")}</span>
+                  <select
+                    className="input-base"
+                    value={modelName}
+                    onChange={(event) => setModelName(event.target.value)}
+                  >
+                    {selectedProvider.models.map((model) => (
+                      <option key={model.name} value={model.name}>{model.display_name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.quickMode")}</span>
+                  <select
+                    className="input-base"
+                    value={selectedOperation.id}
+                    onChange={(event) => setOperationId(event.target.value)}
+                  >
+                    {selectedModel.operations.map((operation) => (
+                      <option key={operation.id} value={operation.id}>{operation.display_name}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
+              <hr className="divider" />
+
+              {/* Prompt area */}
               {promptField ? (
-                <div className="space-y-1">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-[var(--c-text-secondary)]">Prompt</label>
+                    <div className="flex items-center gap-2">
+                      {promptField ? (
+                        <button
+                          type="button"
+                          className="btn-ghost text-xs"
+                          onClick={() => onFieldChanged(promptField, "")}
+                        >
+                          {t("create.clearPrompt")}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                   <DynamicInput
                     field={promptField}
                     value={promptValue}
@@ -995,19 +958,23 @@ export function CreatePage(props: Props) {
                     onFileChange={() => undefined}
                     placeholder={promptPlaceholder}
                   />
-                  {promptField.help_text ? <small className="text-xs text-stone-500">{promptField.help_text}</small> : null}
+                  {promptField.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{promptField.help_text}</small> : null}
                 </div>
               ) : (
-                <p className="text-sm text-stone-500">{t("create.promptNotSupported")}</p>
+                <p className="text-sm text-[var(--c-text-tertiary)]">{t("create.promptNotSupported")}</p>
               )}
 
               {quickMediaFields.length ? (
-                <div className="space-y-2 rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] p-3">
+                <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-stone-800 m-0">素材输入</p>
-                    <p className="text-xs text-stone-500 m-0">支持复用与上传</p>
+                    <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                      {locale === "zh-CN" ? "素材输入" : "Reference Assets"}
+                    </p>
+                    <p className="m-0 text-[11px] text-[var(--c-text-tertiary)]">
+                      {locale === "zh-CN" ? "支持复用与上传" : "Upload or reuse"}
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {quickMediaFields.map((field) =>
                       renderField(
                         field,
@@ -1024,22 +991,24 @@ export function CreatePage(props: Props) {
                 </div>
               ) : null}
 
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-stone-800 m-0">快捷参数</p>
-                <div className="flex flex-wrap gap-2">
+              <div className="space-y-3">
+                <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                  {locale === "zh-CN" ? "快捷参数" : "Quick Params"}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
                   {resolutionField
                     ? (ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                       <button
                         type="button"
                         key={`ratio_${ratio}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
                           currentRatioDisplay === ratio
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                            ? "bg-cta text-cta-text"
+                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
                         }`}
                         onClick={() => onRatioChanged(ratio)}
                       >
-                        比例 {ratio}
+                        {ratio}
                       </button>
                     ))
                     : null}
@@ -1053,14 +1022,14 @@ export function CreatePage(props: Props) {
                         <button
                           type="button"
                           key={`size_${size}`}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
                             active
-                              ? "bg-stone-800 text-white"
-                              : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                              ? "bg-cta text-cta-text"
+                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
                           }`}
                           onClick={() => onSizeChanged(size)}
                         >
-                          {qualityField ? "质量" : "尺寸"} {label}
+                          {label}
                         </button>
                       );
                     })
@@ -1070,14 +1039,14 @@ export function CreatePage(props: Props) {
                       <button
                         type="button"
                         key={`orientation_${option.value}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
                           orientationValue === option.value
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                            ? "bg-cta text-cta-text"
+                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
                         }`}
                         onClick={() => onOrientationChanged(option.value)}
                       >
-                        方向 {option.label}
+                        {option.label}
                       </button>
                     ))
                     : null}
@@ -1086,14 +1055,14 @@ export function CreatePage(props: Props) {
                       <button
                         type="button"
                         key={`duration_${seconds}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
                           durationValue === String(seconds)
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
+                            ? "bg-cta text-cta-text"
+                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
                         }`}
                         onClick={() => onFieldChanged(durationField, String(seconds))}
                       >
-                        时长 {seconds}s
+                        {seconds}s
                       </button>
                     ))
                     : null}
@@ -1110,29 +1079,45 @@ export function CreatePage(props: Props) {
                 ) : null}
               </div>
 
-              {hint ? <p className="text-xs text-stone-600 m-0">{hint}</p> : null}
+              {hint ? <p className="m-0 text-xs text-[var(--c-text-secondary)]">{hint}</p> : null}
+
+              {/* Submit */}
+              <div className="flex items-center gap-3 border-t border-border pt-4">
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={submitMutation.isPending}
+                >
+                  <PaperPlaneTilt size={15} weight="fill" />
+                  {submitMutation.isPending
+                    ? t("create.submitting")
+                    : selectedProvider.type === "tuzi_image"
+                      ? t("create.generateImage")
+                      : t("create.generateVideo")}
+                </button>
+              </div>
             </section>
 
-            <details className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-3 sm:p-4">
-              <summary className="cursor-pointer list-none flex items-center justify-between text-sm font-semibold text-stone-800">
-                <span>Advanced（默认折叠）</span>
-                <span className="text-xs font-medium text-stone-500">{t("create.advancedOptions", { count: advancedFields.length })}</span>
+            <details className="card group">
+              <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-[var(--c-text)]">
+                <span>{locale === "zh-CN" ? "高级选项" : "Advanced Options"}</span>
+                <span className="text-xs text-[var(--c-text-tertiary)]">{t("create.advancedOptions", { count: advancedFields.length })}</span>
               </summary>
-              <div className="mt-3 space-y-3">
+              <div className="mt-4 space-y-4">
                 {showVeoPromptGuide ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
-                    <h4 className="font-semibold text-blue-800 mb-1">{t("create.veoPromptGuideTitle")}</h4>
-                    <p className="text-blue-600 mb-2">{t("create.veoPromptGuideDesc")}</p>
+                  <div className="rounded-lg border border-[var(--c-border)] bg-info-bg p-3 text-sm">
+                    <h4 className="m-0 mb-1 font-medium text-info-text">{t("create.veoPromptGuideTitle")}</h4>
+                    <p className="m-0 mb-2 text-xs text-info-text/80">{t("create.veoPromptGuideDesc")}</p>
                     <div className="flex flex-wrap gap-3">
-                      <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkDocs")}</a>
-                      <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkBlog")}</a>
+                      <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-xs text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkDocs")}</a>
+                      <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-xs text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkBlog")}</a>
                     </div>
                   </div>
                 ) : null}
                 {advancedGroups.map((group) => (
-                  <section key={group.id} className="rounded-lg border border-stone-200 bg-white p-3">
-                    <p className="text-sm font-semibold text-stone-800 m-0 mb-2">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <section key={group.id} className="rounded-lg border border-border bg-surface p-4">
+                    <p className="m-0 mb-3 text-xs font-medium text-[var(--c-text)]">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       {group.fields.map((field) =>
                         renderField(
                           field,
@@ -1151,35 +1136,39 @@ export function CreatePage(props: Props) {
             </details>
 
             {lastSubmittedTaskId ? (
-              <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4">
+              <section className="card">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-800 m-0">{t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}</p>
-                  <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => setLastSubmittedTaskId(null)}>{t("create.feedbackContinue")}</button>
+                  <p className="m-0 text-sm font-medium text-[var(--c-text)]">{t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}</p>
+                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>{t("create.feedbackContinue")}</button>
                 </div>
-                <p className={`text-sm font-medium mt-2 mb-0 ${
+                <p className={`m-0 mt-2 text-sm font-medium ${
                   statusTone(trackedTask) === "ok"
-                    ? "text-green-600"
+                    ? "text-success-text"
                     : statusTone(trackedTask) === "danger"
-                      ? "text-red-600"
+                      ? "text-error-text"
                       : statusTone(trackedTask) === "warn"
-                        ? "text-amber-600"
-                        : "text-stone-500"
+                        ? "text-warning-text"
+                        : "text-[var(--c-text-secondary)]"
                 }`}>
                   {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
                 </p>
                 {trackedTask?.status === "failed" && trackedTask.error ? (
-                  <p className="text-xs text-red-500 mt-2 mb-0">{errorMessage(trackedTask)}</p>
+                  <p className="m-0 mt-2 text-xs text-error-text">{errorMessage(trackedTask)}</p>
                 ) : null}
               </section>
             ) : null}
           </div>
 
-          <aside className="h-fit rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 lg:sticky lg:top-6">
+          <aside className="h-fit rounded-xl border border-border bg-surface p-5 lg:sticky lg:top-20">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-stone-900 m-0">最近任务</h3>
-              <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => navigate("/works")}>查看全部</button>
+              <h3 className="m-0 text-sm font-medium text-[var(--c-text)]">
+                {locale === "zh-CN" ? "最近任务" : "Recent Tasks"}
+              </h3>
+              <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
+                {locale === "zh-CN" ? "查看全部" : "View all"}
+              </button>
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-2">
               {recentTasks.length ? (
                 recentTasks.map((task) => {
                   const isSelected = selectedRecentTaskId === task.task_id;
@@ -1188,40 +1177,42 @@ export function CreatePage(props: Props) {
                     <div key={task.task_id} className="space-y-2">
                       <button
                         type="button"
-                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                        className={`w-full text-left rounded-lg border p-3 transition-all duration-150 ${
                           isSelected
-                            ? "border-[#E8692A] bg-[#FFF7ED]"
-                            : "border-[#DDD6C8] bg-[#F6F3EC] hover:border-stone-400"
+                            ? "border-[var(--c-text)] bg-surface shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+                            : "border-border bg-surface-raised hover:border-[#D4D4D4]"
                         }`}
                         onClick={() => setSelectedRecentTaskId(task.task_id)}
                       >
-                        <p className="text-sm font-medium text-stone-900 m-0 line-clamp-2">{task.prompt?.trim() || "(No prompt)"}</p>
-                        <p className="text-xs text-stone-500 m-0 mt-1">{task.provider} · {task.model}</p>
-                        <p className={`text-xs font-semibold m-0 mt-1 ${
+                        <p className="m-0 line-clamp-2 text-sm leading-relaxed text-[var(--c-text)]">{task.prompt?.trim() || "(No prompt)"}</p>
+                        <p className="m-0 mt-1.5 text-[11px] text-[var(--c-text-tertiary)]">{task.provider} · {task.model}</p>
+                        <p className={`m-0 mt-1 text-[11px] font-medium ${
                           statusTone(task) === "ok"
-                            ? "text-green-600"
+                            ? "text-success-text"
                             : statusTone(task) === "danger"
-                              ? "text-red-600"
+                              ? "text-error-text"
                               : statusTone(task) === "warn"
-                                ? "text-amber-600"
-                                : "text-stone-500"
+                                ? "text-warning-text"
+                                : "text-[var(--c-text-tertiary)]"
                         }`}>
                           {statusLabel(task)}
                         </p>
                       </button>
 
                       {isSelected ? (
-                        <div className="rounded-lg border border-[#DDD6C8] bg-white p-3 space-y-3">
+                        <div className="rounded-lg border border-border bg-surface p-3 space-y-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="m-0 text-xs font-semibold text-stone-800">任务详情</p>
-                            <span className={`text-[11px] font-semibold ${
+                            <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                              {locale === "zh-CN" ? "任务详情" : "Task Detail"}
+                            </p>
+                            <span className={`tag ${
                               statusTone(task) === "ok"
-                                ? "text-green-600"
+                                ? "tag-success"
                                 : statusTone(task) === "danger"
-                                  ? "text-red-600"
+                                  ? "tag-error"
                                   : statusTone(task) === "warn"
-                                    ? "text-amber-600"
-                                    : "text-stone-500"
+                                    ? "tag-warning"
+                                    : "tag-neutral"
                             }`}>
                               {statusLabel(task)}
                             </span>
@@ -1229,7 +1220,7 @@ export function CreatePage(props: Props) {
                           {preview ? (
                             <button
                               type="button"
-                              className="block w-full overflow-hidden rounded-md border border-[#E2DBC9] bg-[#F4EFE5] p-0 text-left transition-colors hover:border-[#C9C0AF]"
+                              className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-colors hover:border-[#D4D4D4]"
                               onClick={() => setRecentOverlayTaskId(task.task_id)}
                               title={locale === "zh-CN" ? "点击查看详情" : "Open detail"}
                             >
@@ -1251,17 +1242,17 @@ export function CreatePage(props: Props) {
                               )}
                             </button>
                           ) : null}
-                          <p className="m-0 text-xs text-stone-700 line-clamp-3">
+                          <p className="m-0 text-xs leading-relaxed text-[var(--c-text-secondary)] line-clamp-3">
                             {task.prompt?.trim() || "(No prompt)"}
                           </p>
-                          <p className="m-0 text-[11px] text-stone-500">
+                          <p className="m-0 font-mono text-[11px] text-[var(--c-text-tertiary)]">
                             {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {promptField ? (
                               <button
                                 type="button"
-                                className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-1.5 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+                                className="btn-secondary text-xs"
                                 onClick={() => {
                                   settings.setPendingReuseDraft(toDraft(task));
                                   setHint(
@@ -1271,6 +1262,7 @@ export function CreatePage(props: Props) {
                                   );
                                 }}
                               >
+                                <ArrowsClockwise size={13} />
                                 {locale === "zh-CN" ? "复用 Prompt" : "Reuse Prompt"}
                               </button>
                             ) : null}
@@ -1281,7 +1273,9 @@ export function CreatePage(props: Props) {
                   );
                 })
               ) : (
-                <p className="text-xs text-stone-500 m-0">暂无任务</p>
+                <p className="m-0 py-6 text-center text-xs text-[var(--c-text-tertiary)]">
+                  {locale === "zh-CN" ? "暂无任务" : "No tasks yet"}
+                </p>
               )}
             </div>
           </aside>
@@ -1429,7 +1423,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base"
       >
         {durationOptions.map((seconds) => (
           <option key={seconds} value={String(seconds)}>
@@ -1448,7 +1442,7 @@ function DynamicInput(props: {
         required={field.required}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full resize-y"
+        className="input-base resize-y"
       />
     );
   }
@@ -1458,7 +1452,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base"
       >
         {(field.options ?? []).map((option) => (
           <option key={option.value} value={option.value}>
@@ -1545,7 +1539,7 @@ function DynamicInput(props: {
 
     return (
       <div
-        className={`border-2 border-dashed rounded-xl p-4 transition-colors ${isDragOver ? "border-coral bg-coral/5" : "border-gray-200 dark:border-white/10 bg-surface"
+        className={`rounded-xl border-2 border-dashed p-4 transition-colors ${isDragOver ? "border-accent bg-accent-bg" : "border-border bg-surface-raised"
           }`}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
@@ -1563,9 +1557,10 @@ function DynamicInput(props: {
         <div className="flex items-center gap-2 mb-2">
           <button
             type="button"
-            className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
+            className="btn-secondary text-xs"
             onClick={triggerPick}
           >
+            <CloudArrowUp size={14} />
             {!hasFiles
               ? t("create.fileUploadImage")
               : isMulti
@@ -1575,13 +1570,13 @@ function DynamicInput(props: {
           {hasFiles ? (
             <button
               type="button"
-              className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
+              className="btn-ghost text-xs"
               onClick={clearAll}
             >
               {t("create.fileClearAll")}
             </button>
           ) : null}
-          <span className="text-xs text-gray-400">
+          <span className="text-[11px] text-[var(--c-text-tertiary)]">
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
@@ -1596,7 +1591,7 @@ function DynamicInput(props: {
               const item = reusedPreviewMap.get(fileId);
               const previewIndexForItem = previewIndexByKey.get(`reused_${fileId}`) ?? -1;
               return (
-                <article key={`${fileId}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
+                <article key={`${fileId}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
                   {item ? (
                     <button
                       type="button"
@@ -1610,13 +1605,13 @@ function DynamicInput(props: {
                       <img className="w-full aspect-square object-cover block" src={item.url} alt={item.name} />
                     </button>
                   ) : (
-                    <div className="aspect-square flex items-center justify-center text-xs text-gray-400">{t("create.fileReusedCount", { count: 1 })}</div>
+                    <div className="aspect-square flex items-center justify-center text-xs text-[var(--c-text-tertiary)]">{t("create.fileReusedCount", { count: 1 })}</div>
                   )}
                   <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                    <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
+                    <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
+                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors hover:text-[#7A1F1F]"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1631,7 +1626,7 @@ function DynamicInput(props: {
               );
             })}
             {filePreviews.map((item, index) => (
-              <article key={`${item.file.name}_${item.file.size}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-white/5 border border-gray-100 dark:border-white/10">
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
                 <button
                   type="button"
                   className="w-full bg-transparent border-none p-0 cursor-pointer"
@@ -1646,10 +1641,10 @@ function DynamicInput(props: {
                   <img className="w-full aspect-square object-cover block" src={item.url} alt={item.file.name} />
                 </button>
                 <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                  <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item.file.name}>{item.file.name}</p>
+                  <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
+                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors hover:text-[#7A1F1F]"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1664,14 +1659,14 @@ function DynamicInput(props: {
             ))}
           </div>
         ) : (
-          <button type="button" className="w-full py-8 text-xs text-gray-400 bg-transparent border-none cursor-pointer hover:text-gray-600 transition-colors" onClick={triggerPick}>
+          <button type="button" className="w-full cursor-pointer border-none bg-transparent py-8 text-xs text-[var(--c-text-tertiary)] transition-colors hover:text-[var(--c-text-secondary)]" onClick={triggerPick}>
             {t("create.fileOnlyImages")}
           </button>
         )}
 
         {previewIndex != null && activePreviewItems[previewIndex] ? (
           <div
-            className="fixed inset-0 z-50 bg-dark-overlay flex items-center justify-center"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-overlay"
             role="dialog"
             aria-modal="true"
             onClick={() => setPreviewIndex(null)}
@@ -1681,22 +1676,22 @@ function DynamicInput(props: {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-center gap-4">
-                <p className="text-white/60 text-xs m-0">
+                <p className="m-0 text-xs text-white/60">
                   {t("jobs.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"
-                  className="text-white/60 hover:text-white text-sm transition-colors bg-transparent border-none cursor-pointer"
+                  className="cursor-pointer border-none bg-transparent text-sm text-white/60 transition-colors hover:text-white"
                   onClick={() => setPreviewIndex(null)}
                 >
-                  {t("common.close")} ✕
+                  {t("common.close")}
                 </button>
               </div>
               <div className="relative flex items-center gap-4">
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
+                    className="w-10 h-10 rounded-full flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1718,7 +1713,7 @@ function DynamicInput(props: {
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
+                    className="w-10 h-10 rounded-full flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1750,7 +1745,7 @@ function DynamicInput(props: {
         step={field.step ?? undefined}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base font-mono"
       />
     );
   }
@@ -1761,7 +1756,7 @@ function DynamicInput(props: {
       required={field.required}
       placeholder={resolvedPlaceholder}
       onChange={(event) => onValueChange(event.target.value)}
-      className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+      className="input-base"
     />
   );
 }
@@ -2058,7 +2053,7 @@ function renderField(
   const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
     <Wrapper key={key} className={className}>
-      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{field.label}</span>
+    <span className="text-xs font-medium text-[var(--c-text-secondary)]">{field.label}</span>
       <DynamicInput
         field={field}
         value={value}
@@ -2068,7 +2063,7 @@ function renderField(
         onValueChange={(next) => onFieldChanged(field, next)}
         onFileChange={(nextFiles) => onFileChanged(field, nextFiles)}
       />
-      {field.help_text ? <small className="text-xs text-gray-400">{field.help_text}</small> : null}
+      {field.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{field.help_text}</small> : null}
     </Wrapper>
   );
 }
