@@ -3,6 +3,7 @@ import Lightbox from "yet-another-react-lightbox";
 import Inline from "yet-another-react-lightbox/plugins/inline";
 import Video from "yet-another-react-lightbox/plugins/video";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
+import { WarningCircle } from "@phosphor-icons/react";
 import { useI18n } from "../i18n";
 import {
   mapLightboxItemsToSlides,
@@ -118,23 +119,9 @@ function isFailedSlide(slide: AppLightboxSlide): slide is FailedSlide {
 
 function FailedSlideCard(props: { label: string }) {
   return (
-    <div className="app-lightbox-stage__failed flex h-full w-full flex-col items-center justify-center gap-3 text-[#7F7364]">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="52"
-        height="52"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <line x1="12" x2="12" y1="8" y2="12" />
-        <line x1="12" x2="12.01" y1="16" y2="16" />
-      </svg>
-      <p className="m-0 text-sm font-semibold">{props.label}</p>
+    <div className="app-lightbox-stage__failed flex h-full w-full flex-col items-center justify-center gap-3 text-[var(--c-text-secondary)]">
+      <WarningCircle size={48} weight="thin" />
+      <p className="m-0 text-sm font-medium">{props.label}</p>
     </div>
   );
 }

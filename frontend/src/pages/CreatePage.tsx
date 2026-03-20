@@ -10,6 +10,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowsClockwise,
+  CaretLeft,
+  CaretRight,
   CloudArrowUp,
   ImageSquare,
   PaperPlaneTilt,
@@ -51,6 +53,8 @@ import {
   valueToStoredString,
 } from "../utils";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
+import { SkeletonForm, EmptyStateTasks } from "../components/Skeletons";
+import { ScrollReveal } from "../useScrollEntry";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -819,10 +823,12 @@ export function CreatePage(props: Props) {
   };
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-32">
-        <div className="skeleton h-8 w-48" />
-        <div className="skeleton h-4 w-64" />
-        <p className="text-sm text-[var(--c-text-tertiary)]">{t("create.loadingCatalog")}</p>
+      <div className="flex w-full flex-col gap-8">
+        <div className="flex flex-col gap-2">
+          <div className="skeleton h-8 w-40" />
+          <div className="skeleton h-4 w-72" />
+        </div>
+        <SkeletonForm />
       </div>
     );
   }
@@ -844,7 +850,7 @@ export function CreatePage(props: Props) {
         }}
       >
         {/* ── Page Header ────────────────────────────── */}
-        <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <ScrollReveal className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-display m-0">{t("nav.create")}</h1>
             <p className="m-0 mt-2 max-w-lg text-sm text-[var(--c-text-secondary)]">
@@ -886,7 +892,7 @@ export function CreatePage(props: Props) {
               <span className="tag tag-warning">{t("app.topbar.queue", { count: inProgressCount })}</span>
             ) : null}
           </div>
-        </section>
+        </ScrollReveal>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="flex flex-col gap-6">
@@ -1273,9 +1279,7 @@ export function CreatePage(props: Props) {
                   );
                 })
               ) : (
-                <p className="m-0 py-6 text-center text-xs text-[var(--c-text-tertiary)]">
-                  {locale === "zh-CN" ? "暂无任务" : "No tasks yet"}
-                </p>
+                <EmptyStateTasks locale={locale} />
               )}
             </div>
           </aside>
@@ -1702,7 +1706,7 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    ‹
+                    <CaretLeft size={18} weight="bold" />
                   </button>
                 ) : null}
                 <img
@@ -1724,7 +1728,7 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    ›
+                    <CaretRight size={18} weight="bold" />
                   </button>
                 ) : null}
               </div>

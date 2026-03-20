@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import {
+  Star,
+  Play,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
+import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
+import { ScrollReveal } from "../useScrollEntry";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
@@ -314,8 +321,12 @@ export function JobsPage(props: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32 text-sm text-[var(--c-text-secondary)]">
-        {t("jobs.loading")}
+      <div className="flex w-full flex-col gap-8">
+        <div className="flex flex-col gap-2">
+          <div className="skeleton h-8 w-32" />
+          <div className="skeleton h-4 w-64" />
+        </div>
+        <SkeletonGrid count={6} />
       </div>
     );
   }
@@ -329,7 +340,7 @@ export function JobsPage(props: Props) {
 
   return (
     <div className="flex w-full flex-col gap-8">
-      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <ScrollReveal className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-display m-0">
@@ -356,7 +367,7 @@ export function JobsPage(props: Props) {
             </span>
           </div>
         </div>
-      </section>
+      </ScrollReveal>
 
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -534,25 +545,11 @@ function AssetCardMedia({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs">
           {isFailed ? (
             <>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" x2="12" y1="9" y2="13" />
-                <line x1="12" x2="12.01" y1="17" y2="17" />
-              </svg>
-              <span className="font-semibold">{t("jobs.generationFailed")}</span>
+              <WarningCircle size={22} weight="regular" />
+              <span className="font-medium">{t("jobs.generationFailed")}</span>
             </>
           ) : (
-            <span className="font-semibold">
+            <span className="font-medium">
               {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
             </span>
           )}
@@ -594,18 +591,9 @@ function AssetCardMedia({
           <div className="absolute inset-0 bg-gradient-to-br from-[#F3EBDD] via-[#E7DFD2] to-[#DDD4C6]" />
           <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-2">
-            <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)]">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
-          {locale === "zh-CN" ? "视频加载中…" : "Loading video..."}
+            <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
+              <Play size={11} weight="fill" />
+              {locale === "zh-CN" ? "视频加载中…" : "Loading video..."}
             </span>
           </div>
         </div>
@@ -743,11 +731,7 @@ function MasonryGrid({
   }, [columnCount, items]);
 
   if (!items.length) {
-    return (
-      <div className="flex w-full items-center justify-center py-16 text-sm text-[var(--c-text-tertiary)]">
-        {t("jobs.assetEmpty")}
-      </div>
-    );
+    return <EmptyStateWorks locale={locale} />;
   }
 
   return (
@@ -784,7 +768,7 @@ function MasonryGrid({
                   }}
                   title={isFavorite ? (locale === "zh-CN" ? "取消收藏" : "Unfavorite") : (locale === "zh-CN" ? "收藏" : "Favorite")}
                 >
-                  ★
+                  <Star size={13} weight={isFavorite ? "fill" : "regular"} />
                 </button>
 
                 <AssetCardMedia
