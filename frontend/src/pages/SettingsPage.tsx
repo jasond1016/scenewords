@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
 import { useI18n } from "../i18n";
 import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
 import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
+import { ScrollReveal } from "../useScrollEntry";
 
 interface Props {
   pricingVersion: string | null;
@@ -145,7 +147,7 @@ export function SettingsPage(props: Props) {
 
   return (
     <div className="flex w-full flex-col gap-8">
-      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <ScrollReveal className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-display m-0">
@@ -161,13 +163,14 @@ export function SettingsPage(props: Props) {
             <button
               type="button"
               onClick={handleRestoreDefaults}
-              className="rounded-lg bg-[rgba(0,0,0,0.05)] px-3 py-1.5 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-[rgba(0,0,0,0.06)]"
+              className="btn-secondary text-xs"
             >
+              <ArrowCounterClockwise size={14} />
               {isZh ? "恢复默认" : "Restore Defaults"}
             </button>
           </div>
         </div>
-      </section>
+      </ScrollReveal>
 
       <section className="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)_340px]">
         <aside className="card">
@@ -453,7 +456,7 @@ export function SettingsPage(props: Props) {
                 />
               </div>
 
-              <div className="rounded-lg border border-warning-text bg-accent-bg p-3">
+              <div className="rounded-lg border border-border bg-warning-bg p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-warning-text">
                     {isZh ? "本地缓存摘要" : "Local Cache Summary"}
@@ -471,8 +474,9 @@ export function SettingsPage(props: Props) {
                 <button
                   type="button"
                   onClick={clearLocalCache}
-                  className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cta"
+                  className="btn-danger mt-2 text-xs"
                 >
+                  <Trash size={13} />
                   {t("settings.clearLocalCache")}
                 </button>
               </div>
@@ -499,10 +503,10 @@ function CategoryButton({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${
+      className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
         active
           ? "bg-cta text-cta-text"
-          : "border border-border bg-surface-raised text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.03)]"
+          : "text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[var(--c-text)]"
       }`}
     >
       {label}
@@ -543,7 +547,7 @@ function LanguageSwitcher({
   ];
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg bg-[rgba(0,0,0,0.05)] p-1">
+    <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
       {options.map((option) => {
         const active = value === option.value;
         return (
@@ -551,8 +555,8 @@ function LanguageSwitcher({
             type="button"
             key={option.value}
             onClick={() => onChange(option.value)}
-            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              active ? "bg-cta text-cta-text" : "text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.06)]"
+            className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
+              active ? "bg-cta text-cta-text" : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
             }`}
           >
             {option.label}
@@ -575,14 +579,14 @@ function ToggleRow({
   isZh: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-raised px-3 py-2">
-      <span className="text-sm font-medium text-[var(--c-text)]">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-raised px-3 py-2.5">
+      <span className="text-sm text-[var(--c-text)]">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
-        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
           checked
-            ? "bg-success-bg text-success-text hover:hover:bg-success-bg"
+            ? "bg-success-bg text-success-text hover:bg-[#D8ECDB]"
             : "bg-[rgba(0,0,0,0.05)] text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.06)]"
         }`}
       >

@@ -131,7 +131,7 @@ export function MediaDetailSidebar(props: Props) {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="rounded-lg bg-cta px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cta-hover"
+            className="btn-primary text-xs"
             onClick={onReuse}
           >
             {t("jobs.reusePrompt")}
@@ -140,7 +140,7 @@ export function MediaDetailSidebar(props: Props) {
             <a
               href={downloadUrl}
               download
-              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+              className="btn-secondary text-xs"
               title={t("jobs.download")}
             >
               {t("jobs.download")}
@@ -149,7 +149,7 @@ export function MediaDetailSidebar(props: Props) {
           {cancelAction ? (
             <button
               type="button"
-              className="rounded-lg border border-[#F1D7CF] bg-error-bg px-3 py-2 text-xs font-semibold text-error-text transition-colors hover:bg-[#FAE8E4]"
+              className="btn-danger text-xs"
               onClick={cancelAction.onCancel}
               disabled={cancelAction.disabled}
             >
@@ -159,7 +159,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onSameSeed ? (
             <button
               type="button"
-              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+              className="btn-secondary text-xs"
               onClick={retryActions.onSameSeed}
               disabled={retryActions.disabled}
             >
@@ -169,7 +169,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onNewSeed ? (
             <button
               type="button"
-              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+              className="btn-secondary text-xs"
               onClick={retryActions.onNewSeed}
               disabled={retryActions.disabled}
             >
@@ -179,7 +179,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onDefault ? (
             <button
               type="button"
-              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+              className="btn-secondary text-xs"
               onClick={retryActions.onDefault}
               disabled={retryActions.disabled}
             >
@@ -188,7 +188,7 @@ export function MediaDetailSidebar(props: Props) {
           ) : null}
           <button
             type="button"
-            className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+            className="btn-secondary text-xs"
             onClick={onToggleFavorite}
           >
             {isFavorited
@@ -197,7 +197,7 @@ export function MediaDetailSidebar(props: Props) {
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[#F1D7CF] bg-error-bg px-3 py-2 text-xs font-semibold text-error-text transition-colors hover:bg-[#FAE8E4]"
+            className="btn-danger text-xs"
             onClick={onDelete}
             disabled={deleteDisabled}
           >
