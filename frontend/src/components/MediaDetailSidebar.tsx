@@ -65,29 +65,29 @@ export function MediaDetailSidebar(props: Props) {
       className="flex h-full flex-col gap-3 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
       data-overlay-scroll="allow"
     >
-      <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
+      <div className="rounded-xl border border-border bg-white p-3">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="m-0 text-sm font-semibold text-[#2C241E]">{t("jobs.assetDetailTitle")}</h3>
-            <p className="m-0 mt-1 truncate font-mono text-[11px] text-[#7C7266]">
+            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("jobs.assetDetailTitle")}</h3>
+            <p className="m-0 mt-1 truncate font-mono text-[11px] text-[var(--c-text-tertiary)]">
               {task.task_id}
             </p>
             {task.provider_job_id ? (
-              <p className="m-0 mt-1 truncate text-[10px] text-[#8A7E71]">
+              <p className="m-0 mt-1 truncate text-[10px] text-[var(--c-text-tertiary)]">
                 {t("jobs.upstreamJob")}: {task.provider_job_id}
               </p>
             ) : null}
             {task.provider_status ? (
-              <p className="m-0 mt-0.5 truncate text-[10px] text-[#8A7E71]">
+              <p className="m-0 mt-0.5 truncate text-[10px] text-[var(--c-text-tertiary)]">
                 {t("jobs.upstreamStatus")}: {task.provider_status}
               </p>
             ) : null}
           </div>
-          <span className="rounded-full bg-[#EEE8DB] px-2 py-1 text-[10px] font-semibold text-[#6B6257] whitespace-nowrap">
+          <span className="rounded-full bg-[rgba(0,0,0,0.05)] px-2 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] whitespace-nowrap">
             {statusLabel}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-[#6D6459]">
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--c-text-secondary)]">
           <InfoCell label={t("jobs.provider")} value={task.provider} />
           <InfoCell label={t("jobs.model")} value={task.model} />
           <InfoCell label={t("jobs.resolution")} value={task.resolution ?? t("common.na")} />
@@ -95,21 +95,21 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="min-h-0 rounded-xl border border-[#E2DBC9] bg-white p-3">
-        <p className="m-0 mb-1 text-[11px] font-semibold text-[#675E52]">Prompt</p>
+      <div className="min-h-0 rounded-xl border border-border bg-white p-3">
+        <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">Prompt</p>
         <div
           className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
           data-overlay-scroll="allow"
         >
-          <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-[#302822]">
+          <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--c-text)]">
             {task.prompt || t("jobs.emptyPrompt")}
           </p>
           {task.negative_prompt ? (
-            <div className="mt-2 border-t border-[#F0EBE2] pt-2">
-              <p className="m-0 mb-1 text-[11px] font-semibold text-[#776E62]">
+            <div className="mt-2 border-t border-border pt-2">
+              <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">
                 {locale === "zh-CN" ? "负向提示词" : "Negative Prompt"}
               </p>
-              <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[#6A6054]">
+              <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
                 {task.negative_prompt}
               </p>
             </div>
@@ -117,21 +117,21 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#E2DBC9] bg-white p-3">
+      <div className="rounded-xl border border-border bg-white p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {isFavorited ? (
-            <span className="rounded-full bg-[#FFF1E8] px-2 py-1 text-[10px] font-semibold text-[#A25329]">
+            <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
               {locale === "zh-CN" ? "已收藏" : "Favorited"}
             </span>
           ) : null}
-          <span className="rounded-full bg-[#ECE9FF] px-2 py-1 text-[10px] font-semibold text-[#4B43A0]">
+          <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
             {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="rounded-lg bg-[#E8692A] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#D95E22]"
+            className="rounded-lg bg-cta px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cta-hover"
             onClick={onReuse}
           >
             {t("jobs.reusePrompt")}
@@ -140,7 +140,7 @@ export function MediaDetailSidebar(props: Props) {
             <a
               href={downloadUrl}
               download
-              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
               title={t("jobs.download")}
             >
               {t("jobs.download")}
@@ -149,7 +149,7 @@ export function MediaDetailSidebar(props: Props) {
           {cancelAction ? (
             <button
               type="button"
-              className="rounded-lg border border-[#E4C9BD] bg-[#FFF8F5] px-3 py-2 text-xs font-semibold text-[#A64633] transition-colors hover:bg-[#FDEDE6]"
+              className="rounded-lg border border-[#F1D7CF] bg-error-bg px-3 py-2 text-xs font-semibold text-error-text transition-colors hover:bg-[#FAE8E4]"
               onClick={cancelAction.onCancel}
               disabled={cancelAction.disabled}
             >
@@ -159,7 +159,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onSameSeed ? (
             <button
               type="button"
-              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
               onClick={retryActions.onSameSeed}
               disabled={retryActions.disabled}
             >
@@ -169,7 +169,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onNewSeed ? (
             <button
               type="button"
-              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
               onClick={retryActions.onNewSeed}
               disabled={retryActions.disabled}
             >
@@ -179,7 +179,7 @@ export function MediaDetailSidebar(props: Props) {
           {retryActions?.onDefault ? (
             <button
               type="button"
-              className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
               onClick={retryActions.onDefault}
               disabled={retryActions.disabled}
             >
@@ -188,7 +188,7 @@ export function MediaDetailSidebar(props: Props) {
           ) : null}
           <button
             type="button"
-            className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-2 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
+            className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
             onClick={onToggleFavorite}
           >
             {isFavorited
@@ -197,7 +197,7 @@ export function MediaDetailSidebar(props: Props) {
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[#E4C9BD] bg-[#FFF8F5] px-3 py-2 text-xs font-semibold text-[#A64633] transition-colors hover:bg-[#FDEDE6]"
+            className="rounded-lg border border-[#F1D7CF] bg-error-bg px-3 py-2 text-xs font-semibold text-error-text transition-colors hover:bg-[#FAE8E4]"
             onClick={onDelete}
             disabled={deleteDisabled}
           >
@@ -206,14 +206,14 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <details className="rounded-xl border border-[#E2DBC9] bg-white p-3">
-        <summary className="cursor-pointer text-xs font-semibold text-[#6E6458]">
+      <details className="rounded-xl border border-border bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
           {t("jobs.moreActions")}
         </summary>
         <div className="mt-2 flex flex-col gap-2">
           <button
             type="button"
-            className="text-left text-xs text-[#5B5146] underline decoration-dotted underline-offset-2 hover:text-[#2F271F]"
+            className="text-left text-xs text-[var(--c-text-secondary)] underline decoration-dotted underline-offset-2 hover:text-[var(--c-text)]"
             onClick={onCopyRequestJson}
           >
             {t("jobs.copyRequestJson")}
@@ -224,20 +224,20 @@ export function MediaDetailSidebar(props: Props) {
               onRawResultOpenChange(event.currentTarget.open);
             }}
           >
-            <summary className="cursor-pointer text-xs text-[#5B5146]">
+            <summary className="cursor-pointer text-xs text-[var(--c-text-secondary)]">
               {t("jobs.rawResult")}
             </summary>
             {isRawResultOpen ? (
               rawResultPending ? (
-                <p className="m-0 mt-2 text-[11px] text-[#776C60]">
+                <p className="m-0 mt-2 text-[11px] text-[var(--c-text-tertiary)]">
                   {locale === "zh-CN" ? "加载中..." : "Loading..."}
                 </p>
               ) : rawResultError ? (
-                <p className="m-0 mt-2 text-[11px] text-[#A04431]">
+                <p className="m-0 mt-2 text-[11px] text-error-text">
                   {rawResultError}
                 </p>
               ) : (
-                <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-[#EEE6D8] bg-[#F8F4EC] p-2 text-[10px] text-[#5E5449]">
+                <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-border bg-canvas p-2 text-[10px] text-[var(--c-text-secondary)]">
                   {rawResultPayload}
                 </pre>
               )
@@ -247,7 +247,7 @@ export function MediaDetailSidebar(props: Props) {
       </details>
 
       {errorText ? (
-        <p className="m-0 rounded-lg border border-[#F1D7CF] bg-[#FFF1ED] px-2.5 py-2 text-xs text-[#A04431]">
+        <p className="m-0 rounded-lg border border-[#F1D7CF] bg-error-bg px-2.5 py-2 text-xs text-error-text">
           {errorText}
         </p>
       ) : null}
@@ -258,8 +258,8 @@ export function MediaDetailSidebar(props: Props) {
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="m-0 text-[10px] uppercase tracking-wide text-[#8B8174]">{label}</p>
-      <p className="m-0 mt-0.5 truncate text-[11px] font-semibold text-[#4A4035]">{value}</p>
+      <p className="m-0 text-[10px] uppercase tracking-wide text-[var(--c-text-tertiary)]">{label}</p>
+      <p className="m-0 mt-0.5 truncate text-[11px] font-semibold text-[var(--c-text)]">{value}</p>
     </div>
   );
 }
