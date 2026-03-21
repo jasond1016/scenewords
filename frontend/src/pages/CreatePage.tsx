@@ -845,6 +845,32 @@ export function CreatePage(props: Props) {
     }
     return "muted";
   };
+  const estimatedWaitLabel = (task: VideoTaskDetail | null): string | null => {
+    if (!task || (task.status !== "queued" && task.status !== "running")) {
+      return null;
+    }
+    const model = task.model.toLowerCase();
+    const provider = task.provider.toLowerCase();
+    let minSec = 30;
+    let maxSec = 120;
+    if (model.includes("veo")) {
+      minSec = 30;
+      maxSec = 180;
+    } else if (model.includes("sora")) {
+      minSec = 60;
+      maxSec = 300;
+    } else if (provider.includes("comfy")) {
+      minSec = 60;
+      maxSec = 600;
+    } else if (provider.includes("image") || model.includes("image") || model.includes("gemini")) {
+      minSec = 10;
+      maxSec = 90;
+    }
+    const fmt = (s: number) => s >= 60 ? `${Math.round(s / 60)}min` : `${s}s`;
+    return locale === "zh-CN"
+      ? `预计 ${fmt(minSec)} – ${fmt(maxSec)}`
+      : `est. ${fmt(minSec)} – ${fmt(maxSec)}`;
+  };
   if (loading) {
     return (
       <div className="flex w-full flex-col gap-8">
@@ -917,7 +943,7 @@ export function CreatePage(props: Props) {
           </div>
         </ScrollReveal>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-6">
             {/* ── Prompt & Controls ──────────────────── */}
             <section className="card space-y-5">
@@ -1215,13 +1241,20 @@ export function CreatePage(props: Props) {
                 {trackedTask && (trackedTask.status === "queued" || trackedTask.status === "running") ? (
                   <div className="flex items-center gap-3 rounded-lg bg-warning-bg px-3 py-2.5">
                     <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning-text" />
-                    <p className="m-0 text-xs text-warning-text">
-                      {trackedTask.status === "queued"
-                        ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
-                            ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
-                            : t("create.feedbackQueued"))
-                        : t("create.feedbackRunning")}
-                    </p>
+                    <div className="flex flex-1 items-center justify-between gap-2">
+                      <p className="m-0 text-xs text-warning-text">
+                        {trackedTask.status === "queued"
+                          ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
+                              ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
+                              : t("create.feedbackQueued"))
+                          : t("create.feedbackRunning")}
+                      </p>
+                      {estimatedWaitLabel(trackedTask) ? (
+                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-warning-text/70">
+                          {estimatedWaitLabel(trackedTask)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
 
@@ -1281,16 +1314,22 @@ export function CreatePage(props: Props) {
             ) : null}
           </div>
 
-          <aside className="h-fit rounded-xl border border-border bg-surface p-5 lg:sticky lg:top-20">
-            <div className="flex items-center justify-between">
-              <h3 className="m-0 text-sm font-medium text-[var(--c-text)]">
-                {t("create.recentTasks")}
-              </h3>
-              <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
+          {/* ── Recent Tasks (collapsible) ────────── */}
+          <details className="card group">
+            <summary className="flex cursor-pointer list-none items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-[var(--c-text)]">
+                  {t("create.recentTasks")}
+                </span>
+                {recentTasks.length > 0 ? (
+                  <span className="tag tag-neutral font-mono tabular-nums">{recentTasks.length}</span>
+                ) : null}
+              </div>
+              <button type="button" className="btn-ghost text-xs" onClick={(e) => { e.stopPropagation(); navigate("/works"); }}>
                 {t("create.viewAll")}
               </button>
-            </div>
-            <div className="mt-4 space-y-2">
+            </summary>
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {recentTasks.length ? (
                 recentTasks.map((task) => {
                   const isSelected = selectedRecentTaskId === task.task_id;
@@ -1394,7 +1433,7 @@ export function CreatePage(props: Props) {
                 <EmptyStateTasks locale={locale} />
               )}
             </div>
-          </aside>
+          </details>
         </div>
       </form>
       {recentOverlayTaskId ? (

@@ -117,17 +117,20 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-3">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className="rounded-xl border border-border bg-surface p-3 space-y-3">
+        {/* Tags row */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
+            {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
+          </span>
           {isFavorited ? (
             <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
               {t("jobs.favorited")}
             </span>
           ) : null}
-          <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
-            {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
-          </span>
         </div>
+
+        {/* Primary actions row */}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -156,48 +159,42 @@ export function MediaDetailSidebar(props: Props) {
               {t("jobs.cancelInProgress")}
             </button>
           ) : null}
-          {retryActions?.onSameSeed ? (
-            <button
-              type="button"
-              className="btn-secondary text-xs"
-              onClick={retryActions.onSameSeed}
-              disabled={retryActions.disabled}
-            >
-              {retryActions.sameSeedLabel}
-            </button>
-          ) : null}
-          {retryActions?.onNewSeed ? (
-            <button
-              type="button"
-              className="btn-secondary text-xs"
-              onClick={retryActions.onNewSeed}
-              disabled={retryActions.disabled}
-            >
-              {retryActions.newSeedLabel}
-            </button>
-          ) : null}
-          {retryActions?.onDefault ? (
-            <button
-              type="button"
-              className="btn-secondary text-xs"
-              onClick={retryActions.onDefault}
-              disabled={retryActions.disabled}
-            >
-              {retryActions.defaultLabel}
-            </button>
-          ) : null}
+        </div>
+
+        {/* Secondary actions row (retry + favorite) */}
+        {(retryActions?.onSameSeed || retryActions?.onNewSeed || retryActions?.onDefault) ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
+            <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("jobs.retry", { mode: "" }).replace(/[() ]/g, "").trim() || "Retry"}</span>
+            {retryActions?.onSameSeed ? (
+              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onSameSeed} disabled={retryActions.disabled}>
+                {retryActions.sameSeedLabel}
+              </button>
+            ) : null}
+            {retryActions?.onNewSeed ? (
+              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onNewSeed} disabled={retryActions.disabled}>
+                {retryActions.newSeedLabel}
+              </button>
+            ) : null}
+            {retryActions?.onDefault ? (
+              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onDefault} disabled={retryActions.disabled}>
+                {retryActions.defaultLabel}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Tertiary: favorite + delete */}
+        <div className="flex items-center justify-between border-t border-border pt-2">
           <button
             type="button"
-            className="btn-secondary text-xs"
+            className="btn-ghost text-xs"
             onClick={onToggleFavorite}
           >
-            {isFavorited
-              ? t("jobs.unfavorite")
-              : t("jobs.favorite")}
+            {isFavorited ? t("jobs.unfavorite") : t("jobs.favorite")}
           </button>
           <button
             type="button"
-            className="btn-danger text-xs"
+            className="btn-ghost text-xs text-error-text"
             onClick={onDelete}
             disabled={deleteDisabled}
           >

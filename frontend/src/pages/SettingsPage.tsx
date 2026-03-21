@@ -193,36 +193,32 @@ export function SettingsPage(props: Props) {
         </div>
       </ScrollReveal>
 
-      <section className="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)_340px]">
-        <aside className="card">
-          <p className="mb-2 mt-0 text-xs font-semibold text-[var(--c-text)]">
-            {isZh ? "设置分类" : "Categories"}
-          </p>
-          <div className="flex flex-col gap-2">
-            <CategoryButton
-              label={isZh ? "语言与网关" : "Language & Gateway"}
-              active={activeCategory === "language_gateway"}
-              onClick={() => jumpToCategory("language_gateway")}
-            />
-            <CategoryButton
-              label={t("settings.generationDefaults")}
-              active={activeCategory === "generation_defaults"}
-              onClick={() => jumpToCategory("generation_defaults")}
-            />
-            <CategoryButton
-              label={t("settings.notifications")}
-              active={activeCategory === "notifications"}
-              onClick={() => jumpToCategory("notifications")}
-            />
-            <CategoryButton
-              label={t("settings.privacyStorage")}
-              active={activeCategory === "privacy_storage"}
-              onClick={() => jumpToCategory("privacy_storage")}
-            />
-          </div>
-        </aside>
+      {/* Horizontal category pills */}
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
+        <CategoryButton
+          label={isZh ? "语言与网关" : "Language & Gateway"}
+          active={activeCategory === "language_gateway"}
+          onClick={() => jumpToCategory("language_gateway")}
+        />
+        <CategoryButton
+          label={t("settings.generationDefaults")}
+          active={activeCategory === "generation_defaults"}
+          onClick={() => jumpToCategory("generation_defaults")}
+        />
+        <CategoryButton
+          label={t("settings.notifications")}
+          active={activeCategory === "notifications"}
+          onClick={() => jumpToCategory("notifications")}
+        />
+        <CategoryButton
+          label={t("settings.privacyStorage")}
+          active={activeCategory === "privacy_storage"}
+          onClick={() => jumpToCategory("privacy_storage")}
+        />
+      </div>
 
-        <div className="flex min-w-0 flex-col gap-3">
+      <section className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <section
             id={sectionIds.language_gateway}
             className="card"
@@ -399,8 +395,6 @@ export function SettingsPage(props: Props) {
             </div>
           </details>
         </div>
-
-        <div className="flex flex-col gap-3">
           <section
             id={sectionIds.notifications}
             className="card"
@@ -503,7 +497,6 @@ export function SettingsPage(props: Props) {
               </div>
             </div>
           </section>
-        </div>
       </section>
 
       {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
@@ -524,7 +517,7 @@ function CategoryButton({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
         active
           ? "bg-cta text-cta-text"
           : "text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[var(--c-text)]"
