@@ -335,7 +335,7 @@ export function JobsPage(props: Props) {
     { value: "all", label: t("jobs.kindAll"), count: worksCount },
     { value: "image", label: t("jobs.kindImage"), count: imageCount },
     { value: "video", label: t("jobs.kindVideo"), count: videoCount },
-    { value: "favorite", label: locale === "zh-CN" ? "收藏" : "Favorite", count: favoriteCount },
+    { value: "favorite", label: t("jobs.favorite"), count: favoriteCount },
   ];
 
   return (
@@ -344,26 +344,24 @@ export function JobsPage(props: Props) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-display m-0">
-              {locale === "zh-CN" ? "作品" : "Works"}
+              {t("nav.jobs")}
             </h1>
             <p className="mb-0 mt-2 text-sm text-[var(--c-text-secondary)]">
-              {locale === "zh-CN"
-                ? "浏览作品，点击卡片查看详情。"
-                : "Browse your creations. Click a card to view details."}
+              {t("jobs.pageSubtitle")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-[rgba(0,0,0,0.05)] px-3 py-1 text-xs font-semibold text-[var(--c-text-secondary)]">
-              {locale === "zh-CN" ? `全部 ${worksCount}` : `All ${worksCount}`}
+            <span className="tag tag-neutral">
+              {t("jobs.statsAll", { count: worksCount })}
             </span>
-            <span className="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-[var(--c-text-secondary)]">
-              {locale === "zh-CN" ? `图片 ${imageCount}` : `Images ${imageCount}`}
+            <span className="tag tag-neutral">
+              {t("jobs.statsImages", { count: imageCount })}
             </span>
-            <span className="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-[var(--c-text-secondary)]">
-              {locale === "zh-CN" ? `视频 ${videoCount}` : `Videos ${videoCount}`}
+            <span className="tag tag-neutral">
+              {t("jobs.statsVideos", { count: videoCount })}
             </span>
-            <span className="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-[var(--c-text-secondary)]">
-              {locale === "zh-CN" ? `进行中 ${inProgressTasks.length}` : `In Progress ${inProgressTasks.length}`}
+            <span className="tag tag-neutral">
+              {t("jobs.statsInProgress", { count: inProgressTasks.length })}
             </span>
           </div>
         </div>
@@ -389,10 +387,8 @@ export function JobsPage(props: Props) {
             })}
           </div>
           {!!inProgressTasks.length && (
-            <div className="rounded-full border border-border bg-white px-3 py-1 text-[11px] text-[var(--c-text-tertiary)]">
-              {locale === "zh-CN"
-                ? `进行中：图片 ${inProgressBreakdown.imageCount} / 视频 ${inProgressBreakdown.videoCount}`
-                : `In progress: image ${inProgressBreakdown.imageCount} / video ${inProgressBreakdown.videoCount}`}
+            <div className="tag tag-warning">
+              {t("jobs.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
             </div>
           )}
         </div>
@@ -421,15 +417,15 @@ export function JobsPage(props: Props) {
 
       {lightboxItem && currentLightboxTask ? (
         <MediaOverlayFrame
-          title={locale === "zh-CN" ? "作品预览" : "Work Preview"}
+          title={t("jobs.workPreview")}
           currentIndex={lightboxIndex}
           totalItems={lightboxItems.length}
           isInfoHidden={isInfoHidden}
           onToggleInfo={() => setIsInfoHidden((current) => !current)}
           onClose={() => setLightboxState(null)}
-          showInfoLabel={locale === "zh-CN" ? "显示信息" : "Show Info"}
-          hideInfoLabel={locale === "zh-CN" ? "隐藏信息" : "Hide Info"}
-          backLabel={locale === "zh-CN" ? "返回浏览" : "Back"}
+          showInfoLabel={t("jobs.showInfo")}
+          hideInfoLabel={t("jobs.hideInfo")}
+          backLabel={t("jobs.back")}
           media={
             <AppLightboxStage
               items={lightboxItems}
@@ -444,12 +440,8 @@ export function JobsPage(props: Props) {
           }
           mediaHint={
             currentLightboxIsPortrait
-              ? locale === "zh-CN"
-                ? "纵向作品：保持原始纵向比例展示。"
-                : "Portrait asset: keeps vertical composition."
-              : locale === "zh-CN"
-                ? "横向作品：优先铺宽展示。"
-                : "Landscape asset: rendered with wide priority."
+              ? t("jobs.portraitHint")
+              : t("jobs.landscapeHint")
           }
           sidebar={
             <MediaDetailSidebar
@@ -497,7 +489,6 @@ function AssetCardMedia({
   thumb,
   videoUrl,
   videoPoster,
-  locale,
   isHovered,
   isPortrait,
   onHover,
@@ -508,7 +499,6 @@ function AssetCardMedia({
   thumb: string | null;
   videoUrl: string | null;
   videoPoster: string | null;
-  locale: string;
   isHovered: boolean;
   isPortrait: boolean;
   onHover: (id: string | null) => void;
@@ -593,7 +583,7 @@ function AssetCardMedia({
           <div className="absolute inset-x-0 bottom-0 p-2">
             <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
               <Play size={11} weight="fill" />
-              {locale === "zh-CN" ? "视频加载中…" : "Loading video..."}
+              {t("jobs.videoLoading")}
             </span>
           </div>
         </div>
@@ -766,7 +756,7 @@ function MasonryGrid({
                     event.stopPropagation();
                     toggleFavorite(task.task_id);
                   }}
-                  title={isFavorite ? (locale === "zh-CN" ? "取消收藏" : "Unfavorite") : (locale === "zh-CN" ? "收藏" : "Favorite")}
+                  title={isFavorite ? t("jobs.unfavorite") : t("jobs.favorite")}
                 >
                   <Star size={13} weight={isFavorite ? "fill" : "regular"} />
                 </button>
@@ -776,7 +766,6 @@ function MasonryGrid({
                   thumb={thumb}
                   videoUrl={videoUrl}
                   videoPoster={videoPoster}
-                  locale={locale}
                   isHovered={hoverVideoTaskId === task.task_id}
                   isPortrait={isPortrait}
                   onHover={setHoverVideoTaskId}

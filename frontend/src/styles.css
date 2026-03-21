@@ -97,6 +97,32 @@ body {
   color-scheme: light;
 }
 
+/* ── Focus Ring (Accessibility) ─────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Remove default ring when focus is from pointer (mouse/touch) */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Text Wrap Control ──────────────────────────────── */
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* ── Tabular Numbers for Data ───────────────────────── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Typography Utilities ───────────────────────────── */
 .font-editorial {
   font-family: var(--font-family-serif);

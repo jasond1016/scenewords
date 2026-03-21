@@ -179,7 +179,7 @@ export default function App() {
           {/* Right: queue indicator */}
           <div className="flex items-center gap-3">
             {inProgressCount > 0 ? (
-              <span className="tag tag-warning">
+              <span className="tag tag-warning font-mono tabular-nums">
                 <CircleNotch size={12} className="animate-spin" />
                 {t("app.topbar.queue", { count: inProgressCount })}
               </span>

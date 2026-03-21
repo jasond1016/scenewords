@@ -101,7 +101,7 @@ export function MediaDetailSidebar(props: Props) {
           className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
           data-overlay-scroll="allow"
         >
-          <p className="m-0 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--c-text)]">
+          <p className="m-0 max-w-prose whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--c-text)]">
             {task.prompt || t("jobs.emptyPrompt")}
           </p>
           {task.negative_prompt ? (

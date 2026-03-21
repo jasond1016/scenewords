@@ -53,14 +53,14 @@ export function MediaOverlayFrame(props: Props) {
               ) : null}
               <button
                 type="button"
-                className="rounded-full border border-border bg-white px-3 py-1 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-canvas"
+                className="btn-secondary text-xs"
                 onClick={onToggleInfo}
               >
                 {isInfoHidden ? showInfoLabel : hideInfoLabel}
               </button>
               <button
                 type="button"
-                className="rounded-full bg-cta px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-cta-hover"
+                className="btn-primary text-xs"
                 onClick={onClose}
               >
                 {backLabel}

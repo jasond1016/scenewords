@@ -854,9 +854,7 @@ export function CreatePage(props: Props) {
           <div>
             <h1 className="text-display m-0">{t("nav.create")}</h1>
             <p className="m-0 mt-2 max-w-lg text-sm text-[var(--c-text-secondary)]">
-              {locale === "zh-CN"
-                ? "选择模型，输入提示词，生成图片或视频。"
-                : "Choose a model, write your prompt, generate images or video."}
+              {t("create.pageSubtitle")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -974,10 +972,10 @@ export function CreatePage(props: Props) {
                 <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">
                   <div className="flex items-center justify-between">
                     <p className="m-0 text-xs font-medium text-[var(--c-text)]">
-                      {locale === "zh-CN" ? "素材输入" : "Reference Assets"}
+                      {t("create.referenceAssets")}
                     </p>
                     <p className="m-0 text-[11px] text-[var(--c-text-tertiary)]">
-                      {locale === "zh-CN" ? "支持复用与上传" : "Upload or reuse"}
+                      {t("create.referenceAssetsHint")}
                     </p>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -999,7 +997,7 @@ export function CreatePage(props: Props) {
 
               <div className="space-y-3">
                 <p className="m-0 text-xs font-medium text-[var(--c-text)]">
-                  {locale === "zh-CN" ? "快捷参数" : "Quick Params"}
+                  {t("create.quickParams")}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {resolutionField
@@ -1106,7 +1104,7 @@ export function CreatePage(props: Props) {
 
             <details className="card group">
               <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-[var(--c-text)]">
-                <span>{locale === "zh-CN" ? "高级选项" : "Advanced Options"}</span>
+                <span>{t("create.advancedLabel")}</span>
                 <span className="text-xs text-[var(--c-text-tertiary)]">{t("create.advancedOptions", { count: advancedFields.length })}</span>
               </summary>
               <div className="mt-4 space-y-4">
@@ -1168,10 +1166,10 @@ export function CreatePage(props: Props) {
           <aside className="h-fit rounded-xl border border-border bg-surface p-5 lg:sticky lg:top-20">
             <div className="flex items-center justify-between">
               <h3 className="m-0 text-sm font-medium text-[var(--c-text)]">
-                {locale === "zh-CN" ? "最近任务" : "Recent Tasks"}
+                {t("create.recentTasks")}
               </h3>
               <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
-                {locale === "zh-CN" ? "查看全部" : "View all"}
+                {t("create.viewAll")}
               </button>
             </div>
             <div className="mt-4 space-y-2">
@@ -1209,7 +1207,7 @@ export function CreatePage(props: Props) {
                         <div className="rounded-lg border border-border bg-surface p-3 space-y-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="m-0 text-xs font-medium text-[var(--c-text)]">
-                              {locale === "zh-CN" ? "任务详情" : "Task Detail"}
+                              {t("create.taskDetail")}
                             </p>
                             <span className={`tag ${
                               statusTone(task) === "ok"
@@ -1226,9 +1224,9 @@ export function CreatePage(props: Props) {
                           {preview ? (
                             <button
                               type="button"
-                              className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-colors hover:border-[#D4D4D4]"
+                              className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-colors duration-150 hover:border-[#D4D4D4]"
                               onClick={() => setRecentOverlayTaskId(task.task_id)}
-                              title={locale === "zh-CN" ? "点击查看详情" : "Open detail"}
+                              title={t("create.clickToView")}
                             >
                               {preview.kind === "video" ? (
                                 <video
@@ -1261,15 +1259,11 @@ export function CreatePage(props: Props) {
                                 className="btn-secondary text-xs"
                                 onClick={() => {
                                   settings.setPendingReuseDraft(toDraft(task));
-                                  setHint(
-                                    locale === "zh-CN"
-                                      ? "已复用任务参数与素材到主编辑区。"
-                                      : "Task settings and references restored to editor.",
-                                  );
+                                  setHint(t("create.hintReusedTask"));
                                 }}
                               >
                                 <ArrowsClockwise size={13} />
-                                {locale === "zh-CN" ? "复用 Prompt" : "Reuse Prompt"}
+                                {t("create.reusePrompt")}
                               </button>
                             ) : null}
                           </div>
@@ -1615,7 +1609,7 @@ function DynamicInput(props: {
                     <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors hover:text-[#7A1F1F]"
+                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:text-[#7A1F1F]"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1648,7 +1642,7 @@ function DynamicInput(props: {
                   <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors hover:text-[#7A1F1F]"
+                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:text-[#7A1F1F]"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1663,7 +1657,7 @@ function DynamicInput(props: {
             ))}
           </div>
         ) : (
-          <button type="button" className="w-full cursor-pointer border-none bg-transparent py-8 text-xs text-[var(--c-text-tertiary)] transition-colors hover:text-[var(--c-text-secondary)]" onClick={triggerPick}>
+          <button type="button" className="w-full cursor-pointer border-none bg-transparent py-8 text-xs text-[var(--c-text-tertiary)] transition-colors duration-150 hover:text-[var(--c-text-secondary)]" onClick={triggerPick}>
             {t("create.fileOnlyImages")}
           </button>
         )}
@@ -1685,7 +1679,7 @@ function DynamicInput(props: {
                 </p>
                 <button
                   type="button"
-                  className="cursor-pointer border-none bg-transparent text-sm text-white/60 transition-colors hover:text-white"
+                  className="cursor-pointer border-none bg-transparent text-sm text-white/60 transition-colors duration-150 hover:text-white"
                   onClick={() => setPreviewIndex(null)}
                 >
                   {t("common.close")}
@@ -1695,7 +1689,7 @@ function DynamicInput(props: {
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors hover:bg-white/20"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1717,7 +1711,7 @@ function DynamicInput(props: {
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors hover:bg-white/20"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
