@@ -921,44 +921,46 @@ export function CreatePage(props: Props) {
           <div className="flex flex-col gap-6">
             {/* ── Prompt & Controls ──────────────────── */}
             <section className="card space-y-5">
-              {/* Provider / Model / Operation row */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.provider")}</span>
-                  <select
-                    className="input-base"
-                    value={providerId}
-                    onChange={(event) => setProviderId(event.target.value)}
-                  >
-                    {providerChoices.map((provider) => (
-                      <option key={provider.id} value={provider.id}>{provider.display_name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1.5">
+              {/* Model selector (combined Provider+Model) + Operation (only if >1) */}
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.model")}</span>
                   <select
                     className="input-base"
-                    value={modelName}
-                    onChange={(event) => setModelName(event.target.value)}
+                    value={`${providerId}::${modelName}`}
+                    onChange={(event) => {
+                      const [nextProvider, nextModel] = event.target.value.split("::");
+                      if (nextProvider && nextModel) {
+                        setProviderId(nextProvider);
+                        setModelName(nextModel);
+                      }
+                    }}
                   >
-                    {selectedProvider.models.map((model) => (
-                      <option key={model.name} value={model.name}>{model.display_name}</option>
-                    ))}
+                    {providerChoices.flatMap((provider) =>
+                      provider.models.map((model) => (
+                        <option key={`${provider.id}::${model.name}`} value={`${provider.id}::${model.name}`}>
+                          {providerChoices.length > 1
+                            ? `${provider.display_name} · ${model.display_name}`
+                            : model.display_name}
+                        </option>
+                      )),
+                    )}
                   </select>
                 </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.quickMode")}</span>
-                  <select
-                    className="input-base"
-                    value={selectedOperation.id}
-                    onChange={(event) => setOperationId(event.target.value)}
-                  >
-                    {selectedModel.operations.map((operation) => (
-                      <option key={operation.id} value={operation.id}>{operation.display_name}</option>
-                    ))}
-                  </select>
-                </label>
+                {selectedModel.operations.length > 1 ? (
+                  <label className="flex min-w-0 flex-col gap-1.5" style={{ flex: "0 0 auto", minWidth: 140 }}>
+                    <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.quickMode")}</span>
+                    <select
+                      className="input-base"
+                      value={selectedOperation.id}
+                      onChange={(event) => setOperationId(event.target.value)}
+                    >
+                      {selectedModel.operations.map((operation) => (
+                        <option key={operation.id} value={operation.id}>{operation.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
 
               <hr className="divider" />
