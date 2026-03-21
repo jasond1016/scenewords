@@ -108,6 +108,19 @@ export function CreatePage(props: Props) {
   const [selectedRecentTaskId, setSelectedRecentTaskId] = useState<string | null>(null);
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  // Cmd+Enter / Ctrl+Enter to submit
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        formRef.current?.requestSubmit();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? null,
@@ -258,6 +271,17 @@ export function CreatePage(props: Props) {
         : null,
     [lastSubmittedTaskId, tasks],
   );
+  const trackedPreview = useMemo(() => {
+    if (!trackedTask || trackedTask.status !== "succeeded") {
+      return null;
+    }
+    if (trackedTask.asset_type === "video") {
+      const url = extractVideoUrl(trackedTask);
+      return url ? { kind: "video" as const, url } : null;
+    }
+    const urls = extractImageUrls(trackedTask);
+    return urls[0] ? { kind: "image" as const, url: urls[0] } : null;
+  }, [trackedTask]);
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
     [providers],
@@ -843,6 +867,7 @@ export function CreatePage(props: Props) {
   return (
     <div className="flex w-full flex-col gap-8">
       <form
+        ref={formRef}
         className="w-full flex flex-col gap-8"
         onSubmit={(event) => {
           event.preventDefault();
@@ -962,7 +987,12 @@ export function CreatePage(props: Props) {
                     onFileChange={() => undefined}
                     placeholder={promptPlaceholder}
                   />
-                  {promptField.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{promptField.help_text}</small> : null}
+                  <div className="flex items-center justify-between">
+                    {promptField.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{promptField.help_text}</small> : <span />}
+                    <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
+                      {promptValue.length}
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-[var(--c-text-tertiary)]">{t("create.promptNotSupported")}</p>
@@ -999,77 +1029,89 @@ export function CreatePage(props: Props) {
                 <p className="m-0 text-xs font-medium text-[var(--c-text)]">
                   {t("create.quickParams")}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {resolutionField
-                    ? (ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
-                      <button
-                        type="button"
-                        key={`ratio_${ratio}`}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
-                          currentRatioDisplay === ratio
-                            ? "bg-cta text-cta-text"
-                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                        }`}
-                        onClick={() => onRatioChanged(ratio)}
-                      >
-                        {ratio}
-                      </button>
-                    ))
-                    : null}
-                  {hasQuickSize
-                    ? (qualityField ? qualityChoices : sizeChoices).map((size) => {
-                      const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                      const label = qualityField
-                        ? qualityField.options.find((option) => option.value === size)?.label ?? size
-                        : size;
-                      return (
+                <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
+                  {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickRatio")}</span>
+                      {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                         <button
                           type="button"
-                          key={`size_${size}`}
-                          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
-                            active
+                          key={`ratio_${ratio}`}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
+                            currentRatioDisplay === ratio
                               ? "bg-cta text-cta-text"
                               : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
                           }`}
-                          onClick={() => onSizeChanged(size)}
+                          onClick={() => onRatioChanged(ratio)}
                         >
-                          {label}
+                          {ratio}
                         </button>
-                      );
-                    })
-                    : null}
-                  {orientationField
-                    ? orientationChoices.map((option) => (
-                      <button
-                        type="button"
-                        key={`orientation_${option.value}`}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
-                          orientationValue === option.value
-                            ? "bg-cta text-cta-text"
-                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                        }`}
-                        onClick={() => onOrientationChanged(option.value)}
-                      >
-                        {option.label}
-                      </button>
-                    ))
-                    : null}
-                  {durationField && durationChoices.length
-                    ? durationChoices.map((seconds) => (
-                      <button
-                        type="button"
-                        key={`duration_${seconds}`}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
-                          durationValue === String(seconds)
-                            ? "bg-cta text-cta-text"
-                            : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                        }`}
-                        onClick={() => onFieldChanged(durationField, String(seconds))}
-                      >
-                        {seconds}s
-                      </button>
-                    ))
-                    : null}
+                      ))}
+                    </div>
+                  ) : null}
+                  {hasQuickSize ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{qualityField ? t("create.quickSize") : t("create.quickSize")}</span>
+                      {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+                        const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                        const label = qualityField
+                          ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                          : size;
+                        return (
+                          <button
+                            type="button"
+                            key={`size_${size}`}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
+                              active
+                                ? "bg-cta text-cta-text"
+                                : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
+                            }`}
+                            onClick={() => onSizeChanged(size)}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {orientationField && orientationChoices.length > 0 ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickOrientation")}</span>
+                      {orientationChoices.map((option) => (
+                        <button
+                          type="button"
+                          key={`orientation_${option.value}`}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
+                            orientationValue === option.value
+                              ? "bg-cta text-cta-text"
+                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
+                          }`}
+                          onClick={() => onOrientationChanged(option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {durationField && durationChoices.length > 0 ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickDuration")}</span>
+                      {durationChoices.map((seconds) => (
+                        <button
+                          type="button"
+                          key={`duration_${seconds}`}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
+                            durationValue === String(seconds)
+                              ? "bg-cta text-cta-text"
+                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
+                          }`}
+                          onClick={() => onFieldChanged(durationField, String(seconds))}
+                        >
+                          {seconds}s
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 {durationField && !durationChoices.length ? (
                   <div className="max-w-xs">
@@ -1099,6 +1141,9 @@ export function CreatePage(props: Props) {
                       ? t("create.generateImage")
                       : t("create.generateVideo")}
                 </button>
+                <kbd className="hidden text-[11px] text-[var(--c-text-tertiary)] sm:inline">
+                  ⌘ Enter
+                </kbd>
               </div>
             </section>
 
@@ -1140,24 +1185,95 @@ export function CreatePage(props: Props) {
             </details>
 
             {lastSubmittedTaskId ? (
-              <section className="card">
+              <section className="card space-y-3">
+                {/* Header */}
                 <div className="flex items-center justify-between gap-3">
-                  <p className="m-0 text-sm font-medium text-[var(--c-text)]">{t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}</p>
-                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>{t("create.feedbackContinue")}</button>
+                  <div className="flex items-center gap-2">
+                    <span className={`tag ${
+                      statusTone(trackedTask) === "ok"
+                        ? "tag-success"
+                        : statusTone(trackedTask) === "danger"
+                          ? "tag-error"
+                          : statusTone(trackedTask) === "warn"
+                            ? "tag-warning"
+                            : "tag-neutral"
+                    }`}>
+                      {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
+                    </span>
+                    <span className="font-mono text-[11px] text-[var(--c-text-tertiary)]">
+                      {lastSubmittedTaskId.slice(0, 8)}
+                    </span>
+                  </div>
+                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
+                    {t("create.feedbackContinue")}
+                  </button>
                 </div>
-                <p className={`m-0 mt-2 text-sm font-medium ${
-                  statusTone(trackedTask) === "ok"
-                    ? "text-success-text"
-                    : statusTone(trackedTask) === "danger"
-                      ? "text-error-text"
-                      : statusTone(trackedTask) === "warn"
-                        ? "text-warning-text"
-                        : "text-[var(--c-text-secondary)]"
-                }`}>
-                  {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
-                </p>
+
+                {/* Running: pulse animation */}
+                {trackedTask && (trackedTask.status === "queued" || trackedTask.status === "running") ? (
+                  <div className="flex items-center gap-3 rounded-lg bg-warning-bg px-3 py-2.5">
+                    <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning-text" />
+                    <p className="m-0 text-xs text-warning-text">
+                      {trackedTask.status === "queued"
+                        ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
+                            ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
+                            : t("create.feedbackQueued"))
+                        : t("create.feedbackRunning")}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* Succeeded: inline preview + view button */}
+                {trackedTask?.status === "succeeded" ? (
+                  <div className="space-y-3">
+                    {trackedPreview ? (
+                      <button
+                        type="button"
+                        className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-all duration-150 hover:border-[#C4C4C4] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                        onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
+                      >
+                        {trackedPreview.kind === "video" ? (
+                          <video
+                            src={trackedPreview.url}
+                            className="block aspect-video w-full object-cover"
+                            muted
+                            loop
+                            autoPlay
+                            playsInline
+                          />
+                        ) : (
+                          <img
+                            src={trackedPreview.url}
+                            alt=""
+                            className="block aspect-video w-full object-cover"
+                          />
+                        )}
+                      </button>
+                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn-primary text-xs"
+                        onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
+                      >
+                        {t("create.feedbackViewResult")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        onClick={() => setLastSubmittedTaskId(null)}
+                      >
+                        {t("create.feedbackContinue")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Failed: error message */}
                 {trackedTask?.status === "failed" && trackedTask.error ? (
-                  <p className="m-0 mt-2 text-xs text-error-text">{errorMessage(trackedTask)}</p>
+                  <p className="m-0 rounded-lg bg-error-bg px-3 py-2 text-xs text-error-text">
+                    {errorMessage(trackedTask)}
+                  </p>
                 ) : null}
               </section>
             ) : null}
