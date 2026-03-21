@@ -30,6 +30,7 @@ export function SettingsPage(props: Props) {
   const [showGatewayToken, setShowGatewayToken] = useState(false);
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("language_gateway");
   const [cacheRevision, setCacheRevision] = useState(0);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   const imageProviders = useMemo(
     () => props.providers.filter((provider) => isImageProviderType(provider.type)),
@@ -95,12 +96,11 @@ export function SettingsPage(props: Props) {
   };
 
   const handleRestoreDefaults = () => {
-    const confirmed = window.confirm(
-      isZh ? "恢复设置默认值（保留网关 Token）？" : "Restore default settings (keep gateway token)?",
-    );
-    if (!confirmed) {
+    if (!confirmRestore) {
+      setConfirmRestore(true);
       return;
     }
+    setConfirmRestore(false);
 
     settings.setSettings({
       language: "system",
@@ -160,14 +160,35 @@ export function SettingsPage(props: Props) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleRestoreDefaults}
-              className="btn-secondary text-xs"
-            >
-              <ArrowCounterClockwise size={14} />
-              {isZh ? "恢复默认" : "Restore Defaults"}
-            </button>
+            <div className="flex items-center gap-2">
+              {confirmRestore ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaults}
+                    className="btn-danger text-xs"
+                  >
+                    {isZh ? "确认恢复" : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRestore(false)}
+                    className="btn-ghost text-xs"
+                  >
+                    {t("common.close")}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaults}
+                  className="btn-secondary text-xs"
+                >
+                  <ArrowCounterClockwise size={14} />
+                  {isZh ? "恢复默认" : "Restore Defaults"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </ScrollReveal>

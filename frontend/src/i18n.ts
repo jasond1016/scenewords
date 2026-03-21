@@ -283,6 +283,10 @@ const ZH_CN: Record<string, string> = {
   "jobs.statsVideos": "视频 {count}",
   "jobs.statsInProgress": "进行中 {count}",
   "jobs.inProgressBreakdown": "进行中：图片 {imageCount} / 视频 {videoCount}",
+
+  "jobs.negativePrompt": "负向提示词",
+  "jobs.favorited": "已收藏",
+  "common.loading": "加载中...",
 };
 
 const EN: Record<string, string> = {
@@ -567,6 +571,10 @@ const EN: Record<string, string> = {
   "jobs.statsVideos": "Videos {count}",
   "jobs.statsInProgress": "In Progress {count}",
   "jobs.inProgressBreakdown": "In progress: image {imageCount} / video {videoCount}",
+
+  "jobs.negativePrompt": "Negative Prompt",
+  "jobs.favorited": "Favorited",
+  "common.loading": "Loading...",
 };
 
 const MESSAGES: Record<SupportedLocale, Record<string, string>> = {

@@ -48,6 +48,41 @@
     --c-overlay-panel: #111111;
     --c-overlay-muted: rgba(255, 255, 255, 0.5);
   }
+
+  /* ── Dark Mode ──────────────────────────────────── */
+  :root.dark {
+    --c-canvas: #121212;
+    --c-surface: #1A1A1A;
+    --c-surface-raised: #222222;
+
+    --c-border: #2E2E2E;
+    --c-border-subtle: rgba(255, 255, 255, 0.06);
+
+    --c-text: #E8E6E3;
+    --c-text-secondary: #8C8A86;
+    --c-text-tertiary: #5C5A57;
+
+    --c-cta: #E8E6E3;
+    --c-cta-hover: #FFFFFF;
+    --c-cta-text: #121212;
+
+    --c-accent: #E07040;
+    --c-accent-hover: #D06030;
+    --c-accent-bg: rgba(224, 112, 64, 0.12);
+
+    --c-success-bg: rgba(52, 101, 56, 0.18);
+    --c-success-text: #6EBF75;
+    --c-error-bg: rgba(159, 47, 45, 0.18);
+    --c-error-text: #E8706E;
+    --c-warning-bg: rgba(149, 100, 0, 0.18);
+    --c-warning-text: #D4A940;
+    --c-info-bg: rgba(31, 108, 159, 0.18);
+    --c-info-text: #5AAFE0;
+
+    --c-overlay: rgba(0, 0, 0, 0.7);
+    --c-overlay-panel: #0A0A0A;
+    --c-overlay-muted: rgba(255, 255, 255, 0.35);
+  }
 }
 
 /* ── Tailwind Theme Bridge ──────────────────────────── */
@@ -95,6 +130,10 @@ body {
 
 :root {
   color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
@@ -407,6 +446,10 @@ select.input-base {
   background: var(--c-error-bg);
 }
 
+:root.dark .toast-card {
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.3);
+}
+
 .toast-head {
   display: flex;
   align-items: center;
@@ -491,6 +534,14 @@ select.input-base {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #B8B8B8;
+}
+
+:root.dark ::-webkit-scrollbar-thumb {
+  background: #3A3A3A;
+}
+
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4A4A4A;
 }
 
 /* ── Lightbox Overrides ─────────────────────────────── */

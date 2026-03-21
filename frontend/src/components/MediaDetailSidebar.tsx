@@ -58,14 +58,14 @@ export function MediaDetailSidebar(props: Props) {
     rawResultPayload,
     errorText,
   } = props;
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
 
   return (
     <div
       className="flex h-full flex-col gap-3 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
       data-overlay-scroll="allow"
     >
-      <div className="rounded-xl border border-border bg-white p-3">
+      <div className="rounded-xl border border-border bg-surface p-3">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("jobs.assetDetailTitle")}</h3>
@@ -95,7 +95,7 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="min-h-0 rounded-xl border border-border bg-white p-3">
+      <div className="min-h-0 rounded-xl border border-border bg-surface p-3">
         <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">Prompt</p>
         <div
           className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
@@ -107,7 +107,7 @@ export function MediaDetailSidebar(props: Props) {
           {task.negative_prompt ? (
             <div className="mt-2 border-t border-border pt-2">
               <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">
-                {locale === "zh-CN" ? "负向提示词" : "Negative Prompt"}
+                {t("jobs.negativePrompt")}
               </p>
               <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
                 {task.negative_prompt}
@@ -117,11 +117,11 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-white p-3">
+      <div className="rounded-xl border border-border bg-surface p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {isFavorited ? (
             <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
-              {locale === "zh-CN" ? "已收藏" : "Favorited"}
+              {t("jobs.favorited")}
             </span>
           ) : null}
           <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
@@ -192,8 +192,8 @@ export function MediaDetailSidebar(props: Props) {
             onClick={onToggleFavorite}
           >
             {isFavorited
-              ? locale === "zh-CN" ? "取消收藏" : "Unfavorite"
-              : locale === "zh-CN" ? "加入收藏" : "Favorite"}
+              ? t("jobs.unfavorite")
+              : t("jobs.favorite")}
           </button>
           <button
             type="button"
@@ -206,7 +206,7 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <details className="rounded-xl border border-border bg-white p-3">
+      <details className="rounded-xl border border-border bg-surface p-3">
         <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
           {t("jobs.moreActions")}
         </summary>
@@ -230,7 +230,7 @@ export function MediaDetailSidebar(props: Props) {
             {isRawResultOpen ? (
               rawResultPending ? (
                 <p className="m-0 mt-2 text-[11px] text-[var(--c-text-tertiary)]">
-                  {locale === "zh-CN" ? "加载中..." : "Loading..."}
+                  {t("common.loading")}
                 </p>
               ) : rawResultError ? (
                 <p className="m-0 mt-2 text-[11px] text-error-text">
