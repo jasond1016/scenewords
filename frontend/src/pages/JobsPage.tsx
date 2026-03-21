@@ -738,12 +738,19 @@ function MasonryGrid({
             return (
               <article
                 key={task.task_id}
-                className={`relative overflow-hidden rounded-xl border bg-surface p-2 transition-[box-shadow,border-color] ${
+                className={`relative overflow-hidden rounded-xl border bg-surface p-2 transition-[box-shadow,border-color] cursor-pointer ${
                   task.task_id === selectedTaskId
                     ? "border-[var(--c-text)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
                     : "border-border hover:border-[#D4D4D4] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
                 }`}
-                onClick={() => setSelectedTaskId(task.task_id)}
+                onClick={() => {
+                  setSelectedTaskId(task.task_id);
+                  if (task.asset_type === "video") {
+                    openVideoLightbox(task.task_id, videoUrl ?? undefined);
+                  } else {
+                    openImageLightbox(task.task_id, thumb ?? undefined);
+                  }
+                }}
               >
                 <button
                   type="button"
