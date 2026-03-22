@@ -795,6 +795,14 @@ export function CreatePage(props: Props) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   };
+
+  // Restore textarea height when content is present on mount / route return
+  useEffect(() => {
+    if (promptValue) {
+      // Defer to next frame so the DOM has rendered the value
+      requestAnimationFrame(autoResizeTextarea);
+    }
+  }, [promptValue]);
   const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
     const key = item.fieldKey;
     if (item.source === "reused" && item.fileId) {
