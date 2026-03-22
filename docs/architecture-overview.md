@@ -139,41 +139,81 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 
 - **React 18** + **TypeScript**
 - **Vite** 构建
+- **Tailwind CSS v4** — 通过 `@tailwindcss/vite` 插件集成，使用原生 CSS `@theme` 桥接设计 token
 - **React Router** 路由
 - **@tanstack/react-query** 数据获取与缓存
 - **Zustand**（`state.ts`）全局状态管理
+- **@phosphor-icons/react** 统一图标系统（weight 可调：regular/bold/fill）
+- **yet-another-react-lightbox** 全屏媒体预览
+- **Geist Sans / Geist Mono** 字体（x-height 高、数字等宽，iPad Retina 清晰）
 - **pnpm** 包管理
 - 构建产物输出到 `app/static/`，由 FastAPI 静态托管
+
+> **💡 技术选型理由：**
+> - Phosphor Icons 优于 Lucide：weight 可调，触摸界面中通过切换粗细传达交互状态
+> - Tailwind v4 优于 v3：原生 CSS `@theme` 桥接设计 token，不再需要 tailwind.config.js
+> - Geist Sans：专为 UI 设计的字体，数字等宽便于对齐费用/时长等数值
+
+### 设计系统：Studio Glass
+
+前端在 `ui/studio-glass-redesign` 分支经历了从 editorial minimalist → Studio Glass → Composer Bar 的三阶段演进。最终确立的设计语言为 **Soft Structuralism**——通透、漂浮、高级感，避免"廉价 AI 工具"的视觉印象。
+
+完整 token 定义位于 `frontend/src/styles.css` 前 120 行，以下是关键摘要：
+
+| Token 类别 | 命名空间 | 说明 |
+|-----------|---------|------|
+| **颜色** | `--c-*` | Canvas 层（canvas/surface/surface-raised/surface-inset）、文字层（text/secondary/tertiary）、CTA 层、强调色（#D97706 琥珀橙，仅用于警示/高亮）、状态色（success/error/warning/info 各含 -bg/-text） |
+| **阴影** | `--shadow-*` | 5 级递进：xs → sm → md → lg → overlay。扩散式 + 背景色调，不使用纯黑阴影 |
+| **圆角** | `--radius-*` | sm(8) → md(12) → lg(16) → xl(20) → 2xl(24) → full(9999) |
+| **动效** | `--ease-*` / `--duration-*` | 曲线：ease-out-expo / ease-spring；时长：fast(150ms) / normal(250ms) / slow(500ms) / reveal(700ms) |
+
+**暗色模式：** 通过 `:root.dark` CSS class toggle 实现，Zustand 持久化 `theme` 偏好（`"light" | "dark" | "system"`）。亮暗两套 token 完整对称，所有 28 个 `--c-*` 变量在两个主题下都有定义。
+
+**Tailwind 桥接：** 通过 `@theme` 块将 CSS 变量映射为 Tailwind utility class，token 在手写 CSS 和 Tailwind 中都可用。
+
+> **💡 设计决策理由：**
+> - Cool Zinc 而非纯灰：微妙的冷色调性格，区别于千篇一律的 AI 工具界面
+> - 单一暖强调色：在大面积冷色中制造视觉锚点，且只用于需要注意力的元素
+> - 5 级阴影语义明确：从 hairline（xs）到浮层（overlay），每级都有固定用途
+> - 支持 `prefers-reduced-motion` 降级，确保无障碍体验
 
 ### 页面结构
 
 | 页面 | 文件 | 功能 |
 |------|------|------|
-| **创建** | `pages/CreatePage.tsx` | 新任务表单。根据选择的 Provider → Model → Operation 动态渲染参数字段（prompt、分辨率、时长、参考图上传等） |
-| **任务列表** | `pages/JobsPage.tsx` | 已提交任务的列表视图。显示状态、缩略图/视频预览、操作按钮（重试/取消/删除） |
-| **设置** | `pages/SettingsPage.tsx` | 网关 Token 配置、语言切换等 |
+| **创作** | `pages/CreatePage.tsx` | Composer Bar 布局（Seedance 风格 prompt-first UX）。底部固定输入栏（prompt textarea + 参考图缩略图 + 提交按钮），上方为可选展开的参数区域（Provider/Model/Operation 选择、分辨率、时长等）。根据后端 capabilities 动态渲染字段 |
+| **作品** | `pages/WorksPage.tsx` | 已生成作品的列表/网格视图。支持按类型（图片/视频/收藏）筛选、按 Provider/状态过滤、搜索。点击卡片打开 Lightbox 预览 + 详情面板 |
+| **设置** | `pages/SettingsPage.tsx` | 网关 Token 配置、语言切换、主题（亮/暗/跟随系统）、通知偏好等 |
+
+> **💡 导航演进：** 从底部 Tab 改为 **顶部固定导航栏**（sticky header，3 列 grid：Logo / 居中 pill nav / 队列指示器）。原因：iPad 横屏时底部 Tab 浪费纵向空间，顶部栏更符合桌面端习惯且不遮挡内容区。
+>
+> **💡 路由演进：** `/jobs` 重命名为 `/works`（语义更准确——这些是用户的"作品"而非"任务"）。`/jobs` 和 `/assets` 保留为重定向。
+>
+> **💡 Composer Bar：** 借鉴 Seedance 的"prompt 即核心"理念，将输入框固定在底部，参数区域上推为可选展开区，降低创建任务的认知负担。
 
 ### 关键组件
 
 | 组件 | 职责 |
 |------|------|
-| `App.tsx` | 根组件。底部 Tab 导航，轮询任务列表，Toast 通知管理 |
+| `App.tsx` | 根组件。顶部 sticky 导航栏（pill nav），任务列表轮询，Toast 通知管理，暗色模式 class toggle |
 | `WorkDetailOverlay.tsx` | 任务详情浮层（点击任务卡片展开） |
 | `AppLightboxStage.tsx` | 全屏 Lightbox 媒体预览 |
 | `MediaOverlayFrame.tsx` | 媒体预览外框 |
 | `MediaDetailSidebar.tsx` | 媒体详情侧边栏 |
+| `Skeletons.tsx` | 加载骨架屏（替代 spinner，减少布局偏移） |
 
 ### 状态管理与数据流
 
 | 模块 | 说明 |
 |------|------|
-| `state.ts` | Zustand store。持久化网关 Token、上次选择的 Provider/Model、语言偏好等 |
+| `state.ts` | Zustand store（持久化 key: `scenewords_gateway_settings_v1`）。持久化网关 Token、上次选择的 Provider/Model、语言偏好、主题偏好（`theme: "light" | "dark" | "system"`）、通知设置、费用显示偏好、Provider 默认参数等。另有非持久化字段 `pendingReuseDraft` 用于跨页面复用草稿 |
 | `api.ts` | 封装所有后端 API 调用（fetchTasks, fetchCatalog, createTask, uploadFile 等） |
 | `types.ts` | TypeScript 类型定义（VideoTaskDetail, ProviderCatalog 等） |
-| `i18n.ts` | 国际化支持 |
+| `i18n.ts` | 国际化支持（zh-CN / en 双语，~180 个翻译 key） |
 | `lightbox.ts` | Lightbox 状态逻辑 |
 | `useTaskNotifications.ts` | 任务完成 Toast 通知 hook |
 | `useMediaOverlay.ts` | 媒体预览浮层 hook |
+| `useScrollEntry.tsx` | IntersectionObserver 驱动的滚动入场动画 hook |
 
 ### 轮询策略
 
@@ -205,6 +245,12 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 8. **能力驱动表单** — 后端 `capabilities.py` 定义每个 Provider/Model/Operation 的字段能力，前端据此动态渲染表单
 9. **费用估算** — 本地价格表提供提交前的费用预估，结果中提取实际费用
 10. **iPad 优先** — 前端针对 iPad Safari 触摸交互设计
+11. **Studio Glass 设计系统** — CSS 变量 token 体系（`--c-*` / `--shadow-*` / `--radius-*`），Tailwind v4 `@theme` 桥接，亮/暗双主题
+12. **Composer Bar UX** — Seedance 风格的 prompt-first 布局，底部固定输入栏，参数区可选展开
+13. **骨架屏加载** — `Skeletons.tsx` 组件替代 spinner，减少布局偏移（CLS）
+14. **滚动入场动画** — IntersectionObserver 驱动（`useScrollEntry.tsx`），支持 `prefers-reduced-motion` 降级
+15. **PWA 支持** — `manifest.json`，支持 iPad "添加到主屏幕"
+16. **Phosphor Icons** — 统一图标系统，weight 可调（regular/bold/fill）
 
 ---
 
@@ -251,32 +297,45 @@ uv run --group dev pytest -q
 
 ---
 
-## UI/UX 重构备注
+## 接口契约与演进记录
 
-以下是当前前端的关键约束和重构时需注意的点：
+### Studio Glass 重构变更记录
 
-### 必须保留的接口契约
+以下变更在 `ui/studio-glass-redesign` 分支完成（18 个 commit，+2589/-1028 行）：
 
-- 所有 API 调用通过 `api.ts` 封装，返回类型定义在 `types.ts`
+- **导航：** 底部 Tab → 顶部 sticky header pill nav（3 列 grid 布局）
+- **CSS：** 完全重写为 Studio Glass token 体系（`--c-*` / `--shadow-*` / `--radius-*`）
+- **图标：** 内联 SVG → `@phosphor-icons/react` 统一图标系统
+- **路由：** `/jobs` → `/works`（`/jobs` 和 `/assets` 保留重定向）
+- **文件名：** `JobsPage.tsx` → `WorksPage.tsx`
+- **i18n key：** `jobs.*` → `works.*`（182 个 key）
+- **新增：** 暗色模式、PWA manifest、骨架屏加载、滚动入场动画、Composer Bar 布局
+
+### 接口契约（不应破坏）
+
+- `api.ts` 中的 API 调用逻辑与函数签名
+- `types.ts` 中的数据类型（与后端 Pydantic schema 一一对应）
+- `state.ts` 中的持久化 key 命名（`scenewords_gateway_settings_v1`）
 - `/v1/models` 返回的 catalog 结构驱动表单渲染
-- 任务轮询逻辑在 `App.tsx` 中，通过 react-query 管理
-- Zustand store (`state.ts`) 持久化用户偏好
+- 核心业务流：创建任务 → 轮询状态 → 查看结果 → 重试/取消/删除
+- 轮询策略：4s (有活跃任务) / 20s (空闲) / 暂停 (页面不可见)
 
 ### 当前前端源文件清单
 
 ```
 frontend/src/
-  ├── App.tsx                        # 根组件，Tab 导航 + 轮询 + Toast
+  ├── App.tsx                        # 根组件，顶部导航 + 轮询 + Toast + 暗色模式
   ├── api.ts                         # API 调用封装
   ├── main.tsx                       # React 入口
-  ├── state.ts                       # Zustand 全局状态
+  ├── state.ts                       # Zustand 全局状态（theme / pendingReuseDraft）
   ├── types.ts                       # TypeScript 类型
-  ├── styles.css                     # 全局样式
-  ├── i18n.ts                        # 国际化
+  ├── styles.css                     # Studio Glass 设计系统 + 全局样式
+  ├── i18n.ts                        # 国际化（zh-CN / en）
   ├── lightbox.ts                    # Lightbox 状态
   ├── utils.ts                       # 通用工具函数
-  ├── useMediaOverlay.ts             # 媒体预览 hook
+  ├── useMediaOverlay.ts             # 媒体预览浮层 hook
   ├── useTaskNotifications.ts        # 任务通知 hook
+  ├── useScrollEntry.tsx             # IntersectionObserver 滚动入场动画
   ├── overlayTaskActions.ts          # 浮层任务操作
   ├── overlayTaskPresentation.ts     # 浮层展示逻辑
   ├── overlayTaskUtils.ts            # 浮层工具函数
@@ -284,10 +343,11 @@ frontend/src/
   │   ├── AppLightboxStage.tsx       # 全屏 Lightbox
   │   ├── MediaDetailSidebar.tsx     # 媒体详情侧边栏
   │   ├── MediaOverlayFrame.tsx      # 媒体预览框
+  │   ├── Skeletons.tsx              # 加载骨架屏组件
   │   └── WorkDetailOverlay.tsx      # 任务详情浮层
   └── pages/
-      ├── CreatePage.tsx             # 创建任务页
-      ├── JobsPage.tsx               # 任务列表页
+      ├── CreatePage.tsx             # 创建任务页（Composer Bar 布局）
+      ├── WorksPage.tsx              # 作品列表页
       └── SettingsPage.tsx           # 设置页
 ```
 
@@ -295,20 +355,3 @@ frontend/src/
 
 - **主要**: iPad (Safari)，触摸交互
 - **次要**: 桌面浏览器
-
-### 重构时可自由变更的部分
-
-- 所有 CSS / 样式 / 布局
-- 组件结构与拆分方式
-- 动画与过渡效果
-- 配色方案、字体、间距
-- 导航模式（当前为底部 Tab）
-- 卡片/列表展示方式
-- 表单交互体验
-
-### 重构时不应破坏的部分
-
-- `api.ts` 中的 API 调用逻辑
-- `types.ts` 中的数据类型（与后端 schema 对应）
-- `state.ts` 中的持久化状态 key
-- 核心业务流：创建任务 → 轮询 → 查看结果 → 重试/取消/删除
