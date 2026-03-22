@@ -130,7 +130,7 @@ export default function App() {
 
   const navItems = [
     { to: "/create", label: t("nav.create"), icon: Plus },
-    { to: "/works", label: t("nav.jobs"), icon: Images },
+    { to: "/works", label: t("nav.works"), icon: Images },
     { to: "/settings", label: t("nav.settings"), icon: GearSix },
   ];
 
