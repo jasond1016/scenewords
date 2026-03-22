@@ -148,6 +148,20 @@ body {
   outline: none;
 }
 
+/* ── Reduced Motion ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Touch Optimization ─────────────────────────────── */
+button, a, select, input, textarea, [role="button"] {
+  touch-action: manipulation;
+}
+
 /* ── Text Wrap Control ──────────────────────────────── */
 h1, h2, h3 {
   text-wrap: balance;

@@ -608,8 +608,8 @@ function AssetCardMedia({
           className="h-full w-full object-cover"
           src={thumb}
           alt={task.task_id}
-          onError={() => setHasError(true)}
           loading="lazy"
+          onError={() => setHasError(true)}
         />
         <span className="absolute inset-0 flex items-end justify-end bg-black/0 p-2 text-[10px] font-semibold text-white/0 transition-colors group-hover:bg-black/10 group-hover:text-white/85">
           {t("jobs.previewImage")}
