@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
 import { useI18n } from "../i18n";
 import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
@@ -28,6 +29,7 @@ export function SettingsPage(props: Props) {
   const [showGatewayToken, setShowGatewayToken] = useState(false);
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("language_gateway");
   const [cacheRevision, setCacheRevision] = useState(0);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   const imageProviders = useMemo(
     () => props.providers.filter((provider) => isImageProviderType(provider.type)),
@@ -93,12 +95,11 @@ export function SettingsPage(props: Props) {
   };
 
   const handleRestoreDefaults = () => {
-    const confirmed = window.confirm(
-      isZh ? "恢复设置默认值（保留网关 Token）？" : "Restore default settings (keep gateway token)?",
-    );
-    if (!confirmed) {
+    if (!confirmRestore) {
+      setConfirmRestore(true);
       return;
     }
+    setConfirmRestore(false);
 
     settings.setSettings({
       language: "system",
@@ -144,71 +145,62 @@ export function SettingsPage(props: Props) {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1366px] flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="m-0 text-2xl font-bold tracking-tight text-[#1C1917] sm:text-[28px]">
-              Settings · Preferences
-            </h1>
-            <p className="mb-0 mt-2 text-xs font-medium text-[#78716C]">
-              {isZh
-                ? "语言、网关、生成默认值、通知策略与本地隐私统一管理。"
-                : "Manage language, gateway, generation defaults, notifications, and local privacy."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleRestoreDefaults}
-              className="rounded-lg bg-[#ECE7DC] px-3 py-1.5 text-xs font-semibold text-[#57534E] transition-colors hover:bg-[#E0D8C8]"
-            >
-              {isZh ? "恢复默认" : "Restore Defaults"}
-            </button>
-          </div>
+    <div className="flex w-full flex-col gap-6">
+      {/* Category pills + restore defaults */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="segment-group flex-wrap">
+          <CategoryButton
+            label={isZh ? "语言与网关" : "Language & Gateway"}
+            active={activeCategory === "language_gateway"}
+            onClick={() => jumpToCategory("language_gateway")}
+          />
+        <CategoryButton
+          label={t("settings.generationDefaults")}
+          active={activeCategory === "generation_defaults"}
+          onClick={() => jumpToCategory("generation_defaults")}
+        />
+        <CategoryButton
+          label={t("settings.notifications")}
+          active={activeCategory === "notifications"}
+          onClick={() => jumpToCategory("notifications")}
+        />
+        <CategoryButton
+          label={t("settings.privacyStorage")}
+          active={activeCategory === "privacy_storage"}
+          onClick={() => jumpToCategory("privacy_storage")}
+        />
         </div>
-      </section>
+        <div className="flex items-center gap-2">
+          {confirmRestore ? (
+            <>
+              <button type="button" onClick={handleRestoreDefaults} className="btn-danger text-xs">
+                {isZh ? "确认恢复" : "Confirm"}
+              </button>
+              <button type="button" onClick={() => setConfirmRestore(false)} className="btn-ghost text-xs">
+                {t("common.close")}
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={handleRestoreDefaults} className="btn-ghost text-xs">
+              <ArrowCounterClockwise size={13} />
+              {isZh ? "恢复默认" : "Restore"}
+            </button>
+          )}
+        </div>
+      </div>
 
-      <section className="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)_340px]">
-        <aside className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-3">
-          <p className="mb-2 mt-0 text-xs font-semibold text-[#1C1917]">
-            {isZh ? "设置分类" : "Categories"}
-          </p>
-          <div className="flex flex-col gap-2">
-            <CategoryButton
-              label={isZh ? "语言与网关" : "Language & Gateway"}
-              active={activeCategory === "language_gateway"}
-              onClick={() => jumpToCategory("language_gateway")}
-            />
-            <CategoryButton
-              label={t("settings.generationDefaults")}
-              active={activeCategory === "generation_defaults"}
-              onClick={() => jumpToCategory("generation_defaults")}
-            />
-            <CategoryButton
-              label={t("settings.notifications")}
-              active={activeCategory === "notifications"}
-              onClick={() => jumpToCategory("notifications")}
-            />
-            <CategoryButton
-              label={t("settings.privacyStorage")}
-              active={activeCategory === "privacy_storage"}
-              onClick={() => jumpToCategory("privacy_storage")}
-            />
-          </div>
-        </aside>
-
-        <div className="flex min-w-0 flex-col gap-3">
+      <section className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <section
             id={sectionIds.language_gateway}
-            className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4"
+            className="card"
           >
-            <h3 className="m-0 text-sm font-semibold text-[#1C1917]">
+            <h3 className="m-0 text-heading">
               {isZh ? "语言与网关" : "Language & Gateway"}
             </h3>
             <div className="mt-3 flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F3EC] px-3 py-2">
-                <span className="text-sm font-medium text-[#44403C]">{t("settings.language")}</span>
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-surface-raised px-3 py-2">
+                <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.language")}</span>
                 <LanguageSwitcher
                   value={settings.language}
                   onChange={(value) => settings.setSettings({ language: value })}
@@ -216,17 +208,17 @@ export function SettingsPage(props: Props) {
                 />
               </div>
 
-              <div className="rounded-lg bg-[#F6F3EC] p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-[#44403C]">
+              <div className="rounded-xl bg-surface-raised p-4">
+                <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-label">
                     Gateway · Bearer Token
                   </span>
                   <div className="flex items-center gap-2">
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
                         settings.gatewayToken.trim()
-                          ? "bg-[#E6F3EE] text-[#0F766E]"
-                          : "bg-[#ECE7DC] text-[#57534E]"
+                          ? "bg-success-bg text-success-text"
+                          : "bg-[var(--c-surface-inset)] text-[var(--c-text-secondary)]"
                       }`}
                     >
                       {settings.gatewayToken.trim()
@@ -240,7 +232,7 @@ export function SettingsPage(props: Props) {
                     <button
                       type="button"
                       onClick={() => setShowGatewayToken((current) => !current)}
-                      className="rounded-full bg-[#ECE7DC] px-2 py-1 text-[10px] font-semibold text-[#57534E] transition-colors hover:bg-[#E0D8C8]"
+                      className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
                     >
                       {showGatewayToken
                         ? isZh
@@ -257,7 +249,7 @@ export function SettingsPage(props: Props) {
                   value={settings.gatewayToken}
                   onChange={(event) => settings.setSettings({ gatewayToken: event.target.value })}
                   placeholder={t("settings.gatewayTokenPlaceholder")}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#FBF8F2] px-3 py-2 text-sm text-[#1C1917] outline-none transition-colors placeholder:text-[#A8A29E] focus:border-[#CFC5B4]"
+                  className="input-base"
                 />
               </div>
             </div>
@@ -265,15 +257,15 @@ export function SettingsPage(props: Props) {
 
           <section
             id={sectionIds.generation_defaults}
-            className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4"
+            className="card"
           >
-            <h3 className="m-0 text-sm font-semibold text-[#1C1917]">{t("settings.generationDefaults")}</h3>
+            <h3 className="m-0 text-heading">{t("settings.generationDefaults")}</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <SettingField label={t("settings.defaultImageProvider")}>
                 <select
                   value={settings.defaultImageProvider}
                   onChange={(event) => settings.setSettings({ defaultImageProvider: event.target.value })}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 >
                   <option value="">{t("settings.defaultProviderAuto")}</option>
                   {imageProviders.map((provider) => (
@@ -288,7 +280,7 @@ export function SettingsPage(props: Props) {
                 <select
                   value={settings.defaultVideoProvider}
                   onChange={(event) => settings.setSettings({ defaultVideoProvider: event.target.value })}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 >
                   <option value="">{t("settings.defaultProviderAuto")}</option>
                   {videoProviders.map((provider) => (
@@ -300,7 +292,7 @@ export function SettingsPage(props: Props) {
               </SettingField>
             </div>
 
-            <p className="mb-0 mt-3 text-xs text-[#78716C]">
+            <p className="mb-0 mt-3 text-xs text-[var(--c-text-secondary)]">
               {isZh
                 ? "该 Provider 的比例/时长/质量等参数会按最近一次生成时的实际选择自动记忆。"
                 : "Ratio/duration/quality defaults are auto-remembered per provider from your latest generation."}
@@ -316,8 +308,8 @@ export function SettingsPage(props: Props) {
             </div>
           </section>
 
-          <details className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-[#57534E]">
+          <details className="card">
+            <summary className="cursor-pointer text-sm font-semibold text-[var(--c-text-secondary)]">
               {isZh ? "高级偏好（重试与成本）" : "Advanced Preferences (Retry & Cost)"}
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -327,7 +319,7 @@ export function SettingsPage(props: Props) {
                   onChange={(event) =>
                     settings.setSettings({ retryModeDefault: event.target.value as RetryMode })
                   }
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 >
                   <option value="same_seed">{t("settings.sameSeed")}</option>
                   <option value="new_seed">{t("settings.newSeed")}</option>
@@ -338,7 +330,7 @@ export function SettingsPage(props: Props) {
                 <input
                   value={settings.currency}
                   onChange={(event) => settings.setSettings({ currency: event.target.value })}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 />
               </SettingField>
 
@@ -350,7 +342,7 @@ export function SettingsPage(props: Props) {
                       costMode: event.target.value as "provider_api" | "local_config",
                     })
                   }
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 >
                   <option value="provider_api">{t("settings.costModeProviderApi")}</option>
                   <option value="local_config">{t("settings.costModeLocalConfig")}</option>
@@ -361,7 +353,7 @@ export function SettingsPage(props: Props) {
                 <input
                   value={settings.pricingVersion}
                   onChange={(event) => settings.setSettings({ pricingVersion: event.target.value })}
-                  className="w-full rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-2 text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-full input-base"
                 />
               </SettingField>
             </div>
@@ -375,13 +367,11 @@ export function SettingsPage(props: Props) {
             </div>
           </details>
         </div>
-
-        <div className="flex flex-col gap-3">
           <section
             id={sectionIds.notifications}
-            className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4"
+            className="card"
           >
-            <h3 className="m-0 text-sm font-semibold text-[#1C1917]">{t("settings.notifications")}</h3>
+            <h3 className="m-0 text-heading">{t("settings.notifications")}</h3>
             <div className="mt-3 flex flex-col gap-2">
               <ToggleRow
                 label={t("settings.notifySuccess")}
@@ -407,9 +397,9 @@ export function SettingsPage(props: Props) {
                 onChange={(checked) => settings.setSettings({ notifyBadge: checked })}
                 isZh={isZh}
               />
-              <div className="rounded-lg bg-[#F6F3EC] p-2.5">
+              <div className="rounded-xl bg-surface-raised p-2.5">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-[#44403C]">
+                  <span className="text-sm font-medium text-[var(--c-text)]">
                     {t("settings.requestNotificationPermission")}
                   </span>
                   <button
@@ -417,7 +407,7 @@ export function SettingsPage(props: Props) {
                     onClick={() => {
                       void requestNotificationPermission();
                     }}
-                    className="rounded-lg bg-[#ECE7DC] px-2.5 py-1 text-[11px] font-semibold text-[#57534E] transition-colors hover:bg-[#E0D8C8]"
+                    className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[11px] font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
                   >
                     {isZh ? "请求" : "Request"}
                   </button>
@@ -428,9 +418,9 @@ export function SettingsPage(props: Props) {
 
           <section
             id={sectionIds.privacy_storage}
-            className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4"
+            className="card"
           >
-            <h3 className="m-0 text-sm font-semibold text-[#1C1917]">{t("settings.privacyStorage")}</h3>
+            <h3 className="m-0 text-heading">{t("settings.privacyStorage")}</h3>
             <div className="mt-3 flex flex-col gap-2">
               <ToggleRow
                 label={t("settings.savePromptHistory")}
@@ -439,8 +429,8 @@ export function SettingsPage(props: Props) {
                 isZh={isZh}
               />
 
-              <div className="flex items-center justify-between gap-2 rounded-lg bg-[#F6F3EC] px-3 py-2">
-                <span className="text-sm font-medium text-[#44403C]">{t("settings.historyRetentionDays")}</span>
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-raised px-3 py-2">
+                <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.historyRetentionDays")}</span>
                 <input
                   type="number"
                   min={1}
@@ -449,39 +439,39 @@ export function SettingsPage(props: Props) {
                   onChange={(event) =>
                     settings.setSettings({ historyRetentionDays: Number(event.target.value) || 90 })
                   }
-                  className="w-20 rounded-md border border-[#DDD6C8] bg-[#FBF8F2] px-2 py-1 text-right text-sm text-[#1C1917] outline-none focus:border-[#CFC5B4]"
+                  className="w-20 input-base text-right"
                 />
               </div>
 
-              <div className="rounded-lg border border-[#FDBA74] bg-[#FFF7ED] p-3">
+              <div className="rounded-xl border border-border bg-warning-bg p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-[#9A3412]">
+                  <span className="text-sm font-semibold text-warning-text">
                     {isZh ? "本地缓存摘要" : "Local Cache Summary"}
                   </span>
-                  <span className="rounded-full bg-[#FEE8D6] px-2 py-1 text-[10px] font-semibold text-[#9A3412]">
+                  <span className="rounded-full bg-warning-bg px-2 py-1 text-[10px] font-semibold text-warning-text">
                     {historyStatusLabel}
                   </span>
                 </div>
-                <p className="m-0 text-[11px] text-[#9A3412]">
+                <p className="m-0 text-[11px] text-warning-text">
                   {isZh ? "缓存键数量" : "Cache keys"}: {cacheStats.keyCount}
                 </p>
-                <p className="mb-0 mt-0.5 text-[11px] text-[#9A3412]">
+                <p className="mb-0 mt-0.5 text-[11px] text-warning-text">
                   {isZh ? "缓存占用" : "Cache size"}: {formatBytes(cacheStats.sizeBytes)}
                 </p>
                 <button
                   type="button"
                   onClick={clearLocalCache}
-                  className="mt-2 rounded-lg bg-[#F97316] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#EA580C]"
+                  className="btn-danger mt-2 text-xs"
                 >
+                  <Trash size={13} />
                   {t("settings.clearLocalCache")}
                 </button>
               </div>
             </div>
           </section>
-        </div>
       </section>
 
-      {hint ? <p className="m-0 text-xs text-[#736B5E]">{hint}</p> : null}
+      {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
     </div>
   );
 }
@@ -499,11 +489,7 @@ function CategoryButton({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${
-        active
-          ? "bg-[#EA580C] text-[#FFF7ED]"
-          : "border border-[#DDD6C8] bg-[#F6F3EC] text-[#57534E] hover:bg-[#EEE7DA]"
-      }`}
+      className={`segment-item ${active ? "segment-active" : ""}`}
     >
       {label}
     </button>
@@ -521,7 +507,7 @@ function SettingField({
 }) {
   return (
     <label className={className}>
-      <span className="mb-1 block text-xs font-semibold text-[#57534E]">{label}</span>
+      <span className="text-label mb-1.5 block">{label}</span>
       {children}
     </label>
   );
@@ -543,7 +529,7 @@ function LanguageSwitcher({
   ];
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg bg-[#ECE7DC] p-1">
+    <div className="segment-group">
       {options.map((option) => {
         const active = value === option.value;
         return (
@@ -551,9 +537,7 @@ function LanguageSwitcher({
             type="button"
             key={option.value}
             onClick={() => onChange(option.value)}
-            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              active ? "bg-[#EA580C] text-[#FFF7ED]" : "text-[#57534E] hover:bg-[#E4DCCF]"
-            }`}
+            className={`segment-item ${active ? "segment-active" : ""}`}
           >
             {option.label}
           </button>
@@ -575,15 +559,15 @@ function ToggleRow({
   isZh: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg bg-[#F6F3EC] px-3 py-2">
-      <span className="text-sm font-medium text-[#44403C]">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-raised px-4 py-3">
+      <span className="text-sm text-[var(--c-text)]">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
-        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+        className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-200 ${
           checked
-            ? "bg-[#E6F3EE] text-[#0F766E] hover:bg-[#D2EADF]"
-            : "bg-[#ECE7DC] text-[#57534E] hover:bg-[#E0D8C8]"
+            ? "bg-success-bg text-success-text hover:opacity-80"
+            : "bg-[var(--c-surface-inset)] text-[var(--c-text-secondary)] hover:bg-[var(--c-border)]"
         }`}
       >
         {checked ? (isZh ? "开启" : "On") : (isZh ? "关闭" : "Off")}

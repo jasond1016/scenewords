@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Plus, Images, GearSix, CircleNotch } from "@phosphor-icons/react";
 import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
 import { useTaskNotifications, type TaskToastNotice } from "./useTaskNotifications";
 import type { VideoTaskDetail } from "./types";
 import { CreatePage } from "./pages/CreatePage";
-import { JobsPage } from "./pages/JobsPage";
+import { WorksPage } from "./pages/WorksPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
@@ -57,7 +58,6 @@ export default function App() {
       ).length,
     [tasksQuery.data],
   );
-  const hasGatewayToken = settings.gatewayToken.trim().length > 0;
 
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((item) => item.id !== id));
@@ -114,7 +114,6 @@ export default function App() {
       settings.notifyBadge && unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;
   }, [locale, settings.notifyBadge, t, unreadCount]);
 
-  // Apply Theme
   useEffect(() => {
     const root = document.documentElement;
     const isDark =
@@ -124,86 +123,74 @@ export default function App() {
 
     if (isDark) {
       root.classList.add("dark");
-      // Optional: Add specific meta theme-color logic here if needed
     } else {
       root.classList.remove("dark");
     }
   }, [settings.theme]);
 
+  const navItems = [
+    { to: "/create", label: t("nav.create"), icon: Plus },
+    { to: "/works", label: t("nav.works"), icon: Images },
+    { to: "/settings", label: t("nav.settings"), icon: GearSix },
+  ];
+
   return (
-    <div className="min-h-screen bg-[var(--c-bg-main)] transition-colors duration-300">
-      {/* ── Top Bar ────────────────────────────────── */}
-      <header className="sticky top-0 z-30 border-b border-[#DDD6C8] bg-[#F6F3EC]/95 backdrop-blur-sm">
-        <div className="px-4 py-3 sm:px-6 md:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="min-h-[100dvh] bg-canvas">
+      {/* ── Top Bar ──────────────────────────────── */}
+      <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur-md">
+        <div className="mx-auto grid max-w-[1400px] grid-cols-[1fr_auto_1fr] items-center px-5 py-3 sm:px-8">
+          {/* Left: Logo */}
+          <div className="flex items-center">
             <NavLink
               to="/create"
-              className="inline-flex min-w-0 items-center gap-2.5 text-xl font-semibold tracking-tight text-[#1C1917] no-underline"
+              className="inline-flex items-center gap-2.5 no-underline"
             >
               <img
                 src={LOGO_MARK_SRC}
                 alt=""
                 aria-hidden="true"
-                className="h-9 w-9 shrink-0 rounded-md"
+                className="h-7 w-7 shrink-0 rounded-lg"
               />
-              <span className="truncate">SceneWords</span>
+              <span className="hidden text-base font-bold tracking-tight text-[var(--c-text)] sm:inline">
+                SceneWords
+              </span>
             </NavLink>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#ECE7DC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-                {t("app.topbar.queue", { count: inProgressCount })}
-              </span>
-              <span className="rounded-full bg-[#ECE7DC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-                {hasGatewayToken
-                  ? t("app.topbar.gatewayConfigured")
-                  : t("app.topbar.gatewayUnconfigured")}
-              </span>
-            </div>
           </div>
 
-          <nav className="mt-3 flex flex-wrap gap-2">
-            <NavLink
-              to="/create"
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
-                  isActive
-                    ? "bg-[#FBF8F2] text-[#1C1917]"
-                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
-                }`
-              }
-            >
-              {t("nav.create")}
-            </NavLink>
-            <NavLink
-              to="/works"
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
-                  isActive
-                    ? "bg-[#FBF8F2] text-[#1C1917]"
-                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
-                }`
-              }
-            >
-              {t("nav.jobs")}
-            </NavLink>
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
-                  isActive
-                    ? "bg-[#FBF8F2] text-[#1C1917]"
-                    : "text-[#78716C] hover:bg-[#ECE7DC] hover:text-[#1C1917]"
-                }`
-              }
-            >
-              {t("nav.settings")}
-            </NavLink>
+          {/* Center: Nav (all sizes) */}
+          <nav className="flex items-center gap-1">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium no-underline transition-all duration-150 ${
+                    isActive
+                      ? "bg-[var(--c-surface-inset)] text-[var(--c-text)] font-semibold"
+                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)] hover:bg-[var(--c-border-subtle)]"
+                  }`
+                }
+              >
+                <item.icon size={15} weight="regular" />
+                <span className="hidden sm:inline">{item.label}</span>
+              </NavLink>
+            ))}
           </nav>
+
+          {/* Right: queue indicator */}
+          <div className="flex items-center justify-end gap-3">
+            {inProgressCount > 0 ? (
+              <span className="tag tag-warning font-mono tabular-nums">
+                <CircleNotch size={11} className="animate-spin" />
+                {t("app.topbar.queue", { count: inProgressCount })}
+              </span>
+            ) : null}
+          </div>
         </div>
       </header>
 
       {/* ── Main Content ───────────────────────────── */}
-      <main>
+      <main className="mx-auto max-w-[1400px] px-5 py-8 sm:px-8 sm:py-10">
         <Routes>
           <Route
             path="/"
@@ -229,7 +216,7 @@ export default function App() {
           <Route path="/assets" element={<Navigate to="/works" replace />} />
           <Route
             path="/works"
-            element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
+            element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
           />
           <Route
             path="/settings"

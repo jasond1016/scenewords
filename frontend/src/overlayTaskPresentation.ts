@@ -12,35 +12,35 @@ export function formatOverlayTaskStatus(task: VideoTaskDetail, t: TranslateFn): 
   if (task.asset_type === "image") {
     if (task.status === "queued") {
       if (task.queue_position != null) {
-        return t("jobs.imageStatusQueuedWithPosition", { position: task.queue_position });
+        return t("works.imageStatusQueuedWithPosition", { position: task.queue_position });
       }
-      return t("jobs.imageStatusQueued");
+      return t("works.imageStatusQueued");
     }
     if (task.status === "running") {
-      return t("jobs.imageStatusRunning");
+      return t("works.imageStatusRunning");
     }
     if (task.status === "succeeded") {
-      return t("jobs.imageStatusSucceeded");
+      return t("works.imageStatusSucceeded");
     }
   }
 
   if (task.asset_type === "video") {
     if (task.status === "queued") {
       if (task.queue_position != null) {
-        return t("jobs.videoStatusQueuedWithPosition", { position: task.queue_position });
+        return t("works.videoStatusQueuedWithPosition", { position: task.queue_position });
       }
-      return t("jobs.videoStatusQueued");
+      return t("works.videoStatusQueued");
     }
     if (task.status === "running") {
-      return t("jobs.videoStatusRunning");
+      return t("works.videoStatusRunning");
     }
     if (task.status === "succeeded") {
-      return t("jobs.videoStatusSucceeded");
+      return t("works.videoStatusSucceeded");
     }
   }
 
   if (task.status === "queued" && task.queue_position != null) {
-    return t("jobs.statusQueuedWithPosition", { position: task.queue_position });
+    return t("works.statusQueuedWithPosition", { position: task.queue_position });
   }
 
   return translateStatus(t, task.status);
@@ -83,7 +83,7 @@ export function buildMediaSidebarActions(
   const isInProgress = task.status === "queued" || task.status === "running";
 
   const onDelete = () => {
-    const confirmed = window.confirm(t("jobs.deleteConfirm", { taskId: shortTaskId }));
+    const confirmed = window.confirm(t("works.deleteConfirm", { taskId: shortTaskId }));
     if (!confirmed) {
       return;
     }
@@ -94,7 +94,7 @@ export function buildMediaSidebarActions(
     ? {
         disabled: deleteDisabled ?? false,
         onCancel: () => {
-          const confirmed = window.confirm(t("jobs.cancelConfirm", { taskId: shortTaskId }));
+          const confirmed = window.confirm(t("works.cancelConfirm", { taskId: shortTaskId }));
           if (!confirmed) {
             return;
           }
@@ -108,14 +108,14 @@ export function buildMediaSidebarActions(
     : showBothRetryActions
       ? {
           disabled: retryDisabled ?? false,
-          sameSeedLabel: t("jobs.retry", { mode: t("common.retrySameSeed") }),
-          newSeedLabel: t("jobs.retry", { mode: t("common.retryNewSeed") }),
+          sameSeedLabel: t("works.retry", { mode: t("common.retrySameSeed") }),
+          newSeedLabel: t("works.retry", { mode: t("common.retryNewSeed") }),
           onSameSeed: () => onRetry("same_seed"),
           onNewSeed: () => onRetry("new_seed"),
         }
       : {
           disabled: retryDisabled ?? false,
-          defaultLabel: t("jobs.retry", {
+          defaultLabel: t("works.retry", {
             mode:
               retryModeDefault === "same_seed"
                 ? t("common.retrySameSeed")

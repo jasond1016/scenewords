@@ -228,15 +228,15 @@ export function WorkDetailOverlay(props: Props) {
 
   return (
     <MediaOverlayFrame
-      title={locale === "zh-CN" ? "作品预览" : "Work Preview"}
+      title={t("works.workPreview")}
       currentIndex={lightboxIndex}
       totalItems={lightboxItems.length}
       isInfoHidden={isInfoHidden}
       onToggleInfo={() => setIsInfoHidden((current) => !current)}
       onClose={onClose}
-      showInfoLabel={locale === "zh-CN" ? "显示信息" : "Show Info"}
-      hideInfoLabel={locale === "zh-CN" ? "隐藏信息" : "Hide Info"}
-      backLabel={locale === "zh-CN" ? "返回浏览" : "Back"}
+      showInfoLabel={t("works.showInfo")}
+      hideInfoLabel={t("works.hideInfo")}
+      backLabel={t("works.back")}
       media={
         <AppLightboxStage
           items={lightboxItems}
@@ -251,12 +251,8 @@ export function WorkDetailOverlay(props: Props) {
       }
       mediaHint={
         currentLightboxIsPortrait
-          ? locale === "zh-CN"
-            ? "纵向作品：保持原始纵向比例展示。"
-            : "Portrait asset: keeps vertical composition."
-          : locale === "zh-CN"
-            ? "横向作品：优先铺宽展示。"
-            : "Landscape asset: rendered with wide priority."
+          ? t("works.portraitHint")
+          : t("works.landscapeHint")
       }
       sidebar={
         <MediaDetailSidebar
@@ -279,8 +275,8 @@ export function WorkDetailOverlay(props: Props) {
             const payload = buildTaskRequestPayload(currentLightboxTask);
             const text = JSON.stringify(payload, null, 2);
             void copyText(text).then(
-              () => onHint?.(t("jobs.copyJsonSuccess")),
-              () => onHint?.(t("jobs.copyJsonFailed")),
+              () => onHint?.(t("works.copyJsonSuccess")),
+              () => onHint?.(t("works.copyJsonFailed")),
             );
           }}
           isRawResultOpen={isRawResultOpen}

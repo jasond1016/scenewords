@@ -9,6 +9,19 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  CaretLeft,
+  CaretRight,
+  CloudArrowUp,
+  Faders,
+  ImageSquare,
+  PaperPlaneTilt,
+  Plus,
+  VideoCamera,
+  X,
+  CaretDown,
+  GearSix,
+} from "@phosphor-icons/react";
+import {
   createVideoTask,
   fetchUploadedFileBinary,
   uploadFile,
@@ -35,7 +48,6 @@ import {
   fieldKey,
   fieldStorageKey,
   findField,
-  formatTime,
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
@@ -44,6 +56,7 @@ import {
   valueToStoredString,
 } from "../utils";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
+import { SkeletonForm } from "../components/Skeletons";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -97,6 +110,23 @@ export function CreatePage(props: Props) {
   const [selectedRecentTaskId, setSelectedRecentTaskId] = useState<string | null>(null);
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [openPopover, setOpenPopover] = useState<"model" | "params" | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Cmd+Enter / Ctrl+Enter to submit
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        formRef.current?.requestSubmit();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? null,
@@ -216,14 +246,6 @@ export function CreatePage(props: Props) {
     () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
     [tasks],
   );
-  const successCount = useMemo(
-    () => tasks.filter((task) => task.status === "succeeded").length,
-    [tasks],
-  );
-  const failedCount = useMemo(
-    () => tasks.filter((task) => task.status === "failed" || task.status === "canceled").length,
-    [tasks],
-  );
   const recentTasks = useMemo(
     () =>
       [...tasks]
@@ -255,6 +277,17 @@ export function CreatePage(props: Props) {
         : null,
     [lastSubmittedTaskId, tasks],
   );
+  const trackedPreview = useMemo(() => {
+    if (!trackedTask || trackedTask.status !== "succeeded") {
+      return null;
+    }
+    if (trackedTask.asset_type === "video") {
+      const url = extractVideoUrl(trackedTask);
+      return url ? { kind: "video" as const, url } : null;
+    }
+    const urls = extractImageUrls(trackedTask);
+    return urls[0] ? { kind: "image" as const, url: urls[0] } : null;
+  }, [trackedTask]);
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
     [providers],
@@ -349,27 +382,37 @@ export function CreatePage(props: Props) {
     return t("create.promptPlaceholder");
   }, [promptField, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
-  const hasPromptValue = promptValue.trim().length > 0;
-  const hasAttachedAssets = useMemo(
-    () =>
-      quickMediaFields.some((field) => {
-        const key = fieldKey(field);
-        return (files[key]?.length ?? 0) > 0 || (reusedFileIds[key]?.length ?? 0) > 0;
-      }),
-    [files, quickMediaFields, reusedFileIds],
-  );
-  const activeWorkflowStep = useMemo(() => {
-    if (lastSubmittedTaskId) {
-      return 4;
+
+  // Primary file field for inline "+" button
+  const primaryFileField = quickMediaFields[0] ?? null;
+  // All inline file previews (from all quickMediaFields)
+  const inlineFilePreviews = useMemo(() => {
+    const items: Array<{ fieldKey: string; source: "local" | "reused"; index: number; file?: File; fileId?: string }> = [];
+    for (const field of quickMediaFields) {
+      const key = fieldKey(field);
+      const reused = reusedFileIds[key] ?? [];
+      for (let i = 0; i < reused.length; i++) {
+        items.push({ fieldKey: key, source: "reused", index: i, fileId: reused[i] });
+      }
+      const local = files[key] ?? [];
+      for (let i = 0; i < local.length; i++) {
+        items.push({ fieldKey: key, source: "local", index: i, file: local[i] });
+      }
     }
-    if (hasAttachedAssets) {
-      return 3;
+    return items;
+  }, [quickMediaFields, files, reusedFileIds]);
+
+  // Model display label for the chip
+  const modelChipLabel = useMemo(() => {
+    if (!selectedProvider || !selectedModel) return "";
+    const parts: string[] = [];
+    if (providerChoices.length > 1) parts.push(selectedProvider.display_name);
+    parts.push(selectedModel.display_name);
+    if (selectedModel.operations.length > 1 && selectedOperation) {
+      parts.push(selectedOperation.display_name);
     }
-    if (hasPromptValue) {
-      return 2;
-    }
-    return 1;
-  }, [hasAttachedAssets, hasPromptValue, lastSubmittedTaskId]);
+    return parts.join(" · ");
+  }, [selectedProvider, selectedModel, selectedOperation, providerChoices.length]);
 
   useEffect(() => {
     if (currentGenerationKind !== "video" || !videoProviders.length) {
@@ -746,6 +789,47 @@ export function CreatePage(props: Props) {
       nextValue,
     );
   };
+  const autoResizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  };
+
+  // Restore textarea height when content is present on mount / route return
+  useEffect(() => {
+    if (promptValue) {
+      // Defer to next frame so the DOM has rendered the value
+      requestAnimationFrame(autoResizeTextarea);
+    }
+  }, [promptValue]);
+  const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
+    const key = item.fieldKey;
+    if (item.source === "reused" && item.fileId) {
+      const current = reusedFileIds[key] ?? [];
+      const next = current.filter((id) => id !== item.fileId);
+      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      if (field) onReusedFileIdsChanged(field, next);
+    } else if (item.source === "local") {
+      const current = files[key] ?? [];
+      const next = current.filter((_, i) => i !== item.index);
+      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      if (field) onFileFieldChanged(field, next);
+    }
+  };
+  const handleInlineFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!primaryFileField) return;
+    const picked = Array.from(event.target.files ?? []).filter(
+      (f) => f.type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(f.name),
+    );
+    if (!picked.length) return;
+    const key = fieldKey(primaryFileField);
+    const isMulti = primaryFileField.input_type === "file_list";
+    const current = files[key] ?? [];
+    const next = isMulti ? [...current, ...picked] : [picked[0]];
+    onFileFieldChanged(primaryFileField, next);
+    event.currentTarget.value = "";
+  };
   const onGenerationKindChanged = (nextKind: "image" | "video") => {
     if (nextKind === currentGenerationKind) {
       return;
@@ -839,454 +923,529 @@ export function CreatePage(props: Props) {
     }
     return "muted";
   };
+  const estimatedWaitLabel = (task: VideoTaskDetail | null): string | null => {
+    if (!task || (task.status !== "queued" && task.status !== "running")) {
+      return null;
+    }
+    const model = task.model.toLowerCase();
+    const provider = task.provider.toLowerCase();
+    let minSec = 30;
+    let maxSec = 120;
+    if (model.includes("veo")) {
+      minSec = 30;
+      maxSec = 180;
+    } else if (model.includes("sora")) {
+      minSec = 60;
+      maxSec = 300;
+    } else if (provider.includes("comfy")) {
+      minSec = 60;
+      maxSec = 600;
+    } else if (provider.includes("image") || model.includes("image") || model.includes("gemini")) {
+      minSec = 10;
+      maxSec = 90;
+    }
+    const fmt = (s: number) => s >= 60 ? `${Math.round(s / 60)}min` : `${s}s`;
+    return locale === "zh-CN"
+      ? `预计 ${fmt(minSec)} – ${fmt(maxSec)}`
+      : `est. ${fmt(minSec)} – ${fmt(maxSec)}`;
+  };
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
-        {t("create.loadingCatalog")}
+      <div className="flex flex-col items-center justify-center gap-4 py-32">
+        <SkeletonForm />
       </div>
     );
   }
   if (!selectedProvider || !selectedModel || !selectedOperation) {
     return (
-      <div className="flex items-center justify-center py-32 text-gray-400 text-sm">
-        {t("create.noAvailable")}
+      <div className="flex flex-col items-center justify-center gap-3 py-32">
+        <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>
       </div>
     );
   }
 
+  const hasQuickParams = Boolean(
+    (resolutionField && (ratioChoices.length > 0 || resolutionValue)) ||
+    hasQuickSize ||
+    (orientationField && orientationChoices.length > 0) ||
+    (durationField && durationChoices.length > 0),
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-[1366px] flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 60px)" }}>
+      {/* ── Canvas Area (above composer) ─────────────── */}
+      <div className="create-canvas px-5 sm:px-8">
+        <div className="mx-auto w-full max-w-[820px] flex flex-col items-center justify-center py-8">
+
+          {/* Tracked Task */}
+          {lastSubmittedTaskId && trackedTask ? (
+            <div className="tracked-card mb-6 space-y-3">
+              {/* Status header */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`tag ${
+                    statusTone(trackedTask) === "ok"
+                      ? "tag-success"
+                      : statusTone(trackedTask) === "danger"
+                        ? "tag-error"
+                        : statusTone(trackedTask) === "warn"
+                          ? "tag-warning"
+                          : "tag-neutral"
+                  }`}>
+                    {statusLabel(trackedTask)}
+                  </span>
+                  <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
+                    {lastSubmittedTaskId.slice(0, 8)}
+                  </span>
+                </div>
+                <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
+                  {t("create.feedbackContinue")}
+                </button>
+              </div>
+
+              {/* Running pulse */}
+              {(trackedTask.status === "queued" || trackedTask.status === "running") ? (
+                <div className="flex items-center gap-3 rounded-xl bg-warning-bg px-4 py-3">
+                  <div className="status-dot status-dot-pulse bg-warning-text" />
+                  <div className="flex flex-1 items-center justify-between gap-2">
+                    <p className="m-0 text-xs text-warning-text">
+                      {trackedTask.status === "queued"
+                        ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
+                            ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
+                            : t("create.feedbackQueued"))
+                        : t("create.feedbackRunning")}
+                    </p>
+                    {estimatedWaitLabel(trackedTask) ? (
+                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-warning-text/70">
+                        {estimatedWaitLabel(trackedTask)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Succeeded preview */}
+              {trackedTask.status === "succeeded" && trackedPreview ? (
+                <button
+                  type="button"
+                  className="block w-full overflow-hidden rounded-2xl border border-border bg-canvas p-0 text-left transition-all duration-200 hover:border-[var(--c-border-focus)] hover:shadow-[var(--shadow-md)]"
+                  onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
+                >
+                  {trackedPreview.kind === "video" ? (
+                    <video
+                      src={trackedPreview.url}
+                      className="block aspect-video w-full object-cover"
+                      muted loop autoPlay playsInline
+                    />
+                  ) : (
+                    <img src={trackedPreview.url} alt="" className="block aspect-video w-full object-cover" />
+                  )}
+                </button>
+              ) : null}
+
+              {trackedTask.status === "succeeded" ? (
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn-primary text-xs" onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}>
+                    {t("create.feedbackViewResult")}
+                  </button>
+                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
+                    {t("create.feedbackContinue")}
+                  </button>
+                </div>
+              ) : null}
+
+              {trackedTask.status === "failed" && trackedTask.error ? (
+                <p className="m-0 rounded-xl bg-error-bg px-3 py-2 text-xs text-error-text">
+                  {errorMessage(trackedTask)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Empty state (when no tracked task and no recent tasks) */}
+          {!lastSubmittedTaskId && recentTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-20">
+              <p className="text-sm text-[var(--c-text-tertiary)]">
+                {t("create.pageSubtitle")}
+              </p>
+            </div>
+          ) : null}
+
+          {/* Recent tasks strip */}
+          {recentTasks.length > 0 ? (
+            <div className="w-full mt-auto pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-label">{t("create.recentTasks")}</span>
+                <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
+                  {t("create.viewAll")}
+                </button>
+              </div>
+              <div className="recent-strip">
+                {recentTasks.map((task) => {
+                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
+                  return (
+                    <button
+                      key={task.task_id}
+                      type="button"
+                      className="recent-strip-item"
+                      onClick={() => setRecentOverlayTaskId(task.task_id)}
+                    >
+                      {preview ? (
+                        preview.kind === "video" ? (
+                          <video src={preview.url} className="block aspect-[4/3] w-full object-cover" muted playsInline preload="none" />
+                        ) : (
+                          <img src={preview.url} alt="" className="block aspect-[4/3] w-full object-cover" loading="lazy" />
+                        )
+                      ) : (
+                        <div className={`flex aspect-[4/3] w-full items-center justify-center text-[10px] ${
+                          task.status === "failed" ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
+                        }`}>
+                          {task.status === "failed" ? "!" : task.asset_type === "video" ? "V" : "I"}
+                        </div>
+                      )}
+                      <div className="px-1.5 py-1">
+                        <p className="m-0 truncate text-[10px] font-medium text-[var(--c-text)]">{task.prompt?.slice(0, 30) || "—"}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ── Composer Bar ────────────────────────────── */}
       <form
-        className="w-full flex flex-col gap-4"
+        ref={formRef}
+        className="composer-bar"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-stone-900 m-0">Workflow First · Create</h1>
-              <p className="text-xs text-stone-500 m-0 mt-1">默认只展示高频参数；低频参数折叠到 Advanced。</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {canSwitchGenerationKind ? (
-                <div className="inline-flex rounded-full bg-[#ECE7DC] p-1">
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                      currentGenerationKind === "image"
-                        ? "bg-white text-stone-900"
-                        : "text-stone-600 hover:text-stone-900"
-                    }`}
-                    onClick={() => onGenerationKindChanged("image")}
-                  >
-                    {t("create.quickImage")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                      currentGenerationKind === "video"
-                        ? "bg-[#EA580C] text-[#FFF7ED]"
-                        : "text-stone-600 hover:text-stone-900"
-                    }`}
-                    onClick={() => onGenerationKindChanged("video")}
-                  >
-                    {t("create.quickVideo")}
-                  </button>
-                </div>
-              ) : null}
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Queue {inProgressCount}</span>
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Success {successCount}</span>
-              <span className="px-3 py-1.5 rounded-full border border-[#DDD6C8] bg-[#F6F3EC] text-xs font-semibold text-stone-700">Fail {failedCount}</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {["1 Prompt", "2 Mode", "3 Assets", "4 Generate"].map((label, index) => (
-              <span
-                key={label}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
-                  index + 1 === activeWorkflowStep
-                    ? "bg-[#EA580C] text-[#FFF7ED]"
-                    : "bg-[#ECE7DC] text-stone-700"
-                }`}
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        </section>
+        {/* Popover backdrop */}
+        {openPopover ? (
+          <div className="popover-backdrop" onClick={() => setOpenPopover(null)} />
+        ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_370px]">
-          <div className="flex flex-col gap-4">
-            <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 space-y-4">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <h2 className="text-base font-bold text-stone-900 m-0">Prompt 主编辑区</h2>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {promptField ? (
+        <div className="composer-card">
+          {/* Input row: thumbnails + textarea + submit */}
+          <div className="composer-input-row">
+            {/* Inline file thumbnails */}
+            {(quickMediaFields.length > 0) ? (
+              <div className="composer-thumbs">
+                {inlineFilePreviews.map((item) => (
+                  <InlineThumb
+                    key={`${item.fieldKey}_${item.source}_${item.index}`}
+                    item={item}
+                    onRemove={() => removeInlineFile(item)}
+                  />
+                ))}
+                <button
+                  type="button"
+                  className="composer-add-btn"
+                  onClick={() => inlineFileInputRef.current?.click()}
+                  title={t("create.fileUploadImage")}
+                >
+                  <Plus size={16} weight="bold" />
+                </button>
+                <input
+                  ref={inlineFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple={primaryFileField?.input_type === "file_list"}
+                  className="hidden"
+                  onChange={handleInlineFilePick}
+                />
+              </div>
+            ) : null}
+
+            {/* Prompt textarea */}
+            {promptField ? (
+              <textarea
+                ref={textareaRef}
+                className="composer-textarea"
+                rows={1}
+                value={promptValue}
+                placeholder={promptPlaceholder}
+                onChange={(e) => {
+                  onFieldChanged(promptField, e.target.value);
+                  autoResizeTextarea();
+                }}
+                onInput={autoResizeTextarea}
+              />
+            ) : (
+              <div className="flex-1 py-2 text-sm text-[var(--c-text-tertiary)]">
+                {t("create.promptNotSupported")}
+              </div>
+            )}
+
+            {/* Submit button */}
+            <button
+              type="submit"
+              className="composer-submit"
+              disabled={submitMutation.isPending}
+              title={submitMutation.isPending ? t("create.submitting") : t("create.generateVideo")}
+            >
+              <PaperPlaneTilt size={16} weight="fill" />
+            </button>
+          </div>
+
+          {/* Hint message */}
+          {hint ? <p className="m-0 text-[11px] text-[var(--c-text-secondary)]">{hint}</p> : null}
+
+          {/* Chip row */}
+          <div className="composer-chip-row">
+            {/* Model selector chip */}
+            <div className="composer-popover-anchor">
+              <button
+                type="button"
+                className={`chip ${openPopover === "model" ? "chip-active" : ""}`}
+                onClick={() => setOpenPopover(openPopover === "model" ? null : "model")}
+              >
+                {currentGenerationKind === "image" ? <ImageSquare size={13} weight="fill" /> : <VideoCamera size={13} weight="fill" />}
+                <span className="max-w-[180px] truncate">{modelChipLabel || t("create.model")}</span>
+                <CaretDown size={10} />
+              </button>
+
+              {/* Model popover */}
+              {openPopover === "model" ? (
+                <div className="composer-popover">
+                  <p className="m-0 mb-3 text-label">{t("create.model")}</p>
+
+                  {/* Generation kind toggle */}
+                  {canSwitchGenerationKind ? (
+                    <div className="segment-group mb-3 w-full">
                       <button
                         type="button"
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-stone-300 text-stone-600 hover:text-stone-900 hover:border-stone-400 transition-colors"
-                        onClick={() => onFieldChanged(promptField, "")}
+                        className={`segment-item flex-1 ${currentGenerationKind === "image" ? "segment-active" : ""}`}
+                        onClick={() => onGenerationKindChanged("image")}
                       >
-                        {t("create.clearPrompt")}
+                        <ImageSquare size={13} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
+                        {t("create.quickImage")}
                       </button>
-                    ) : null}
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#EA580C] text-[#FFF7ED] hover:bg-[#C2410C] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitMutation.isPending}
-                    >
-                      {submitMutation.isPending
-                        ? t("create.submitting")
-                        : selectedProvider.type === "tuzi_image"
-                          ? t("create.generateImage")
-                          : t("create.generateVideo")}
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.provider")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={providerId}
-                      onChange={(event) => setProviderId(event.target.value)}
-                    >
-                      {providerChoices.map((provider) => (
-                        <option key={provider.id} value={provider.id}>{provider.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.model")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={modelName}
-                      onChange={(event) => setModelName(event.target.value)}
-                    >
-                      {selectedProvider.models.map((model) => (
-                        <option key={model.name} value={model.name}>{model.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-stone-500">{t("create.quickMode")}</span>
-                    <select
-                      className="px-3 py-2 text-sm rounded-lg border border-stone-300 bg-white"
-                      value={selectedOperation.id}
-                      onChange={(event) => setOperationId(event.target.value)}
-                    >
-                      {selectedModel.operations.map((operation) => (
-                        <option key={operation.id} value={operation.id}>{operation.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
+                      <button
+                        type="button"
+                        className={`segment-item flex-1 ${currentGenerationKind === "video" ? "segment-active" : ""}`}
+                        onClick={() => onGenerationKindChanged("video")}
+                      >
+                        <VideoCamera size={13} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
+                        {t("create.quickVideo")}
+                      </button>
+                    </div>
+                  ) : null}
 
-              {promptField ? (
-                <div className="space-y-1">
-                  <DynamicInput
-                    field={promptField}
-                    value={promptValue}
-                    onValueChange={(next) => onFieldChanged(promptField, next)}
-                    onFileChange={() => undefined}
-                    placeholder={promptPlaceholder}
-                  />
-                  {promptField.help_text ? <small className="text-xs text-stone-500">{promptField.help_text}</small> : null}
-                </div>
-              ) : (
-                <p className="text-sm text-stone-500">{t("create.promptNotSupported")}</p>
-              )}
-
-              {quickMediaFields.length ? (
-                <div className="space-y-2 rounded-lg border border-[#DDD6C8] bg-[#F6F3EC] p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-stone-800 m-0">素材输入</p>
-                    <p className="text-xs text-stone-500 m-0">支持复用与上传</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {quickMediaFields.map((field) =>
-                      renderField(
-                        field,
-                        values,
-                        files,
-                        reusedFileIds,
-                        onFieldChanged,
-                        onFileFieldChanged,
-                        onReusedFileIdsChanged,
-                        "compact",
+                  {/* Provider+Model list */}
+                  <div className="flex flex-col gap-1">
+                    {providerChoices.flatMap((provider) =>
+                      provider.models.flatMap((model) =>
+                        model.operations.map((operation) => {
+                          const isSelected = provider.id === providerId && model.name === modelName && operation.id === (selectedOperation?.id ?? operationId);
+                          const showOp = model.operations.length > 1;
+                          return (
+                            <button
+                              type="button"
+                              key={`${provider.id}::${model.name}::${operation.id}`}
+                              className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
+                                isSelected
+                                  ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
+                                  : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
+                              }`}
+                              onClick={() => {
+                                setProviderId(provider.id);
+                                setModelName(model.name);
+                                setOperationId(operation.id);
+                                setOpenPopover(null);
+                              }}
+                            >
+                              <span className="flex-1 truncate">
+                                {providerChoices.length > 1 ? `${provider.display_name} · ` : ""}
+                                {model.display_name}
+                                {showOp ? ` · ${operation.display_name}` : ""}
+                              </span>
+                              {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
+                            </button>
+                          );
+                        }),
                       ),
                     )}
                   </div>
                 </div>
               ) : null}
-
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-stone-800 m-0">快捷参数</p>
-                <div className="flex flex-wrap gap-2">
-                  {resolutionField
-                    ? (ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
-                      <button
-                        type="button"
-                        key={`ratio_${ratio}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          currentRatioDisplay === ratio
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
-                        }`}
-                        onClick={() => onRatioChanged(ratio)}
-                      >
-                        比例 {ratio}
-                      </button>
-                    ))
-                    : null}
-                  {hasQuickSize
-                    ? (qualityField ? qualityChoices : sizeChoices).map((size) => {
-                      const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                      const label = qualityField
-                        ? qualityField.options.find((option) => option.value === size)?.label ?? size
-                        : size;
-                      return (
-                        <button
-                          type="button"
-                          key={`size_${size}`}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                            active
-                              ? "bg-stone-800 text-white"
-                              : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
-                          }`}
-                          onClick={() => onSizeChanged(size)}
-                        >
-                          {qualityField ? "质量" : "尺寸"} {label}
-                        </button>
-                      );
-                    })
-                    : null}
-                  {orientationField
-                    ? orientationChoices.map((option) => (
-                      <button
-                        type="button"
-                        key={`orientation_${option.value}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          orientationValue === option.value
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
-                        }`}
-                        onClick={() => onOrientationChanged(option.value)}
-                      >
-                        方向 {option.label}
-                      </button>
-                    ))
-                    : null}
-                  {durationField && durationChoices.length
-                    ? durationChoices.map((seconds) => (
-                      <button
-                        type="button"
-                        key={`duration_${seconds}`}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          durationValue === String(seconds)
-                            ? "bg-stone-800 text-white"
-                            : "bg-[#ECE7DC] text-stone-700 hover:bg-stone-300"
-                        }`}
-                        onClick={() => onFieldChanged(durationField, String(seconds))}
-                      >
-                        时长 {seconds}s
-                      </button>
-                    ))
-                    : null}
-                </div>
-                {durationField && !durationChoices.length ? (
-                  <div className="max-w-xs">
-                    <DynamicInput
-                      field={durationField}
-                      value={durationValue}
-                      onValueChange={(next) => onFieldChanged(durationField, next)}
-                      onFileChange={() => undefined}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              {hint ? <p className="text-xs text-stone-600 m-0">{hint}</p> : null}
-            </section>
-
-            <details className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-3 sm:p-4">
-              <summary className="cursor-pointer list-none flex items-center justify-between text-sm font-semibold text-stone-800">
-                <span>Advanced（默认折叠）</span>
-                <span className="text-xs font-medium text-stone-500">{t("create.advancedOptions", { count: advancedFields.length })}</span>
-              </summary>
-              <div className="mt-3 space-y-3">
-                {showVeoPromptGuide ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
-                    <h4 className="font-semibold text-blue-800 mb-1">{t("create.veoPromptGuideTitle")}</h4>
-                    <p className="text-blue-600 mb-2">{t("create.veoPromptGuideDesc")}</p>
-                    <div className="flex flex-wrap gap-3">
-                      <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkDocs")}</a>
-                      <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-blue-700 underline">{t("create.veoPromptGuideLinkBlog")}</a>
-                    </div>
-                  </div>
-                ) : null}
-                {advancedGroups.map((group) => (
-                  <section key={group.id} className="rounded-lg border border-stone-200 bg-white p-3">
-                    <p className="text-sm font-semibold text-stone-800 m-0 mb-2">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {group.fields.map((field) =>
-                        renderField(
-                          field,
-                          values,
-                          files,
-                          reusedFileIds,
-                          onFieldChanged,
-                          onFileFieldChanged,
-                          onReusedFileIdsChanged,
-                        ),
-                      )}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </details>
-
-            {lastSubmittedTaskId ? (
-              <section className="rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-800 m-0">{t("create.feedbackTitle", { taskId: lastSubmittedTaskId.slice(0, 8) })}</p>
-                  <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => setLastSubmittedTaskId(null)}>{t("create.feedbackContinue")}</button>
-                </div>
-                <p className={`text-sm font-medium mt-2 mb-0 ${
-                  statusTone(trackedTask) === "ok"
-                    ? "text-green-600"
-                    : statusTone(trackedTask) === "danger"
-                      ? "text-red-600"
-                      : statusTone(trackedTask) === "warn"
-                        ? "text-amber-600"
-                        : "text-stone-500"
-                }`}>
-                  {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
-                </p>
-                {trackedTask?.status === "failed" && trackedTask.error ? (
-                  <p className="text-xs text-red-500 mt-2 mb-0">{errorMessage(trackedTask)}</p>
-                ) : null}
-              </section>
-            ) : null}
-          </div>
-
-          <aside className="h-fit rounded-xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5 lg:sticky lg:top-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-stone-900 m-0">最近任务</h3>
-              <button type="button" className="text-xs text-stone-500 hover:text-stone-900" onClick={() => navigate("/works")}>查看全部</button>
             </div>
-            <div className="mt-3 space-y-2">
-              {recentTasks.length ? (
-                recentTasks.map((task) => {
-                  const isSelected = selectedRecentTaskId === task.task_id;
-                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
-                  return (
-                    <div key={task.task_id} className="space-y-2">
-                      <button
-                        type="button"
-                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                          isSelected
-                            ? "border-[#E8692A] bg-[#FFF7ED]"
-                            : "border-[#DDD6C8] bg-[#F6F3EC] hover:border-stone-400"
-                        }`}
-                        onClick={() => setSelectedRecentTaskId(task.task_id)}
-                      >
-                        <p className="text-sm font-medium text-stone-900 m-0 line-clamp-2">{task.prompt?.trim() || "(No prompt)"}</p>
-                        <p className="text-xs text-stone-500 m-0 mt-1">{task.provider} · {task.model}</p>
-                        <p className={`text-xs font-semibold m-0 mt-1 ${
-                          statusTone(task) === "ok"
-                            ? "text-green-600"
-                            : statusTone(task) === "danger"
-                              ? "text-red-600"
-                              : statusTone(task) === "warn"
-                                ? "text-amber-600"
-                                : "text-stone-500"
-                        }`}>
-                          {statusLabel(task)}
-                        </p>
-                      </button>
 
-                      {isSelected ? (
-                        <div className="rounded-lg border border-[#DDD6C8] bg-white p-3 space-y-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="m-0 text-xs font-semibold text-stone-800">任务详情</p>
-                            <span className={`text-[11px] font-semibold ${
-                              statusTone(task) === "ok"
-                                ? "text-green-600"
-                                : statusTone(task) === "danger"
-                                  ? "text-red-600"
-                                  : statusTone(task) === "warn"
-                                    ? "text-amber-600"
-                                    : "text-stone-500"
-                            }`}>
-                              {statusLabel(task)}
-                            </span>
-                          </div>
-                          {preview ? (
-                            <button
-                              type="button"
-                              className="block w-full overflow-hidden rounded-md border border-[#E2DBC9] bg-[#F4EFE5] p-0 text-left transition-colors hover:border-[#C9C0AF]"
-                              onClick={() => setRecentOverlayTaskId(task.task_id)}
-                              title={locale === "zh-CN" ? "点击查看详情" : "Open detail"}
-                            >
-                              {preview.kind === "video" ? (
-                                <video
-                                  src={preview.url}
-                                  className="block aspect-video w-full object-cover"
-                                  muted
-                                  loop
-                                  autoPlay
-                                  playsInline
-                                />
-                              ) : (
-                                <img
-                                  src={preview.url}
-                                  alt={task.task_id}
-                                  className="block w-full max-h-40 object-cover"
-                                />
-                              )}
-                            </button>
-                          ) : null}
-                          <p className="m-0 text-xs text-stone-700 line-clamp-3">
-                            {task.prompt?.trim() || "(No prompt)"}
-                          </p>
-                          <p className="m-0 text-[11px] text-stone-500">
-                            {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {promptField ? (
+            {/* Params chip */}
+            {hasQuickParams ? (
+              <div className="composer-popover-anchor">
+                <button
+                  type="button"
+                  className={`chip ${openPopover === "params" ? "chip-active" : ""}`}
+                  onClick={() => setOpenPopover(openPopover === "params" ? null : "params")}
+                >
+                  <Faders size={13} weight="bold" />
+                  <span>{t("create.quickParams")}</span>
+                </button>
+
+                {/* Params popover */}
+                {openPopover === "params" ? (
+                  <div className="composer-popover composer-popover-wide">
+                    <p className="m-0 mb-4 text-sm font-semibold text-[var(--c-text)]">{t("create.quickParams")}</p>
+
+                    <div className="flex flex-col gap-4">
+                      {/* Ratio */}
+                      {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickRatio")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                               <button
                                 type="button"
-                                className="rounded-lg border border-[#D8D0C0] bg-white px-3 py-1.5 text-xs font-semibold text-[#5F564B] transition-colors hover:bg-[#F8F3EA]"
-                                onClick={() => {
-                                  settings.setPendingReuseDraft(toDraft(task));
-                                  setHint(
-                                    locale === "zh-CN"
-                                      ? "已复用任务参数与素材到主编辑区。"
-                                      : "Task settings and references restored to editor.",
-                                  );
-                                }}
+                                key={`ratio_${ratio}`}
+                                className={`chip ${currentRatioDisplay === ratio ? "chip-active" : ""}`}
+                                onClick={() => onRatioChanged(ratio)}
                               >
-                                {locale === "zh-CN" ? "复用 Prompt" : "Reuse Prompt"}
+                                {ratio}
                               </button>
-                            ) : null}
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Quality / Size */}
+                      {hasQuickSize ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickSize")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+                              const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                              const label = qualityField
+                                ? qualityField.options.find((o) => o.value === size)?.label ?? size
+                                : size;
+                              return (
+                                <button type="button" key={`size_${size}`} className={`chip ${active ? "chip-active" : ""}`} onClick={() => onSizeChanged(size)}>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Orientation */}
+                      {orientationField && orientationChoices.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickOrientation")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {orientationChoices.map((option) => (
+                              <button type="button" key={`o_${option.value}`} className={`chip ${orientationValue === option.value ? "chip-active" : ""}`} onClick={() => onOrientationChanged(option.value)}>
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Duration */}
+                      {durationField && durationChoices.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickDuration")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {durationChoices.map((seconds) => (
+                              <button type="button" key={`d_${seconds}`} className={`chip ${durationValue === String(seconds) ? "chip-active" : ""}`} onClick={() => onFieldChanged(durationField, String(seconds))}>
+                                {seconds}s
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Veo prompt guide */}
+                      {showVeoPromptGuide ? (
+                        <div className="rounded-xl border border-border bg-info-bg p-3 text-xs">
+                          <p className="m-0 mb-1 font-medium text-info-text">{t("create.veoPromptGuideTitle")}</p>
+                          <div className="flex flex-wrap gap-3">
+                            <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkDocs")}</a>
+                            <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkBlog")}</a>
                           </div>
                         </div>
                       ) : null}
                     </div>
-                  );
-                })
-              ) : (
-                <p className="text-xs text-stone-500 m-0">暂无任务</p>
-              )}
-            </div>
-          </aside>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Advanced button */}
+            {advancedFields.length > 0 ? (
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <GearSix size={13} />
+                <span>{t("create.advancedLabel")}</span>
+                <span className="text-[10px] text-[var(--c-text-tertiary)]">{advancedFields.length}</span>
+              </button>
+            ) : null}
+
+            {/* Keyboard shortcut hint */}
+            <kbd className="ml-auto hidden rounded-full bg-[var(--c-surface-inset)] px-2 py-0.5 text-[10px] font-medium text-[var(--c-text-tertiary)] sm:inline">
+              ⌘ Enter
+            </kbd>
+
+            {/* Queue count */}
+            {inProgressCount > 0 ? (
+              <span className="tag tag-warning font-mono tabular-nums text-[10px]">{t("app.topbar.queue", { count: inProgressCount })}</span>
+            ) : null}
+          </div>
         </div>
       </form>
+
+      {/* ── Advanced Panel (slide-up overlay) ────────── */}
+      {showAdvanced && advancedFields.length > 0 ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay"
+          onClick={() => setShowAdvanced(false)}
+        >
+          <div
+            className="w-full max-w-[820px] max-h-[70vh] overflow-y-auto rounded-t-2xl border border-border bg-surface p-5 shadow-[var(--shadow-overlay)] animate-enter"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("create.advancedLabel")}</h3>
+              <button type="button" className="btn-ghost text-xs" onClick={() => setShowAdvanced(false)}>
+                {t("common.close")}
+              </button>
+            </div>
+
+            {/* Quick media fields (full version with drag-drop) */}
+            {quickMediaFields.length > 0 ? (
+              <div className="mb-4 space-y-3 rounded-xl border border-border bg-surface-raised p-4">
+                <p className="m-0 text-label">{t("create.referenceAssets")}</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {quickMediaFields.map((field) =>
+                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, "compact"),
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {advancedGroups.map((group) => (
+              <section key={group.id} className="mb-4 rounded-xl border border-border bg-surface-raised p-4">
+                <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {group.fields.map((field) =>
+                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Work detail overlay */}
       {recentOverlayTaskId ? (
         <WorkDetailOverlay
           tasks={recentTasks}
@@ -1295,6 +1454,44 @@ export function CreatePage(props: Props) {
           onHint={setHint}
         />
       ) : null}
+    </div>
+  );
+}
+
+/* ── Inline Thumbnail Component ─────────────────────── */
+function InlineThumb({
+  item,
+  onRemove,
+}: {
+  item: { source: "local" | "reused"; file?: File; fileId?: string };
+  onRemove: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const gatewayToken = useAppSettingsStore((s) => s.gatewayToken);
+
+  useEffect(() => {
+    if (item.source === "local" && item.file) {
+      const objectUrl = URL.createObjectURL(item.file);
+      setUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+    if (item.source === "reused" && item.fileId) {
+      let active = true;
+      fetchUploadedFileBinary(item.fileId, gatewayToken).then(({ blob }) => {
+        if (!active) return;
+        const objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      }).catch(() => {});
+      return () => { active = false; };
+    }
+  }, [item.source, item.file, item.fileId, gatewayToken]);
+
+  return (
+    <div className="composer-thumb">
+      {url ? <img src={url} alt="" /> : <div className="h-full w-full bg-[var(--c-surface-inset)]" />}
+      <button type="button" className="composer-thumb-remove" onClick={onRemove}>
+        <X size={10} weight="bold" />
+      </button>
     </div>
   );
 }
@@ -1429,7 +1626,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base"
       >
         {durationOptions.map((seconds) => (
           <option key={seconds} value={String(seconds)}>
@@ -1448,7 +1645,7 @@ function DynamicInput(props: {
         required={field.required}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full resize-y"
+        className="input-base resize-y"
       />
     );
   }
@@ -1458,7 +1655,7 @@ function DynamicInput(props: {
         value={value}
         required={field.required}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base"
       >
         {(field.options ?? []).map((option) => (
           <option key={option.value} value={option.value}>
@@ -1545,7 +1742,7 @@ function DynamicInput(props: {
 
     return (
       <div
-        className={`border-2 border-dashed rounded-xl p-4 transition-colors ${isDragOver ? "border-coral bg-coral/5" : "border-gray-200 dark:border-white/10 bg-surface"
+        className={`rounded-xl border-2 border-dashed p-4 transition-colors ${isDragOver ? "border-accent bg-accent-bg" : "border-border bg-surface-raised"
           }`}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
@@ -1563,9 +1760,10 @@ function DynamicInput(props: {
         <div className="flex items-center gap-2 mb-2">
           <button
             type="button"
-            className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
+            className="btn-secondary text-xs"
             onClick={triggerPick}
           >
+            <CloudArrowUp size={14} />
             {!hasFiles
               ? t("create.fileUploadImage")
               : isMulti
@@ -1575,13 +1773,13 @@ function DynamicInput(props: {
           {hasFiles ? (
             <button
               type="button"
-              className="px-3 py-1 text-xs font-medium rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600/80 transition-colors dark:text-gray-200"
+              className="btn-ghost text-xs"
               onClick={clearAll}
             >
               {t("create.fileClearAll")}
             </button>
           ) : null}
-          <span className="text-xs text-gray-400">
+          <span className="text-[11px] text-[var(--c-text-tertiary)]">
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
@@ -1596,7 +1794,7 @@ function DynamicInput(props: {
               const item = reusedPreviewMap.get(fileId);
               const previewIndexForItem = previewIndexByKey.get(`reused_${fileId}`) ?? -1;
               return (
-                <article key={`${fileId}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
+                <article key={`${fileId}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
                   {item ? (
                     <button
                       type="button"
@@ -1610,13 +1808,13 @@ function DynamicInput(props: {
                       <img className="w-full aspect-square object-cover block" src={item.url} alt={item.name} />
                     </button>
                   ) : (
-                    <div className="aspect-square flex items-center justify-center text-xs text-gray-400">{t("create.fileReusedCount", { count: 1 })}</div>
+                    <div className="aspect-square flex items-center justify-center text-xs text-[var(--c-text-tertiary)]">{t("create.fileReusedCount", { count: 1 })}</div>
                   )}
                   <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                    <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
+                    <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
+                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1631,7 +1829,7 @@ function DynamicInput(props: {
               );
             })}
             {filePreviews.map((item, index) => (
-              <article key={`${item.file.name}_${item.file.size}_${index}`} className="rounded-lg overflow-hidden bg-white dark:bg-white/5 border border-gray-100 dark:border-white/10">
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
                 <button
                   type="button"
                   className="w-full bg-transparent border-none p-0 cursor-pointer"
@@ -1646,10 +1844,10 @@ function DynamicInput(props: {
                   <img className="w-full aspect-square object-cover block" src={item.url} alt={item.file.name} />
                 </button>
                 <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                  <p className="text-[10px] text-gray-500 truncate m-0 flex-1" title={item.file.name}>{item.file.name}</p>
+                  <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="text-[10px] text-red-400 hover:text-red-600 transition-colors bg-transparent border-none cursor-pointer shrink-0"
+                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1664,14 +1862,14 @@ function DynamicInput(props: {
             ))}
           </div>
         ) : (
-          <button type="button" className="w-full py-8 text-xs text-gray-400 bg-transparent border-none cursor-pointer hover:text-gray-600 transition-colors" onClick={triggerPick}>
+          <button type="button" className="w-full cursor-pointer border-none bg-transparent py-8 text-xs text-[var(--c-text-tertiary)] transition-colors duration-150 hover:text-[var(--c-text-secondary)]" onClick={triggerPick}>
             {t("create.fileOnlyImages")}
           </button>
         )}
 
         {previewIndex != null && activePreviewItems[previewIndex] ? (
           <div
-            className="fixed inset-0 z-50 bg-dark-overlay flex items-center justify-center"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-overlay"
             role="dialog"
             aria-modal="true"
             onClick={() => setPreviewIndex(null)}
@@ -1681,22 +1879,22 @@ function DynamicInput(props: {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-center gap-4">
-                <p className="text-white/60 text-xs m-0">
-                  {t("jobs.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
+                <p className="m-0 text-xs text-white/60">
+                  {t("works.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"
-                  className="text-white/60 hover:text-white text-sm transition-colors bg-transparent border-none cursor-pointer"
+                  className="cursor-pointer border-none bg-transparent text-sm text-white/60 transition-colors duration-150 hover:text-white"
                   onClick={() => setPreviewIndex(null)}
                 >
-                  {t("common.close")} ✕
+                  {t("common.close")}
                 </button>
               </div>
               <div className="relative flex items-center gap-4">
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1707,7 +1905,7 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    ‹
+                    <CaretLeft size={18} weight="bold" />
                   </button>
                 ) : null}
                 <img
@@ -1718,7 +1916,7 @@ function DynamicInput(props: {
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="w-10 h-10 rounded-full bg-dark-button hover:bg-white/20 text-white flex items-center justify-center transition-colors text-lg shrink-0 border-none cursor-pointer"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -1729,7 +1927,7 @@ function DynamicInput(props: {
                       )
                     }
                   >
-                    ›
+                    <CaretRight size={18} weight="bold" />
                   </button>
                 ) : null}
               </div>
@@ -1750,7 +1948,7 @@ function DynamicInput(props: {
         step={field.step ?? undefined}
         placeholder={resolvedPlaceholder}
         onChange={(event) => onValueChange(event.target.value)}
-        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+        className="input-base font-mono"
       />
     );
   }
@@ -1761,7 +1959,7 @@ function DynamicInput(props: {
       required={field.required}
       placeholder={resolvedPlaceholder}
       onChange={(event) => onValueChange(event.target.value)}
-      className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 bg-white dark:bg-gray-900 dark:text-gray-200 transition-colors w-full"
+      className="input-base"
     />
   );
 }
@@ -2058,7 +2256,7 @@ function renderField(
   const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
     <Wrapper key={key} className={className}>
-      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{field.label}</span>
+    <span className="text-label">{field.label}</span>
       <DynamicInput
         field={field}
         value={value}
@@ -2068,7 +2266,7 @@ function renderField(
         onValueChange={(next) => onFieldChanged(field, next)}
         onFileChange={(nextFiles) => onFileChanged(field, nextFiles)}
       />
-      {field.help_text ? <small className="text-xs text-gray-400">{field.help_text}</small> : null}
+      {field.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{field.help_text}</small> : null}
     </Wrapper>
   );
 }
@@ -2251,21 +2449,6 @@ function normalizeDefaultRatio(raw: string): "16:9" | "9:16" | null {
     return null;
   }
   return left >= right ? "16:9" : "9:16";
-}
-
-function toDraft(task: VideoTaskDetail): NonNullable<AppSettingsState["pendingReuseDraft"]> {
-  return {
-    provider: task.provider,
-    model: task.model,
-    operation: task.operation ?? "generate",
-    prompt: task.prompt,
-    negativePrompt: task.negative_prompt ?? "",
-    durationSec: task.duration_sec,
-    resolution: task.resolution ?? "",
-    fps: task.fps,
-    seed: task.seed,
-    providerOptions: task.provider_options ?? {},
-  };
 }
 
 function applyDraft(

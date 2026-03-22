@@ -74,7 +74,7 @@ export function useTaskNotifications(options: UseTaskNotificationsOptions): void
     const summary = buildSummary(snapshot, currentRuntime.t);
     const foreground =
       typeof document === "undefined" ? true : document.visibilityState === "visible";
-    const onJobsPage = isJobsPath(currentRuntime.currentPath);
+    const onWorksPage = isWorksPath(currentRuntime.currentPath);
 
     let systemNotificationShown = false;
     if (foreground) {
@@ -87,13 +87,13 @@ export function useTaskNotifications(options: UseTaskNotificationsOptions): void
       );
     }
 
-    const shouldPlayForegroundTone = foreground && !onJobsPage;
+    const shouldPlayForegroundTone = foreground && !onWorksPage;
     const shouldPlayBackgroundFallbackTone = !foreground && !systemNotificationShown;
     if (currentRuntime.soundEnabled && (shouldPlayForegroundTone || shouldPlayBackgroundFallbackTone)) {
       playNotificationTone(summary.level);
     }
 
-    if (currentRuntime.onUnreadIncrement && (!foreground || !onJobsPage)) {
+    if (currentRuntime.onUnreadIncrement && (!foreground || !onWorksPage)) {
       currentRuntime.onUnreadIncrement(snapshot.successCount + snapshot.failureCount);
     }
   };
@@ -164,7 +164,7 @@ function emptyBatch(): PendingBatch {
   };
 }
 
-function isJobsPath(path: string): boolean {
+function isWorksPath(path: string): boolean {
   return path === "/works" || path === "/assets" || path === "/jobs";
 }
 

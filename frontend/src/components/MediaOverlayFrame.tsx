@@ -33,34 +33,36 @@ export function MediaOverlayFrame(props: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 h-dvh bg-[#241F1A]/40 p-1.5 backdrop-blur-[2px] sm:p-3"
+      className="fixed inset-0 z-50 h-dvh bg-overlay p-2 backdrop-blur-[3px] sm:p-3"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
     >
       <div
-        className="relative flex h-full w-full overflow-hidden rounded-2xl border border-[#DCD4C7] bg-[#F7F4EE] sm:flex-row"
+        className="relative flex h-full w-full overflow-hidden rounded-2xl border border-border bg-canvas shadow-[var(--shadow-overlay)] sm:flex-row"
         onClick={(event) => event.stopPropagation()}
       >
+        {/* Media panel */}
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b border-[#E0D9CD] px-3 py-2 sm:px-4">
-            <strong className="text-sm text-[#2C241E]">{title}</strong>
+          {/* Top bar */}
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-5">
+            <strong className="text-sm font-semibold text-[var(--c-text)]">{title}</strong>
             <div className="flex items-center gap-2">
               {totalItems > 1 ? (
-                <span className="rounded-full bg-[#EFE8DB] px-2 py-1 text-[11px] font-semibold text-[#7A6F62]">
+                <span className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 font-mono text-[11px] font-semibold tabular-nums text-[var(--c-text-secondary)]">
                   {(currentIndex ?? 0) + 1} / {totalItems}
                 </span>
               ) : null}
               <button
                 type="button"
-                className="rounded-full border border-[#D7CFBF] bg-white px-3 py-1 text-xs font-semibold text-[#5D5349] transition-colors hover:bg-[#F8F4EC]"
+                className="btn-secondary text-xs"
                 onClick={onToggleInfo}
               >
                 {isInfoHidden ? showInfoLabel : hideInfoLabel}
               </button>
               <button
                 type="button"
-                className="rounded-full bg-[#E8692A] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#D95E22]"
+                className="btn-primary text-xs"
                 onClick={onClose}
               >
                 {backLabel}
@@ -68,19 +70,22 @@ export function MediaOverlayFrame(props: Props) {
             </div>
           </div>
 
-          <div className="relative flex min-h-0 flex-1 items-center justify-center p-1.5 sm:p-4">
-            <div className="flex h-full w-full items-center justify-center rounded-xl border border-[#E4DDD0] bg-[#EFEAE2] px-2 py-2 sm:px-4 sm:py-4">
+          {/* Media area */}
+          <div className="relative flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4">
+            <div className="flex h-full w-full items-center justify-center rounded-xl bg-surface-raised px-2 py-2 sm:px-4 sm:py-4">
               {media}
             </div>
           </div>
 
-          <div className="hidden border-t border-[#E0D9CD] px-4 py-2 text-[11px] text-[#8A7E71] sm:block">
+          {/* Footer hint */}
+          <div className="hidden border-t border-border px-5 py-2 font-mono text-[11px] text-[var(--c-text-tertiary)] sm:block">
             {mediaHint}
           </div>
         </div>
 
+        {/* Sidebar */}
         {!isInfoHidden && sidebar ? (
-          <aside className="absolute inset-x-2 bottom-2 top-[62px] z-30 overflow-hidden rounded-xl border border-[#E0D9CD] bg-[#FAF8F3]/95 p-3 shadow-[0_16px_40px_rgba(36,31,26,0.2)] backdrop-blur-[1.5px] sm:static sm:inset-auto sm:w-[360px] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:bg-[#FAF8F3] sm:p-3 sm:shadow-none sm:backdrop-blur-none">
+          <aside className="absolute inset-x-2 bottom-2 top-[58px] z-30 overflow-hidden rounded-xl border border-border bg-surface/95 p-3 shadow-[var(--shadow-lg)] backdrop-blur-md sm:static sm:inset-auto sm:w-[360px] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:bg-surface sm:p-3 sm:shadow-none sm:backdrop-blur-none">
             {sidebar}
           </aside>
         ) : null}

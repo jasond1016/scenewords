@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import {
+  Star,
+  Play,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
+import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
@@ -56,7 +62,7 @@ const WORKS_FAVORITES_KEY = "scenewords_works_favorites_v1";
 
 type BrowseFilter = "all" | "image" | "video" | "favorite";
 
-export function JobsPage(props: Props) {
+export function WorksPage(props: Props) {
   const { tasks, loading } = props;
   const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
@@ -314,53 +320,24 @@ export function JobsPage(props: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32 text-sm text-[#6B665E]">
-        {t("jobs.loading")}
+      <div className="flex w-full flex-col gap-6">
+        <SkeletonGrid count={6} />
       </div>
     );
   }
 
   const filterPills: Array<{ value: BrowseFilter; label: string; count: number }> = [
-    { value: "all", label: t("jobs.kindAll"), count: worksCount },
-    { value: "image", label: t("jobs.kindImage"), count: imageCount },
-    { value: "video", label: t("jobs.kindVideo"), count: videoCount },
-    { value: "favorite", label: locale === "zh-CN" ? "收藏" : "Favorite", count: favoriteCount },
+    { value: "all", label: t("works.kindAll"), count: worksCount },
+    { value: "image", label: t("works.kindImage"), count: imageCount },
+    { value: "video", label: t("works.kindVideo"), count: videoCount },
+    { value: "favorite", label: t("works.favorite"), count: favoriteCount },
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-[1366px] flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="m-0 text-2xl font-bold tracking-tight text-[#1C1917] sm:text-[28px]">
-              Works · Gallery
-            </h1>
-            <p className="mb-0 mt-2 text-xs font-medium text-[#78716C]">
-              {locale === "zh-CN"
-                ? "瀑布流浏览作品，点击卡片进入全屏详情。"
-                : "Browse works in waterfall view and open full-screen details."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-[#ECE7DC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-              {locale === "zh-CN" ? `全部 ${worksCount}` : `All ${worksCount}`}
-            </span>
-            <span className="rounded-full border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-              {locale === "zh-CN" ? `图片 ${imageCount}` : `Images ${imageCount}`}
-            </span>
-            <span className="rounded-full border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-              {locale === "zh-CN" ? `视频 ${videoCount}` : `Videos ${videoCount}`}
-            </span>
-            <span className="rounded-full border border-[#DDD6C8] bg-[#F6F3EC] px-3 py-1 text-xs font-semibold text-[#57534E]">
-              {locale === "zh-CN" ? `进行中 ${inProgressTasks.length}` : `In Progress ${inProgressTasks.length}`}
-            </span>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-[#DDD6C8] bg-[#FBF8F2] p-3 sm:p-4">
+    <div className="flex w-full flex-col gap-6">
+      <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-1 rounded-xl border border-[#E5DED0] bg-[#F6F3EC] p-1">
+          <div className="segment-group">
             {filterPills.map((pill) => {
               const isActive = browseFilter === pill.value;
               return (
@@ -368,25 +345,23 @@ export function JobsPage(props: Props) {
                   type="button"
                   key={pill.value}
                   onClick={() => setBrowseFilter(pill.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    isActive ? "bg-[#E8692A] text-white" : "text-[#6F675C] hover:bg-[#EEE7DA]"
-                  }`}
+                  className={`segment-item ${isActive ? "segment-active" : ""}`}
                 >
                   {pill.label} {pill.count}
                 </button>
               );
             })}
           </div>
-          {!!inProgressTasks.length && (
-            <div className="rounded-full border border-[#E0DACD] bg-white px-3 py-1 text-[11px] text-[#81776B]">
-              {locale === "zh-CN"
-                ? `进行中：图片 ${inProgressBreakdown.imageCount} / 视频 ${inProgressBreakdown.videoCount}`
-                : `In progress: image ${inProgressBreakdown.imageCount} / video ${inProgressBreakdown.videoCount}`}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {!!inProgressTasks.length && (
+              <span className="tag tag-warning font-mono tabular-nums">
+                {t("works.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-[#E6E0D5] bg-[#F3EFE8] p-2.5 sm:p-3">
+        <div className="mt-4">
           <MasonryGrid
             items={assetList}
             selectedTaskId={selectedTaskId}
@@ -406,19 +381,19 @@ export function JobsPage(props: Props) {
         </div>
       </section>
 
-      {hint ? <p className="m-0 text-xs text-[#736B5E]">{hint}</p> : null}
+      {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
 
       {lightboxItem && currentLightboxTask ? (
         <MediaOverlayFrame
-          title={locale === "zh-CN" ? "作品预览" : "Work Preview"}
+          title={t("works.workPreview")}
           currentIndex={lightboxIndex}
           totalItems={lightboxItems.length}
           isInfoHidden={isInfoHidden}
           onToggleInfo={() => setIsInfoHidden((current) => !current)}
           onClose={() => setLightboxState(null)}
-          showInfoLabel={locale === "zh-CN" ? "显示信息" : "Show Info"}
-          hideInfoLabel={locale === "zh-CN" ? "隐藏信息" : "Hide Info"}
-          backLabel={locale === "zh-CN" ? "返回浏览" : "Back"}
+          showInfoLabel={t("works.showInfo")}
+          hideInfoLabel={t("works.hideInfo")}
+          backLabel={t("works.back")}
           media={
             <AppLightboxStage
               items={lightboxItems}
@@ -433,12 +408,8 @@ export function JobsPage(props: Props) {
           }
           mediaHint={
             currentLightboxIsPortrait
-              ? locale === "zh-CN"
-                ? "纵向作品：保持原始纵向比例展示。"
-                : "Portrait asset: keeps vertical composition."
-              : locale === "zh-CN"
-                ? "横向作品：优先铺宽展示。"
-                : "Landscape asset: rendered with wide priority."
+              ? t("works.portraitHint")
+              : t("works.landscapeHint")
           }
           sidebar={
             <MediaDetailSidebar
@@ -460,8 +431,8 @@ export function JobsPage(props: Props) {
                 const payload = buildTaskRequestPayload(currentLightboxTask);
                 const text = JSON.stringify(payload, null, 2);
                 void copyText(text).then(
-                  () => setHint(t("jobs.copyJsonSuccess")),
-                  () => setHint(t("jobs.copyJsonFailed")),
+                  () => setHint(t("works.copyJsonSuccess")),
+                  () => setHint(t("works.copyJsonFailed")),
                 );
               }}
               isRawResultOpen={isRawResultOpen}
@@ -486,7 +457,6 @@ function AssetCardMedia({
   thumb,
   videoUrl,
   videoPoster,
-  locale,
   isHovered,
   isPortrait,
   onHover,
@@ -497,7 +467,6 @@ function AssetCardMedia({
   thumb: string | null;
   videoUrl: string | null;
   videoPoster: string | null;
-  locale: string;
   isHovered: boolean;
   isPortrait: boolean;
   onHover: (id: string | null) => void;
@@ -523,8 +492,8 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-[#DDD6C8] ${
-          isFailed ? "bg-[#F7EDE9] text-[#AA4B37]" : "bg-[#ECE8DE] text-[#7E7468]"
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border ${
+          isFailed ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
         }`}
         onClick={(event) => {
           event.stopPropagation();
@@ -534,26 +503,12 @@ function AssetCardMedia({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs">
           {isFailed ? (
             <>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" x2="12" y1="9" y2="13" />
-                <line x1="12" x2="12.01" y1="17" y2="17" />
-              </svg>
-              <span className="font-semibold">{t("jobs.generationFailed")}</span>
+              <WarningCircle size={22} weight="regular" />
+              <span className="font-medium">{t("works.generationFailed")}</span>
             </>
           ) : (
-            <span className="font-semibold">
-              {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
+            <span className="font-medium">
+              {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
             </span>
           )}
         </div>
@@ -565,7 +520,7 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-[#DDD6C8] bg-[#E8E1D6]`}
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
         onClick={(event) => {
           event.stopPropagation();
           onOpen();
@@ -591,26 +546,17 @@ function AssetCardMedia({
             isVideoReady ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-[#F3EBDD] via-[#E7DFD2] to-[#DDD4C6]" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#F4F4F5] via-[#E4E4E7] to-[#D4D4D8]" />
           <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-2">
-            <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-semibold text-[#6A5E4F]">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
-          {locale === "zh-CN" ? "视频加载中…" : "Loading video..."}
+            <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
+              <Play size={11} weight="fill" />
+              {t("works.videoLoading")}
             </span>
           </div>
         </div>
-        <span className="absolute bottom-2 left-2 rounded bg-[#1F1A16]/65 px-2 py-0.5 text-[10px] font-semibold text-white">
-          {t("jobs.previewVideo")}
+        <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
+          {t("works.previewVideo")}
         </span>
       </button>
     );
@@ -620,7 +566,7 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-[#DDD6C8] bg-[#ECE8DE]`}
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
         onClick={(event) => {
           event.stopPropagation();
           onOpen();
@@ -630,11 +576,11 @@ function AssetCardMedia({
           className="h-full w-full object-cover"
           src={thumb}
           alt={task.task_id}
-          onError={() => setHasError(true)}
           loading="lazy"
+          onError={() => setHasError(true)}
         />
         <span className="absolute inset-0 flex items-end justify-end bg-black/0 p-2 text-[10px] font-semibold text-white/0 transition-colors group-hover:bg-black/10 group-hover:text-white/85">
-          {t("jobs.previewImage")}
+          {t("works.previewImage")}
         </span>
       </button>
     );
@@ -643,7 +589,7 @@ function AssetCardMedia({
   return (
     <button
       type="button"
-      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-[#DDD6C8] bg-black`}
+      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-black`}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();
@@ -662,7 +608,7 @@ function AssetCardMedia({
         onError={() => setHasError(true)}
       />
       <span className="absolute bottom-2 left-2 rounded bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
-        {t("jobs.previewVideo")}
+        {t("works.previewVideo")}
       </span>
     </button>
   );
@@ -743,17 +689,13 @@ function MasonryGrid({
   }, [columnCount, items]);
 
   if (!items.length) {
-    return (
-      <div className="flex w-full items-center justify-center py-16 text-sm text-[#756C60]">
-        {t("jobs.assetEmpty")}
-      </div>
-    );
+    return <EmptyStateWorks locale={locale} />;
   }
 
   return (
-    <div className="flex w-full items-start gap-3">
+    <div className="flex w-full items-start gap-4">
       {columns.map((columnItems, columnIndex) => (
-        <div key={columnIndex} className="flex flex-1 flex-col gap-3">
+        <div key={columnIndex} className="flex flex-1 flex-col gap-4">
           {columnItems.map((task) => {
             const imageUrls = extractImageUrls(task);
             const thumb = imageUrls[0] ?? null;
@@ -764,27 +706,32 @@ function MasonryGrid({
             return (
               <article
                 key={task.task_id}
-                className={`relative overflow-hidden rounded-xl border bg-[#FCFAF6] p-2 transition-[box-shadow,border-color] ${
-                  task.task_id === selectedTaskId
-                    ? "border-[#E8692A] shadow-[0_8px_22px_rgba(174,110,67,0.18)]"
-                    : "border-[#E2DBC9] hover:border-[#D9CFBD] hover:shadow-[0_8px_18px_rgba(80,69,54,0.08)]"
+                className={`media-card p-2 ${
+                  task.task_id === selectedTaskId ? "media-card-selected" : ""
                 }`}
-                onClick={() => setSelectedTaskId(task.task_id)}
+                onClick={() => {
+                  setSelectedTaskId(task.task_id);
+                  if (task.asset_type === "video") {
+                    openVideoLightbox(task.task_id, videoUrl ?? undefined);
+                  } else {
+                    openImageLightbox(task.task_id, thumb ?? undefined);
+                  }
+                }}
               >
                 <button
                   type="button"
-                  className={`absolute right-3 top-3 z-20 flex h-6 w-6 items-center justify-center rounded-full border text-[11px] transition-colors ${
+                  className={`absolute right-3 top-3 z-20 flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition-all duration-200 ${
                     isFavorite
-                      ? "border-[#E8A878] bg-[#FFF2E7] text-[#A55A2E]"
-                      : "border-[#DFD7C9] bg-white/90 text-[#9B907F] hover:border-[#D7B08D] hover:text-[#A65A2C]"
+                      ? "border-[var(--c-accent)] bg-accent-bg text-accent"
+                      : "border-border bg-white/90 text-[var(--c-text-tertiary)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent)]"
                   }`}
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleFavorite(task.task_id);
                   }}
-                  title={isFavorite ? (locale === "zh-CN" ? "取消收藏" : "Unfavorite") : (locale === "zh-CN" ? "收藏" : "Favorite")}
+                  title={isFavorite ? t("works.unfavorite") : t("works.favorite")}
                 >
-                  ★
+                  <Star size={13} weight={isFavorite ? "fill" : "regular"} />
                 </button>
 
                 <AssetCardMedia
@@ -792,7 +739,6 @@ function MasonryGrid({
                   thumb={thumb}
                   videoUrl={videoUrl}
                   videoPoster={videoPoster}
-                  locale={locale}
                   isHovered={hoverVideoTaskId === task.task_id}
                   isPortrait={isPortrait}
                   onHover={setHoverVideoTaskId}
@@ -821,11 +767,11 @@ function MasonryGrid({
                   t={t}
                 />
 
-                <div className="mt-2 flex flex-col gap-1 px-0.5 pb-0.5">
-                  <p className="m-0 line-clamp-2 text-xs font-semibold leading-relaxed text-[#2F271F]">
-                    {task.prompt || t("jobs.emptyPrompt")}
+                <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
+                  <p className="m-0 line-clamp-2 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
+                    {task.prompt || t("works.emptyPrompt")}
                   </p>
-                  <p className="m-0 truncate text-[10px] text-[#7C7266]">
+                  <p className="m-0 truncate font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
                     {task.provider || task.model} · {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                   </p>
                 </div>
