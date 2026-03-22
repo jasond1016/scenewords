@@ -138,22 +138,24 @@ export default function App() {
     <div className="min-h-[100dvh] bg-canvas">
       {/* ── Top Bar ──────────────────────────────── */}
       <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-3 sm:px-8">
+        <div className="mx-auto grid max-w-[1400px] grid-cols-[1fr_auto_1fr] items-center px-5 py-3 sm:px-8">
           {/* Left: Logo */}
-          <NavLink
-            to="/create"
-            className="inline-flex items-center gap-2.5 no-underline"
-          >
-            <img
-              src={LOGO_MARK_SRC}
-              alt=""
-              aria-hidden="true"
-              className="h-7 w-7 shrink-0 rounded-lg"
-            />
-            <span className="hidden text-base font-bold tracking-tight text-[var(--c-text)] sm:inline">
-              SceneWords
-            </span>
-          </NavLink>
+          <div className="flex items-center">
+            <NavLink
+              to="/create"
+              className="inline-flex items-center gap-2.5 no-underline"
+            >
+              <img
+                src={LOGO_MARK_SRC}
+                alt=""
+                aria-hidden="true"
+                className="h-7 w-7 shrink-0 rounded-lg"
+              />
+              <span className="hidden text-base font-bold tracking-tight text-[var(--c-text)] sm:inline">
+                SceneWords
+              </span>
+            </NavLink>
+          </div>
 
           {/* Center: Nav (all sizes) */}
           <nav className="flex items-center gap-1">
@@ -176,7 +178,7 @@ export default function App() {
           </nav>
 
           {/* Right: queue indicator */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-end gap-3">
             {inProgressCount > 0 ? (
               <span className="tag tag-warning font-mono tabular-nums">
                 <CircleNotch size={11} className="animate-spin" />
