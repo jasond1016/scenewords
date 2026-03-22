@@ -837,7 +837,7 @@ select.input-base {
   .toast-stack {
     left: 12px;
     right: 12px;
-    bottom: 80px;
+    bottom: 12px;
     width: auto;
   }
 }

@@ -135,8 +135,8 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-canvas pb-24">
-      {/* ── Compact Top Bar (logo + queue status) ────── */}
+    <div className="min-h-[100dvh] bg-canvas">
+      {/* ── Top Bar ──────────────────────────────── */}
       <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-3 sm:px-8">
           {/* Left: Logo */}
@@ -150,19 +150,19 @@ export default function App() {
               aria-hidden="true"
               className="h-7 w-7 shrink-0 rounded-lg"
             />
-            <span className="text-base font-bold tracking-tight text-[var(--c-text)]">
+            <span className="hidden text-base font-bold tracking-tight text-[var(--c-text)] sm:inline">
               SceneWords
             </span>
           </NavLink>
 
-          {/* Desktop inline nav */}
-          <nav className="hidden items-center gap-1 sm:flex">
+          {/* Center: Nav (all sizes) */}
+          <nav className="flex items-center gap-1">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium no-underline transition-all duration-150 ${
+                  `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium no-underline transition-all duration-150 ${
                     isActive
                       ? "bg-[var(--c-surface-inset)] text-[var(--c-text)] font-semibold"
                       : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)] hover:bg-[var(--c-border-subtle)]"
@@ -170,7 +170,7 @@ export default function App() {
                 }
               >
                 <item.icon size={15} weight="regular" />
-                {item.label}
+                <span className="hidden sm:inline">{item.label}</span>
               </NavLink>
             ))}
           </nav>
@@ -227,22 +227,6 @@ export default function App() {
           />
         </Routes>
       </main>
-
-      {/* ── Floating Nav Pill (mobile) ──────────────── */}
-      <nav className="nav-pill sm:hidden" aria-label="Main navigation">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `nav-pill-item ${isActive ? "nav-pill-item-active" : ""}`
-            }
-          >
-            <item.icon size={16} weight="regular" />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
 
       {/* ── Toast Stack ────────────────────────────── */}
       {toasts.length ? (
