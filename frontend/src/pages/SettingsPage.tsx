@@ -5,7 +5,6 @@ import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
 import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
-import { ScrollReveal } from "../useScrollEntry";
 
 interface Props {
   pricingVersion: string | null;
@@ -146,60 +145,15 @@ export function SettingsPage(props: Props) {
   };
 
   return (
-    <div className="flex w-full flex-col gap-8">
-      <ScrollReveal className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-display m-0">
-              {isZh ? "设置" : "Settings"}
-            </h1>
-            <p className="mb-0 mt-2 text-sm leading-relaxed text-[var(--c-text-secondary)]">
-              {isZh
-                ? "语言、网关、生成默认值、通知策略与本地隐私。"
-                : "Language, gateway, generation defaults, notifications, and privacy."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              {confirmRestore ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleRestoreDefaults}
-                    className="btn-danger text-xs"
-                  >
-                    {isZh ? "确认恢复" : "Confirm"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRestore(false)}
-                    className="btn-ghost text-xs"
-                  >
-                    {t("common.close")}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleRestoreDefaults}
-                  className="btn-secondary text-xs"
-                >
-                  <ArrowCounterClockwise size={14} />
-                  {isZh ? "恢复默认" : "Restore Defaults"}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </ScrollReveal>
-
-      {/* Horizontal category pills */}
-      <div className="segment-group flex-wrap">
-        <CategoryButton
-          label={isZh ? "语言与网关" : "Language & Gateway"}
-          active={activeCategory === "language_gateway"}
-          onClick={() => jumpToCategory("language_gateway")}
-        />
+    <div className="flex w-full flex-col gap-6">
+      {/* Category pills + restore defaults */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="segment-group flex-wrap">
+          <CategoryButton
+            label={isZh ? "语言与网关" : "Language & Gateway"}
+            active={activeCategory === "language_gateway"}
+            onClick={() => jumpToCategory("language_gateway")}
+          />
         <CategoryButton
           label={t("settings.generationDefaults")}
           active={activeCategory === "generation_defaults"}
@@ -215,6 +169,24 @@ export function SettingsPage(props: Props) {
           active={activeCategory === "privacy_storage"}
           onClick={() => jumpToCategory("privacy_storage")}
         />
+        </div>
+        <div className="flex items-center gap-2">
+          {confirmRestore ? (
+            <>
+              <button type="button" onClick={handleRestoreDefaults} className="btn-danger text-xs">
+                {isZh ? "确认恢复" : "Confirm"}
+              </button>
+              <button type="button" onClick={() => setConfirmRestore(false)} className="btn-ghost text-xs">
+                {t("common.close")}
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={handleRestoreDefaults} className="btn-ghost text-xs">
+              <ArrowCounterClockwise size={13} />
+              {isZh ? "恢复默认" : "Restore"}
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="flex flex-col gap-4">

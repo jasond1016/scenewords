@@ -9,7 +9,6 @@ import {
 import { fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
-import { ScrollReveal } from "../useScrollEntry";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
@@ -321,11 +320,7 @@ export function JobsPage(props: Props) {
 
   if (loading) {
     return (
-      <div className="flex w-full flex-col gap-8">
-        <div className="flex flex-col gap-2">
-          <div className="skeleton h-8 w-32" />
-          <div className="skeleton h-4 w-64" />
-        </div>
+      <div className="flex w-full flex-col gap-6">
         <SkeletonGrid count={6} />
       </div>
     );
@@ -339,34 +334,7 @@ export function JobsPage(props: Props) {
   ];
 
   return (
-    <div className="flex w-full flex-col gap-8">
-      <ScrollReveal className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-display m-0">
-              {t("nav.jobs")}
-            </h1>
-            <p className="mb-0 mt-2 text-sm leading-relaxed text-[var(--c-text-secondary)]">
-              {t("jobs.pageSubtitle")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="tag tag-neutral font-mono tabular-nums">
-              {t("jobs.statsAll", { count: worksCount })}
-            </span>
-            <span className="tag tag-neutral font-mono tabular-nums">
-              {t("jobs.statsImages", { count: imageCount })}
-            </span>
-            <span className="tag tag-neutral font-mono tabular-nums">
-              {t("jobs.statsVideos", { count: videoCount })}
-            </span>
-            <span className="tag tag-neutral font-mono tabular-nums">
-              {t("jobs.statsInProgress", { count: inProgressTasks.length })}
-            </span>
-          </div>
-        </div>
-      </ScrollReveal>
-
+    <div className="flex w-full flex-col gap-6">
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="segment-group">
@@ -384,11 +352,13 @@ export function JobsPage(props: Props) {
               );
             })}
           </div>
-          {!!inProgressTasks.length && (
-            <div className="tag tag-warning">
-              {t("jobs.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {!!inProgressTasks.length && (
+              <span className="tag tag-warning font-mono tabular-nums">
+                {t("jobs.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-4">
