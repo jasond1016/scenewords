@@ -9,13 +9,17 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowsClockwise,
   CaretLeft,
   CaretRight,
   CloudArrowUp,
+  Faders,
   ImageSquare,
   PaperPlaneTilt,
+  Plus,
   VideoCamera,
+  X,
+  CaretDown,
+  GearSix,
 } from "@phosphor-icons/react";
 import {
   createVideoTask,
@@ -44,7 +48,6 @@ import {
   fieldKey,
   fieldStorageKey,
   findField,
-  formatTime,
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
@@ -53,8 +56,7 @@ import {
   valueToStoredString,
 } from "../utils";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
-import { SkeletonForm, EmptyStateTasks } from "../components/Skeletons";
-import { ScrollReveal } from "../useScrollEntry";
+import { SkeletonForm } from "../components/Skeletons";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -109,6 +111,10 @@ export function CreatePage(props: Props) {
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const [openPopover, setOpenPopover] = useState<"model" | "params" | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -376,6 +382,37 @@ export function CreatePage(props: Props) {
     return t("create.promptPlaceholder");
   }, [promptField, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
+
+  // Primary file field for inline "+" button
+  const primaryFileField = quickMediaFields[0] ?? null;
+  // All inline file previews (from all quickMediaFields)
+  const inlineFilePreviews = useMemo(() => {
+    const items: Array<{ fieldKey: string; source: "local" | "reused"; index: number; file?: File; fileId?: string }> = [];
+    for (const field of quickMediaFields) {
+      const key = fieldKey(field);
+      const reused = reusedFileIds[key] ?? [];
+      for (let i = 0; i < reused.length; i++) {
+        items.push({ fieldKey: key, source: "reused", index: i, fileId: reused[i] });
+      }
+      const local = files[key] ?? [];
+      for (let i = 0; i < local.length; i++) {
+        items.push({ fieldKey: key, source: "local", index: i, file: local[i] });
+      }
+    }
+    return items;
+  }, [quickMediaFields, files, reusedFileIds]);
+
+  // Model display label for the chip
+  const modelChipLabel = useMemo(() => {
+    if (!selectedProvider || !selectedModel) return "";
+    const parts: string[] = [];
+    if (providerChoices.length > 1) parts.push(selectedProvider.display_name);
+    parts.push(selectedModel.display_name);
+    if (selectedModel.operations.length > 1 && selectedOperation) {
+      parts.push(selectedOperation.display_name);
+    }
+    return parts.join(" · ");
+  }, [selectedProvider, selectedModel, selectedOperation, providerChoices.length]);
 
   useEffect(() => {
     if (currentGenerationKind !== "video" || !videoProviders.length) {
@@ -752,6 +789,39 @@ export function CreatePage(props: Props) {
       nextValue,
     );
   };
+  const autoResizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  };
+  const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
+    const key = item.fieldKey;
+    if (item.source === "reused" && item.fileId) {
+      const current = reusedFileIds[key] ?? [];
+      const next = current.filter((id) => id !== item.fileId);
+      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      if (field) onReusedFileIdsChanged(field, next);
+    } else if (item.source === "local") {
+      const current = files[key] ?? [];
+      const next = current.filter((_, i) => i !== item.index);
+      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      if (field) onFileFieldChanged(field, next);
+    }
+  };
+  const handleInlineFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!primaryFileField) return;
+    const picked = Array.from(event.target.files ?? []).filter(
+      (f) => f.type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(f.name),
+    );
+    if (!picked.length) return;
+    const key = fieldKey(primaryFileField);
+    const isMulti = primaryFileField.input_type === "file_list";
+    const current = files[key] ?? [];
+    const next = isMulti ? [...current, ...picked] : [picked[0]];
+    onFileFieldChanged(primaryFileField, next);
+    event.currentTarget.value = "";
+  };
   const onGenerationKindChanged = (nextKind: "image" | "video") => {
     if (nextKind === currentGenerationKind) {
       return;
@@ -873,11 +943,7 @@ export function CreatePage(props: Props) {
   };
   if (loading) {
     return (
-      <div className="flex w-full flex-col gap-8">
-        <div className="flex flex-col gap-2">
-          <div className="skeleton h-8 w-40" />
-          <div className="skeleton h-4 w-72" />
-        </div>
+      <div className="flex flex-col items-center justify-center gap-4 py-32">
         <SkeletonForm />
       </div>
     );
@@ -890,528 +956,488 @@ export function CreatePage(props: Props) {
     );
   }
 
+  const hasQuickParams = Boolean(
+    (resolutionField && (ratioChoices.length > 0 || resolutionValue)) ||
+    hasQuickSize ||
+    (orientationField && orientationChoices.length > 0) ||
+    (durationField && durationChoices.length > 0),
+  );
+
   return (
-    <div className="flex w-full flex-col gap-8">
+    <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 60px)" }}>
+      {/* ── Canvas Area (above composer) ─────────────── */}
+      <div className="create-canvas px-5 sm:px-8">
+        <div className="mx-auto w-full max-w-[820px] flex flex-col items-center justify-center py-8">
+
+          {/* Tracked Task */}
+          {lastSubmittedTaskId && trackedTask ? (
+            <div className="tracked-card mb-6 space-y-3">
+              {/* Status header */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`tag ${
+                    statusTone(trackedTask) === "ok"
+                      ? "tag-success"
+                      : statusTone(trackedTask) === "danger"
+                        ? "tag-error"
+                        : statusTone(trackedTask) === "warn"
+                          ? "tag-warning"
+                          : "tag-neutral"
+                  }`}>
+                    {statusLabel(trackedTask)}
+                  </span>
+                  <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
+                    {lastSubmittedTaskId.slice(0, 8)}
+                  </span>
+                </div>
+                <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
+                  {t("create.feedbackContinue")}
+                </button>
+              </div>
+
+              {/* Running pulse */}
+              {(trackedTask.status === "queued" || trackedTask.status === "running") ? (
+                <div className="flex items-center gap-3 rounded-xl bg-warning-bg px-4 py-3">
+                  <div className="status-dot status-dot-pulse bg-warning-text" />
+                  <div className="flex flex-1 items-center justify-between gap-2">
+                    <p className="m-0 text-xs text-warning-text">
+                      {trackedTask.status === "queued"
+                        ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
+                            ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
+                            : t("create.feedbackQueued"))
+                        : t("create.feedbackRunning")}
+                    </p>
+                    {estimatedWaitLabel(trackedTask) ? (
+                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-warning-text/70">
+                        {estimatedWaitLabel(trackedTask)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Succeeded preview */}
+              {trackedTask.status === "succeeded" && trackedPreview ? (
+                <button
+                  type="button"
+                  className="block w-full overflow-hidden rounded-2xl border border-border bg-canvas p-0 text-left transition-all duration-200 hover:border-[var(--c-border-focus)] hover:shadow-[var(--shadow-md)]"
+                  onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
+                >
+                  {trackedPreview.kind === "video" ? (
+                    <video
+                      src={trackedPreview.url}
+                      className="block aspect-video w-full object-cover"
+                      muted loop autoPlay playsInline
+                    />
+                  ) : (
+                    <img src={trackedPreview.url} alt="" className="block aspect-video w-full object-cover" />
+                  )}
+                </button>
+              ) : null}
+
+              {trackedTask.status === "succeeded" ? (
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn-primary text-xs" onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}>
+                    {t("create.feedbackViewResult")}
+                  </button>
+                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
+                    {t("create.feedbackContinue")}
+                  </button>
+                </div>
+              ) : null}
+
+              {trackedTask.status === "failed" && trackedTask.error ? (
+                <p className="m-0 rounded-xl bg-error-bg px-3 py-2 text-xs text-error-text">
+                  {errorMessage(trackedTask)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Empty state (when no tracked task and no recent tasks) */}
+          {!lastSubmittedTaskId && recentTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-20">
+              <p className="text-sm text-[var(--c-text-tertiary)]">
+                {t("create.pageSubtitle")}
+              </p>
+            </div>
+          ) : null}
+
+          {/* Recent tasks strip */}
+          {recentTasks.length > 0 ? (
+            <div className="w-full mt-auto pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-label">{t("create.recentTasks")}</span>
+                <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
+                  {t("create.viewAll")}
+                </button>
+              </div>
+              <div className="recent-strip">
+                {recentTasks.map((task) => {
+                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
+                  return (
+                    <button
+                      key={task.task_id}
+                      type="button"
+                      className="recent-strip-item"
+                      onClick={() => setRecentOverlayTaskId(task.task_id)}
+                    >
+                      {preview ? (
+                        preview.kind === "video" ? (
+                          <video src={preview.url} className="block aspect-[4/3] w-full object-cover" muted playsInline preload="none" />
+                        ) : (
+                          <img src={preview.url} alt="" className="block aspect-[4/3] w-full object-cover" loading="lazy" />
+                        )
+                      ) : (
+                        <div className={`flex aspect-[4/3] w-full items-center justify-center text-[10px] ${
+                          task.status === "failed" ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
+                        }`}>
+                          {task.status === "failed" ? "!" : task.asset_type === "video" ? "V" : "I"}
+                        </div>
+                      )}
+                      <div className="px-1.5 py-1">
+                        <p className="m-0 truncate text-[10px] font-medium text-[var(--c-text)]">{task.prompt?.slice(0, 30) || "—"}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ── Composer Bar ────────────────────────────── */}
       <form
         ref={formRef}
-        className="w-full flex flex-col gap-8"
+        className="composer-bar"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
         }}
       >
-        {/* ── Page Header ────────────────────────────── */}
-        <ScrollReveal className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-display m-0">{t("nav.create")}</h1>
-            <p className="m-0 mt-2 max-w-lg text-sm leading-relaxed text-[var(--c-text-secondary)]">
-              {t("create.pageSubtitle")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {canSwitchGenerationKind ? (
-              <div className="segment-group">
-                <button
-                  type="button"
-                  className={`segment-item ${currentGenerationKind === "image" ? "segment-active" : ""}`}
-                  onClick={() => onGenerationKindChanged("image")}
-                >
-                  <ImageSquare size={14} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
-                  {t("create.quickImage")}
-                </button>
-                <button
-                  type="button"
-                  className={`segment-item ${currentGenerationKind === "video" ? "segment-active" : ""}`}
-                  onClick={() => onGenerationKindChanged("video")}
-                >
-                  <VideoCamera size={14} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
-                  {t("create.quickVideo")}
-                </button>
-              </div>
-            ) : null}
-            {inProgressCount > 0 ? (
-              <span className="tag tag-warning">{t("app.topbar.queue", { count: inProgressCount })}</span>
-            ) : null}
-          </div>
-        </ScrollReveal>
+        {/* Popover backdrop */}
+        {openPopover ? (
+          <div className="popover-backdrop" onClick={() => setOpenPopover(null)} />
+        ) : null}
 
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-6">
-            {/* ── Prompt & Controls ──────────────────── */}
-            <section className="card space-y-5">
-              {/* Model selector (combined Provider+Model) + Operation (only if >1) */}
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span className="text-label">{t("create.model")}</span>
-                  <select
-                    className="input-base"
-                    value={`${providerId}::${modelName}`}
-                    onChange={(event) => {
-                      const [nextProvider, nextModel] = event.target.value.split("::");
-                      if (nextProvider && nextModel) {
-                        setProviderId(nextProvider);
-                        setModelName(nextModel);
-                      }
-                    }}
-                  >
-                    {providerChoices.flatMap((provider) =>
-                      provider.models.map((model) => (
-                        <option key={`${provider.id}::${model.name}`} value={`${provider.id}::${model.name}`}>
-                          {providerChoices.length > 1
-                            ? `${provider.display_name} · ${model.display_name}`
-                            : model.display_name}
-                        </option>
-                      )),
-                    )}
-                  </select>
-                </label>
-                {selectedModel.operations.length > 1 ? (
-                  <label className="flex min-w-0 flex-col gap-1.5" style={{ flex: "0 0 auto", minWidth: 140 }}>
-                    <span className="text-label">{t("create.quickMode")}</span>
-                    <select
-                      className="input-base"
-                      value={selectedOperation.id}
-                      onChange={(event) => setOperationId(event.target.value)}
-                    >
-                      {selectedModel.operations.map((operation) => (
-                        <option key={operation.id} value={operation.id}>{operation.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-              </div>
-
-              <hr className="divider" />
-
-              {/* Prompt area */}
-              {promptField ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-label">Prompt</label>
-                    <div className="flex items-center gap-2">
-                      {promptField ? (
-                        <button
-                          type="button"
-                          className="btn-ghost text-xs"
-                          onClick={() => onFieldChanged(promptField, "")}
-                        >
-                          {t("create.clearPrompt")}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <DynamicInput
-                    field={promptField}
-                    value={promptValue}
-                    onValueChange={(next) => onFieldChanged(promptField, next)}
-                    onFileChange={() => undefined}
-                    placeholder={promptPlaceholder}
+        <div className="composer-card">
+          {/* Input row: thumbnails + textarea + submit */}
+          <div className="composer-input-row">
+            {/* Inline file thumbnails */}
+            {(quickMediaFields.length > 0) ? (
+              <div className="composer-thumbs">
+                {inlineFilePreviews.map((item) => (
+                  <InlineThumb
+                    key={`${item.fieldKey}_${item.source}_${item.index}`}
+                    item={item}
+                    onRemove={() => removeInlineFile(item)}
                   />
-                  <div className="flex items-center justify-between">
-                    {promptField.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{promptField.help_text}</small> : <span />}
-                    <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
-                      {promptValue.length}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-[var(--c-text-tertiary)]">{t("create.promptNotSupported")}</p>
-              )}
+                ))}
+                <button
+                  type="button"
+                  className="composer-add-btn"
+                  onClick={() => inlineFileInputRef.current?.click()}
+                  title={t("create.fileUploadImage")}
+                >
+                  <Plus size={16} weight="bold" />
+                </button>
+                <input
+                  ref={inlineFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple={primaryFileField?.input_type === "file_list"}
+                  className="hidden"
+                  onChange={handleInlineFilePick}
+                />
+              </div>
+            ) : null}
 
-              {quickMediaFields.length ? (
-                <div className="space-y-3 rounded-2xl border border-border bg-surface-raised p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="m-0 text-label">
-                      {t("create.referenceAssets")}
-                    </p>
-                    <p className="m-0 text-[11px] text-[var(--c-text-tertiary)]">
-                      {t("create.referenceAssetsHint")}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {quickMediaFields.map((field) =>
-                      renderField(
-                        field,
-                        values,
-                        files,
-                        reusedFileIds,
-                        onFieldChanged,
-                        onFileFieldChanged,
-                        onReusedFileIdsChanged,
-                        "compact",
+            {/* Prompt textarea */}
+            {promptField ? (
+              <textarea
+                ref={textareaRef}
+                className="composer-textarea"
+                rows={1}
+                value={promptValue}
+                placeholder={promptPlaceholder}
+                onChange={(e) => {
+                  onFieldChanged(promptField, e.target.value);
+                  autoResizeTextarea();
+                }}
+                onInput={autoResizeTextarea}
+              />
+            ) : (
+              <div className="flex-1 py-2 text-sm text-[var(--c-text-tertiary)]">
+                {t("create.promptNotSupported")}
+              </div>
+            )}
+
+            {/* Submit button */}
+            <button
+              type="submit"
+              className="composer-submit"
+              disabled={submitMutation.isPending}
+              title={submitMutation.isPending ? t("create.submitting") : t("create.generateVideo")}
+            >
+              <PaperPlaneTilt size={16} weight="fill" />
+            </button>
+          </div>
+
+          {/* Hint message */}
+          {hint ? <p className="m-0 text-[11px] text-[var(--c-text-secondary)]">{hint}</p> : null}
+
+          {/* Chip row */}
+          <div className="composer-chip-row">
+            {/* Model selector chip */}
+            <div className="composer-popover-anchor">
+              <button
+                type="button"
+                className={`chip ${openPopover === "model" ? "chip-active" : ""}`}
+                onClick={() => setOpenPopover(openPopover === "model" ? null : "model")}
+              >
+                {currentGenerationKind === "image" ? <ImageSquare size={13} weight="fill" /> : <VideoCamera size={13} weight="fill" />}
+                <span className="max-w-[180px] truncate">{modelChipLabel || t("create.model")}</span>
+                <CaretDown size={10} />
+              </button>
+
+              {/* Model popover */}
+              {openPopover === "model" ? (
+                <div className="composer-popover">
+                  <p className="m-0 mb-3 text-label">{t("create.model")}</p>
+
+                  {/* Generation kind toggle */}
+                  {canSwitchGenerationKind ? (
+                    <div className="segment-group mb-3 w-full">
+                      <button
+                        type="button"
+                        className={`segment-item flex-1 ${currentGenerationKind === "image" ? "segment-active" : ""}`}
+                        onClick={() => onGenerationKindChanged("image")}
+                      >
+                        <ImageSquare size={13} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
+                        {t("create.quickImage")}
+                      </button>
+                      <button
+                        type="button"
+                        className={`segment-item flex-1 ${currentGenerationKind === "video" ? "segment-active" : ""}`}
+                        onClick={() => onGenerationKindChanged("video")}
+                      >
+                        <VideoCamera size={13} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
+                        {t("create.quickVideo")}
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* Provider+Model list */}
+                  <div className="flex flex-col gap-1">
+                    {providerChoices.flatMap((provider) =>
+                      provider.models.flatMap((model) =>
+                        model.operations.map((operation) => {
+                          const isSelected = provider.id === providerId && model.name === modelName && operation.id === (selectedOperation?.id ?? operationId);
+                          const showOp = model.operations.length > 1;
+                          return (
+                            <button
+                              type="button"
+                              key={`${provider.id}::${model.name}::${operation.id}`}
+                              className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
+                                isSelected
+                                  ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
+                                  : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
+                              }`}
+                              onClick={() => {
+                                setProviderId(provider.id);
+                                setModelName(model.name);
+                                setOperationId(operation.id);
+                                setOpenPopover(null);
+                              }}
+                            >
+                              <span className="flex-1 truncate">
+                                {providerChoices.length > 1 ? `${provider.display_name} · ` : ""}
+                                {model.display_name}
+                                {showOp ? ` · ${operation.display_name}` : ""}
+                              </span>
+                              {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
+                            </button>
+                          );
+                        }),
                       ),
                     )}
                   </div>
                 </div>
               ) : null}
+            </div>
 
-              <div className="space-y-3">
-                <p className="m-0 text-label">
-                  {t("create.quickParams")}
-                </p>
-                <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
-                  {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-label">{t("create.quickRatio")}</span>
-                      {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
-                        <button
-                          type="button"
-                          key={`ratio_${ratio}`}
-                          className={`chip ${currentRatioDisplay === ratio ? "chip-active" : ""}`}
-                          onClick={() => onRatioChanged(ratio)}
-                        >
-                          {ratio}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  {hasQuickSize ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-label">{qualityField ? t("create.quickSize") : t("create.quickSize")}</span>
-                      {(qualityField ? qualityChoices : sizeChoices).map((size) => {
-                        const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                        const label = qualityField
-                          ? qualityField.options.find((option) => option.value === size)?.label ?? size
-                          : size;
-                        return (
-                          <button
-                            type="button"
-                            key={`size_${size}`}
-                            className={`chip ${active ? "chip-active" : ""}`}
-                            onClick={() => onSizeChanged(size)}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  {orientationField && orientationChoices.length > 0 ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-label">{t("create.quickOrientation")}</span>
-                      {orientationChoices.map((option) => (
-                        <button
-                          type="button"
-                          key={`orientation_${option.value}`}
-                          className={`chip ${orientationValue === option.value ? "chip-active" : ""}`}
-                          onClick={() => onOrientationChanged(option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  {durationField && durationChoices.length > 0 ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-label">{t("create.quickDuration")}</span>
-                      {durationChoices.map((seconds) => (
-                        <button
-                          type="button"
-                          key={`duration_${seconds}`}
-                          className={`chip ${durationValue === String(seconds) ? "chip-active" : ""}`}
-                          onClick={() => onFieldChanged(durationField, String(seconds))}
-                        >
-                          {seconds}s
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                {durationField && !durationChoices.length ? (
-                  <div className="max-w-xs">
-                    <DynamicInput
-                      field={durationField}
-                      value={durationValue}
-                      onValueChange={(next) => onFieldChanged(durationField, next)}
-                      onFileChange={() => undefined}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              {hint ? <p className="m-0 text-xs text-[var(--c-text-secondary)]">{hint}</p> : null}
-
-              {/* Submit */}
-              <div className="flex items-center gap-3 border-t border-border pt-5">
+            {/* Params chip */}
+            {hasQuickParams ? (
+              <div className="composer-popover-anchor">
                 <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={submitMutation.isPending}
+                  type="button"
+                  className={`chip ${openPopover === "params" ? "chip-active" : ""}`}
+                  onClick={() => setOpenPopover(openPopover === "params" ? null : "params")}
                 >
-                  <PaperPlaneTilt size={15} weight="fill" />
-                  {submitMutation.isPending
-                    ? t("create.submitting")
-                    : selectedProvider.type === "tuzi_image"
-                      ? t("create.generateImage")
-                      : t("create.generateVideo")}
+                  <Faders size={13} weight="bold" />
+                  <span>{t("create.quickParams")}</span>
                 </button>
-                <kbd className="hidden rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-text-tertiary)] sm:inline">
-                  ⌘ Enter
-                </kbd>
-              </div>
-            </section>
 
-            <details className="card group">
-              <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-[var(--c-text)]">
-                <span>{t("create.advancedLabel")}</span>
-                <span className="text-xs text-[var(--c-text-tertiary)]">{t("create.advancedOptions", { count: advancedFields.length })}</span>
-              </summary>
-              <div className="mt-4 space-y-4">
-                {showVeoPromptGuide ? (
-                  <div className="rounded-lg border border-[var(--c-border)] bg-info-bg p-3 text-sm">
-                    <h4 className="m-0 mb-1 font-medium text-info-text">{t("create.veoPromptGuideTitle")}</h4>
-                    <p className="m-0 mb-2 text-xs text-info-text/80">{t("create.veoPromptGuideDesc")}</p>
-                    <div className="flex flex-wrap gap-3">
-                      <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-xs text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkDocs")}</a>
-                      <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-xs text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkBlog")}</a>
-                    </div>
-                  </div>
-                ) : null}
-                {advancedGroups.map((group) => (
-                  <section key={group.id} className="rounded-xl border border-border bg-surface p-4">
-                    <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      {group.fields.map((field) =>
-                        renderField(
-                          field,
-                          values,
-                          files,
-                          reusedFileIds,
-                          onFieldChanged,
-                          onFileFieldChanged,
-                          onReusedFileIdsChanged,
-                        ),
-                      )}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </details>
+                {/* Params popover */}
+                {openPopover === "params" ? (
+                  <div className="composer-popover composer-popover-wide">
+                    <p className="m-0 mb-4 text-sm font-semibold text-[var(--c-text)]">{t("create.quickParams")}</p>
 
-            {lastSubmittedTaskId ? (
-              <section className="card space-y-3">
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className={`tag ${
-                      statusTone(trackedTask) === "ok"
-                        ? "tag-success"
-                        : statusTone(trackedTask) === "danger"
-                          ? "tag-error"
-                          : statusTone(trackedTask) === "warn"
-                            ? "tag-warning"
-                            : "tag-neutral"
-                    }`}>
-                      {trackedTask ? statusLabel(trackedTask) : t("create.feedbackSubmitted")}
-                    </span>
-                    <span className="font-mono text-[11px] text-[var(--c-text-tertiary)]">
-                      {lastSubmittedTaskId.slice(0, 8)}
-                    </span>
-                  </div>
-                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
-                    {t("create.feedbackContinue")}
-                  </button>
-                </div>
-
-                {/* Running: pulse animation */}
-                {trackedTask && (trackedTask.status === "queued" || trackedTask.status === "running") ? (
-                  <div className="flex items-center gap-3 rounded-lg bg-warning-bg px-3 py-2.5">
-                    <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning-text" />
-                    <div className="flex flex-1 items-center justify-between gap-2">
-                      <p className="m-0 text-xs text-warning-text">
-                        {trackedTask.status === "queued"
-                          ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
-                              ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
-                              : t("create.feedbackQueued"))
-                          : t("create.feedbackRunning")}
-                      </p>
-                      {estimatedWaitLabel(trackedTask) ? (
-                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-warning-text/70">
-                          {estimatedWaitLabel(trackedTask)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Succeeded: inline preview + view button */}
-                {trackedTask?.status === "succeeded" ? (
-                  <div className="space-y-3">
-                    {trackedPreview ? (
-                      <button
-                        type="button"
-                        className="block w-full overflow-hidden rounded-xl border border-border bg-canvas p-0 text-left transition-all duration-200 hover:border-[var(--c-border-focus)] hover:shadow-[var(--shadow-md)]"
-                        onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
-                      >
-                        {trackedPreview.kind === "video" ? (
-                          <video
-                            src={trackedPreview.url}
-                            className="block aspect-video w-full object-cover"
-                            muted
-                            loop
-                            autoPlay
-                            playsInline
-                          />
-                        ) : (
-                          <img
-                            src={trackedPreview.url}
-                            alt=""
-                            className="block aspect-video w-full object-cover"
-                          />
-                        )}
-                      </button>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="btn-primary text-xs"
-                        onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
-                      >
-                        {t("create.feedbackViewResult")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost text-xs"
-                        onClick={() => setLastSubmittedTaskId(null)}
-                      >
-                        {t("create.feedbackContinue")}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Failed: error message */}
-                {trackedTask?.status === "failed" && trackedTask.error ? (
-                  <p className="m-0 rounded-lg bg-error-bg px-3 py-2 text-xs text-error-text">
-                    {errorMessage(trackedTask)}
-                  </p>
-                ) : null}
-              </section>
-            ) : null}
-          </div>
-
-          {/* ── Recent Tasks (collapsible) ────────── */}
-          <details className="card group">
-            <summary className="flex cursor-pointer list-none items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-[var(--c-text)]">
-                  {t("create.recentTasks")}
-                </span>
-                {recentTasks.length > 0 ? (
-                  <span className="tag tag-neutral font-mono tabular-nums">{recentTasks.length}</span>
-                ) : null}
-              </div>
-              <button type="button" className="btn-ghost text-xs" onClick={(e) => { e.stopPropagation(); navigate("/works"); }}>
-                {t("create.viewAll")}
-              </button>
-            </summary>
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {recentTasks.length ? (
-                recentTasks.map((task) => {
-                  const isSelected = selectedRecentTaskId === task.task_id;
-                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
-                  return (
-                    <div key={task.task_id} className="space-y-2">
-                      <button
-                        type="button"
-                        className={`w-full text-left rounded-xl border p-3.5 transition-all duration-200 ${
-                          isSelected
-                            ? "border-[var(--c-text)] bg-surface shadow-[var(--shadow-sm)]"
-                            : "border-border bg-surface-raised hover:border-[var(--c-border-focus)]"
-                        }`}
-                        onClick={() => setSelectedRecentTaskId(task.task_id)}
-                      >
-                        <p className="m-0 line-clamp-2 text-sm leading-relaxed text-[var(--c-text)]">{task.prompt?.trim() || "(No prompt)"}</p>
-                        <p className="m-0 mt-1.5 text-[11px] text-[var(--c-text-tertiary)]">{task.provider} · {task.model}</p>
-                        <p className={`m-0 mt-1 text-[11px] font-medium ${
-                          statusTone(task) === "ok"
-                            ? "text-success-text"
-                            : statusTone(task) === "danger"
-                              ? "text-error-text"
-                              : statusTone(task) === "warn"
-                                ? "text-warning-text"
-                                : "text-[var(--c-text-tertiary)]"
-                        }`}>
-                          {statusLabel(task)}
-                        </p>
-                      </button>
-
-                      {isSelected ? (
-                        <div className="rounded-xl border border-border bg-surface p-3.5 space-y-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="m-0 text-label">
-                              {t("create.taskDetail")}
-                            </p>
-                            <span className={`tag ${
-                              statusTone(task) === "ok"
-                                ? "tag-success"
-                                : statusTone(task) === "danger"
-                                  ? "tag-error"
-                                  : statusTone(task) === "warn"
-                                    ? "tag-warning"
-                                    : "tag-neutral"
-                            }`}>
-                              {statusLabel(task)}
-                            </span>
-                          </div>
-                          {preview ? (
-                            <button
-                              type="button"
-                              className="block w-full overflow-hidden rounded-xl border border-border bg-canvas p-0 text-left transition-colors duration-200 hover:border-[var(--c-border-focus)]"
-                              onClick={() => setRecentOverlayTaskId(task.task_id)}
-                              title={t("create.clickToView")}
-                            >
-                              {preview.kind === "video" ? (
-                                <video
-                                  src={preview.url}
-                                  className="block aspect-video w-full object-cover"
-                                  muted
-                                  loop
-                                  autoPlay
-                                  playsInline
-                                />
-                              ) : (
-                                <img
-                                  src={preview.url}
-                                  alt={task.task_id}
-                                  className="block w-full max-h-40 object-cover"
-                                />
-                              )}
-                            </button>
-                          ) : null}
-                          <p className="m-0 text-xs leading-relaxed text-[var(--c-text-secondary)] line-clamp-3">
-                            {task.prompt?.trim() || "(No prompt)"}
-                          </p>
-                          <p className="m-0 font-mono text-[11px] text-[var(--c-text-tertiary)]">
-                            {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {promptField ? (
+                    <div className="flex flex-col gap-4">
+                      {/* Ratio */}
+                      {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickRatio")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                               <button
                                 type="button"
-                                className="btn-secondary text-xs"
-                                onClick={() => {
-                                  settings.setPendingReuseDraft(toDraft(task));
-                                  setHint(t("create.hintReusedTask"));
-                                }}
+                                key={`ratio_${ratio}`}
+                                className={`chip ${currentRatioDisplay === ratio ? "chip-active" : ""}`}
+                                onClick={() => onRatioChanged(ratio)}
                               >
-                                <ArrowsClockwise size={13} />
-                                {t("create.reusePrompt")}
+                                {ratio}
                               </button>
-                            ) : null}
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Quality / Size */}
+                      {hasQuickSize ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickSize")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(qualityField ? qualityChoices : sizeChoices).map((size) => {
+                              const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                              const label = qualityField
+                                ? qualityField.options.find((o) => o.value === size)?.label ?? size
+                                : size;
+                              return (
+                                <button type="button" key={`size_${size}`} className={`chip ${active ? "chip-active" : ""}`} onClick={() => onSizeChanged(size)}>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Orientation */}
+                      {orientationField && orientationChoices.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickOrientation")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {orientationChoices.map((option) => (
+                              <button type="button" key={`o_${option.value}`} className={`chip ${orientationValue === option.value ? "chip-active" : ""}`} onClick={() => onOrientationChanged(option.value)}>
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Duration */}
+                      {durationField && durationChoices.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="m-0 text-label">{t("create.quickDuration")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {durationChoices.map((seconds) => (
+                              <button type="button" key={`d_${seconds}`} className={`chip ${durationValue === String(seconds) ? "chip-active" : ""}`} onClick={() => onFieldChanged(durationField, String(seconds))}>
+                                {seconds}s
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Veo prompt guide */}
+                      {showVeoPromptGuide ? (
+                        <div className="rounded-xl border border-border bg-info-bg p-3 text-xs">
+                          <p className="m-0 mb-1 font-medium text-info-text">{t("create.veoPromptGuideTitle")}</p>
+                          <div className="flex flex-wrap gap-3">
+                            <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkDocs")}</a>
+                            <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkBlog")}</a>
                           </div>
                         </div>
                       ) : null}
                     </div>
-                  );
-                })
-              ) : (
-                <EmptyStateTasks locale={locale} />
-              )}
-            </div>
-          </details>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Advanced button */}
+            {advancedFields.length > 0 ? (
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <GearSix size={13} />
+                <span>{t("create.advancedLabel")}</span>
+                <span className="text-[10px] text-[var(--c-text-tertiary)]">{advancedFields.length}</span>
+              </button>
+            ) : null}
+
+            {/* Keyboard shortcut hint */}
+            <kbd className="ml-auto hidden rounded-full bg-[var(--c-surface-inset)] px-2 py-0.5 text-[10px] font-medium text-[var(--c-text-tertiary)] sm:inline">
+              ⌘ Enter
+            </kbd>
+
+            {/* Queue count */}
+            {inProgressCount > 0 ? (
+              <span className="tag tag-warning font-mono tabular-nums text-[10px]">{t("app.topbar.queue", { count: inProgressCount })}</span>
+            ) : null}
+          </div>
         </div>
       </form>
+
+      {/* ── Advanced Panel (slide-up overlay) ────────── */}
+      {showAdvanced && advancedFields.length > 0 ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay"
+          onClick={() => setShowAdvanced(false)}
+        >
+          <div
+            className="w-full max-w-[820px] max-h-[70vh] overflow-y-auto rounded-t-2xl border border-border bg-surface p-5 shadow-[var(--shadow-overlay)] animate-enter"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("create.advancedLabel")}</h3>
+              <button type="button" className="btn-ghost text-xs" onClick={() => setShowAdvanced(false)}>
+                {t("common.close")}
+              </button>
+            </div>
+
+            {/* Quick media fields (full version with drag-drop) */}
+            {quickMediaFields.length > 0 ? (
+              <div className="mb-4 space-y-3 rounded-xl border border-border bg-surface-raised p-4">
+                <p className="m-0 text-label">{t("create.referenceAssets")}</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {quickMediaFields.map((field) =>
+                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, "compact"),
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {advancedGroups.map((group) => (
+              <section key={group.id} className="mb-4 rounded-xl border border-border bg-surface-raised p-4">
+                <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {group.fields.map((field) =>
+                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Work detail overlay */}
       {recentOverlayTaskId ? (
         <WorkDetailOverlay
           tasks={recentTasks}
@@ -1420,6 +1446,44 @@ export function CreatePage(props: Props) {
           onHint={setHint}
         />
       ) : null}
+    </div>
+  );
+}
+
+/* ── Inline Thumbnail Component ─────────────────────── */
+function InlineThumb({
+  item,
+  onRemove,
+}: {
+  item: { source: "local" | "reused"; file?: File; fileId?: string };
+  onRemove: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const gatewayToken = useAppSettingsStore((s) => s.gatewayToken);
+
+  useEffect(() => {
+    if (item.source === "local" && item.file) {
+      const objectUrl = URL.createObjectURL(item.file);
+      setUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+    if (item.source === "reused" && item.fileId) {
+      let active = true;
+      fetchUploadedFileBinary(item.fileId, gatewayToken).then(({ blob }) => {
+        if (!active) return;
+        const objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      }).catch(() => {});
+      return () => { active = false; };
+    }
+  }, [item.source, item.file, item.fileId, gatewayToken]);
+
+  return (
+    <div className="composer-thumb">
+      {url ? <img src={url} alt="" /> : <div className="h-full w-full bg-[var(--c-surface-inset)]" />}
+      <button type="button" className="composer-thumb-remove" onClick={onRemove}>
+        <X size={10} weight="bold" />
+      </button>
     </div>
   );
 }
@@ -2377,21 +2441,6 @@ function normalizeDefaultRatio(raw: string): "16:9" | "9:16" | null {
     return null;
   }
   return left >= right ? "16:9" : "9:16";
-}
-
-function toDraft(task: VideoTaskDetail): NonNullable<AppSettingsState["pendingReuseDraft"]> {
-  return {
-    provider: task.provider,
-    model: task.model,
-    operation: task.operation ?? "generate",
-    prompt: task.prompt,
-    negativePrompt: task.negative_prompt ?? "",
-    durationSec: task.duration_sec,
-    resolution: task.resolution ?? "",
-    fps: task.fps,
-    seed: task.seed,
-    providerOptions: task.provider_options ?? {},
-  };
 }
 
 function applyDraft(
