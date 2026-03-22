@@ -340,27 +340,27 @@ export function JobsPage(props: Props) {
 
   return (
     <div className="flex w-full flex-col gap-8">
-      <ScrollReveal className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <ScrollReveal className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-display m-0">
               {t("nav.jobs")}
             </h1>
-            <p className="mb-0 mt-2 text-sm text-[var(--c-text-secondary)]">
+            <p className="mb-0 mt-2 text-sm leading-relaxed text-[var(--c-text-secondary)]">
               {t("jobs.pageSubtitle")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="tag tag-neutral">
+            <span className="tag tag-neutral font-mono tabular-nums">
               {t("jobs.statsAll", { count: worksCount })}
             </span>
-            <span className="tag tag-neutral">
+            <span className="tag tag-neutral font-mono tabular-nums">
               {t("jobs.statsImages", { count: imageCount })}
             </span>
-            <span className="tag tag-neutral">
+            <span className="tag tag-neutral font-mono tabular-nums">
               {t("jobs.statsVideos", { count: videoCount })}
             </span>
-            <span className="tag tag-neutral">
+            <span className="tag tag-neutral font-mono tabular-nums">
               {t("jobs.statsInProgress", { count: inProgressTasks.length })}
             </span>
           </div>
@@ -369,7 +369,7 @@ export function JobsPage(props: Props) {
 
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
+          <div className="segment-group">
             {filterPills.map((pill) => {
               const isActive = browseFilter === pill.value;
               return (
@@ -377,9 +377,7 @@ export function JobsPage(props: Props) {
                   type="button"
                   key={pill.value}
                   onClick={() => setBrowseFilter(pill.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    isActive ? "bg-cta text-white" : "text-[var(--c-text-secondary)] hover:bg-[rgba(0,0,0,0.03)]"
-                  }`}
+                  className={`segment-item ${isActive ? "segment-active" : ""}`}
                 >
                   {pill.label} {pill.count}
                 </button>
@@ -393,7 +391,7 @@ export function JobsPage(props: Props) {
           )}
         </div>
 
-        <div className="mt-3 mt-1">
+        <div className="mt-4">
           <MasonryGrid
             items={assetList}
             selectedTaskId={selectedTaskId}
@@ -524,7 +522,7 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-border ${
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border ${
           isFailed ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
         }`}
         onClick={(event) => {
@@ -552,7 +550,7 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-border bg-canvas`}
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
         onClick={(event) => {
           event.stopPropagation();
           onOpen();
@@ -578,7 +576,7 @@ function AssetCardMedia({
             isVideoReady ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-[#F3EBDD] via-[#E7DFD2] to-[#DDD4C6]" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#F4F4F5] via-[#E4E4E7] to-[#D4D4D8]" />
           <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-2">
             <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
@@ -598,7 +596,7 @@ function AssetCardMedia({
     return (
       <button
         type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-border bg-canvas`}
+        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
         onClick={(event) => {
           event.stopPropagation();
           onOpen();
@@ -621,7 +619,7 @@ function AssetCardMedia({
   return (
     <button
       type="button"
-      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-lg border border-border bg-black`}
+      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-black`}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();
@@ -725,9 +723,9 @@ function MasonryGrid({
   }
 
   return (
-    <div className="flex w-full items-start gap-3">
+    <div className="flex w-full items-start gap-4">
       {columns.map((columnItems, columnIndex) => (
-        <div key={columnIndex} className="flex flex-1 flex-col gap-3">
+        <div key={columnIndex} className="flex flex-1 flex-col gap-4">
           {columnItems.map((task) => {
             const imageUrls = extractImageUrls(task);
             const thumb = imageUrls[0] ?? null;
@@ -738,10 +736,8 @@ function MasonryGrid({
             return (
               <article
                 key={task.task_id}
-                className={`relative overflow-hidden rounded-xl border bg-surface p-2 transition-[box-shadow,border-color] cursor-pointer ${
-                  task.task_id === selectedTaskId
-                    ? "border-[var(--c-text)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
-                    : "border-border hover:border-[#D4D4D4] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+                className={`media-card p-2 ${
+                  task.task_id === selectedTaskId ? "media-card-selected" : ""
                 }`}
                 onClick={() => {
                   setSelectedTaskId(task.task_id);
@@ -754,10 +750,10 @@ function MasonryGrid({
               >
                 <button
                   type="button"
-                  className={`absolute right-3 top-3 z-20 flex h-6 w-6 items-center justify-center rounded-full border text-[11px] transition-colors ${
+                  className={`absolute right-3 top-3 z-20 flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition-all duration-200 ${
                     isFavorite
-                      ? "border-[#E8A878] bg-accent-bg text-accent"
-                      : "border-border bg-white/90 text-[#9B907F] hover:border-accent hover:text-accent"
+                      ? "border-[var(--c-accent)] bg-accent-bg text-accent"
+                      : "border-border bg-white/90 text-[var(--c-text-tertiary)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent)]"
                   }`}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -801,11 +797,11 @@ function MasonryGrid({
                   t={t}
                 />
 
-                <div className="mt-2 flex flex-col gap-1 px-0.5 pb-0.5">
+                <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
                   <p className="m-0 line-clamp-2 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
                     {task.prompt || t("jobs.emptyPrompt")}
                   </p>
-                  <p className="m-0 truncate text-[10px] text-[var(--c-text-tertiary)]">
+                  <p className="m-0 truncate font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
                     {task.provider || task.model} · {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                   </p>
                 </div>

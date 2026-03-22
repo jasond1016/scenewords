@@ -901,23 +901,19 @@ export function CreatePage(props: Props) {
         }}
       >
         {/* ── Page Header ────────────────────────────── */}
-        <ScrollReveal className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <ScrollReveal className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-display m-0">{t("nav.create")}</h1>
-            <p className="m-0 mt-2 max-w-lg text-sm text-[var(--c-text-secondary)]">
+            <p className="m-0 mt-2 max-w-lg text-sm leading-relaxed text-[var(--c-text-secondary)]">
               {t("create.pageSubtitle")}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             {canSwitchGenerationKind ? (
-              <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+              <div className="segment-group">
                 <button
                   type="button"
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
-                    currentGenerationKind === "image"
-                      ? "bg-cta text-cta-text"
-                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
-                  }`}
+                  className={`segment-item ${currentGenerationKind === "image" ? "segment-active" : ""}`}
                   onClick={() => onGenerationKindChanged("image")}
                 >
                   <ImageSquare size={14} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
@@ -925,11 +921,7 @@ export function CreatePage(props: Props) {
                 </button>
                 <button
                   type="button"
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
-                    currentGenerationKind === "video"
-                      ? "bg-cta text-cta-text"
-                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
-                  }`}
+                  className={`segment-item ${currentGenerationKind === "video" ? "segment-active" : ""}`}
                   onClick={() => onGenerationKindChanged("video")}
                 >
                   <VideoCamera size={14} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
@@ -950,7 +942,7 @@ export function CreatePage(props: Props) {
               {/* Model selector (combined Provider+Model) + Operation (only if >1) */}
               <div className="flex flex-wrap items-end gap-3">
                 <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.model")}</span>
+                  <span className="text-label">{t("create.model")}</span>
                   <select
                     className="input-base"
                     value={`${providerId}::${modelName}`}
@@ -975,7 +967,7 @@ export function CreatePage(props: Props) {
                 </label>
                 {selectedModel.operations.length > 1 ? (
                   <label className="flex min-w-0 flex-col gap-1.5" style={{ flex: "0 0 auto", minWidth: 140 }}>
-                    <span className="text-xs font-medium text-[var(--c-text-secondary)]">{t("create.quickMode")}</span>
+                    <span className="text-label">{t("create.quickMode")}</span>
                     <select
                       className="input-base"
                       value={selectedOperation.id}
@@ -995,7 +987,7 @@ export function CreatePage(props: Props) {
               {promptField ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-[var(--c-text-secondary)]">Prompt</label>
+                    <label className="text-label">Prompt</label>
                     <div className="flex items-center gap-2">
                       {promptField ? (
                         <button
@@ -1027,9 +1019,9 @@ export function CreatePage(props: Props) {
               )}
 
               {quickMediaFields.length ? (
-                <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">
+                <div className="space-y-3 rounded-2xl border border-border bg-surface-raised p-4">
                   <div className="flex items-center justify-between">
-                    <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                    <p className="m-0 text-label">
                       {t("create.referenceAssets")}
                     </p>
                     <p className="m-0 text-[11px] text-[var(--c-text-tertiary)]">
@@ -1054,22 +1046,18 @@ export function CreatePage(props: Props) {
               ) : null}
 
               <div className="space-y-3">
-                <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                <p className="m-0 text-label">
                   {t("create.quickParams")}
                 </p>
                 <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
                   {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickRatio")}</span>
+                      <span className="text-label">{t("create.quickRatio")}</span>
                       {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                         <button
                           type="button"
                           key={`ratio_${ratio}`}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
-                            currentRatioDisplay === ratio
-                              ? "bg-cta text-cta-text"
-                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                          }`}
+                          className={`chip ${currentRatioDisplay === ratio ? "chip-active" : ""}`}
                           onClick={() => onRatioChanged(ratio)}
                         >
                           {ratio}
@@ -1079,7 +1067,7 @@ export function CreatePage(props: Props) {
                   ) : null}
                   {hasQuickSize ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{qualityField ? t("create.quickSize") : t("create.quickSize")}</span>
+                      <span className="text-label">{qualityField ? t("create.quickSize") : t("create.quickSize")}</span>
                       {(qualityField ? qualityChoices : sizeChoices).map((size) => {
                         const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
                         const label = qualityField
@@ -1089,11 +1077,7 @@ export function CreatePage(props: Props) {
                           <button
                             type="button"
                             key={`size_${size}`}
-                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
-                              active
-                                ? "bg-cta text-cta-text"
-                                : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                            }`}
+                            className={`chip ${active ? "chip-active" : ""}`}
                             onClick={() => onSizeChanged(size)}
                           >
                             {label}
@@ -1104,16 +1088,12 @@ export function CreatePage(props: Props) {
                   ) : null}
                   {orientationField && orientationChoices.length > 0 ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickOrientation")}</span>
+                      <span className="text-label">{t("create.quickOrientation")}</span>
                       {orientationChoices.map((option) => (
                         <button
                           type="button"
                           key={`orientation_${option.value}`}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
-                            orientationValue === option.value
-                              ? "bg-cta text-cta-text"
-                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                          }`}
+                          className={`chip ${orientationValue === option.value ? "chip-active" : ""}`}
                           onClick={() => onOrientationChanged(option.value)}
                         >
                           {option.label}
@@ -1123,16 +1103,12 @@ export function CreatePage(props: Props) {
                   ) : null}
                   {durationField && durationChoices.length > 0 ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("create.quickDuration")}</span>
+                      <span className="text-label">{t("create.quickDuration")}</span>
                       {durationChoices.map((seconds) => (
                         <button
                           type="button"
                           key={`duration_${seconds}`}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 ${
-                            durationValue === String(seconds)
-                              ? "bg-cta text-cta-text"
-                              : "border border-border bg-surface text-[var(--c-text-secondary)] hover:border-[#C4C4C4] hover:text-[var(--c-text)]"
-                          }`}
+                          className={`chip ${durationValue === String(seconds) ? "chip-active" : ""}`}
                           onClick={() => onFieldChanged(durationField, String(seconds))}
                         >
                           {seconds}s
@@ -1156,7 +1132,7 @@ export function CreatePage(props: Props) {
               {hint ? <p className="m-0 text-xs text-[var(--c-text-secondary)]">{hint}</p> : null}
 
               {/* Submit */}
-              <div className="flex items-center gap-3 border-t border-border pt-4">
+              <div className="flex items-center gap-3 border-t border-border pt-5">
                 <button
                   type="submit"
                   className="btn-primary"
@@ -1169,7 +1145,7 @@ export function CreatePage(props: Props) {
                       ? t("create.generateImage")
                       : t("create.generateVideo")}
                 </button>
-                <kbd className="hidden text-[11px] text-[var(--c-text-tertiary)] sm:inline">
+                <kbd className="hidden rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-text-tertiary)] sm:inline">
                   ⌘ Enter
                 </kbd>
               </div>
@@ -1192,8 +1168,8 @@ export function CreatePage(props: Props) {
                   </div>
                 ) : null}
                 {advancedGroups.map((group) => (
-                  <section key={group.id} className="rounded-lg border border-border bg-surface p-4">
-                    <p className="m-0 mb-3 text-xs font-medium text-[var(--c-text)]">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
+                  <section key={group.id} className="rounded-xl border border-border bg-surface p-4">
+                    <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       {group.fields.map((field) =>
                         renderField(
@@ -1264,7 +1240,7 @@ export function CreatePage(props: Props) {
                     {trackedPreview ? (
                       <button
                         type="button"
-                        className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-all duration-150 hover:border-[#C4C4C4] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                        className="block w-full overflow-hidden rounded-xl border border-border bg-canvas p-0 text-left transition-all duration-200 hover:border-[var(--c-border-focus)] hover:shadow-[var(--shadow-md)]"
                         onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
                       >
                         {trackedPreview.kind === "video" ? (
@@ -1338,10 +1314,10 @@ export function CreatePage(props: Props) {
                     <div key={task.task_id} className="space-y-2">
                       <button
                         type="button"
-                        className={`w-full text-left rounded-lg border p-3 transition-all duration-150 ${
+                        className={`w-full text-left rounded-xl border p-3.5 transition-all duration-200 ${
                           isSelected
-                            ? "border-[var(--c-text)] bg-surface shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
-                            : "border-border bg-surface-raised hover:border-[#D4D4D4]"
+                            ? "border-[var(--c-text)] bg-surface shadow-[var(--shadow-sm)]"
+                            : "border-border bg-surface-raised hover:border-[var(--c-border-focus)]"
                         }`}
                         onClick={() => setSelectedRecentTaskId(task.task_id)}
                       >
@@ -1361,9 +1337,9 @@ export function CreatePage(props: Props) {
                       </button>
 
                       {isSelected ? (
-                        <div className="rounded-lg border border-border bg-surface p-3 space-y-3">
+                        <div className="rounded-xl border border-border bg-surface p-3.5 space-y-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="m-0 text-xs font-medium text-[var(--c-text)]">
+                            <p className="m-0 text-label">
                               {t("create.taskDetail")}
                             </p>
                             <span className={`tag ${
@@ -1381,7 +1357,7 @@ export function CreatePage(props: Props) {
                           {preview ? (
                             <button
                               type="button"
-                              className="block w-full overflow-hidden rounded-lg border border-border bg-canvas p-0 text-left transition-colors duration-150 hover:border-[#D4D4D4]"
+                              className="block w-full overflow-hidden rounded-xl border border-border bg-canvas p-0 text-left transition-colors duration-200 hover:border-[var(--c-border-focus)]"
                               onClick={() => setRecentOverlayTaskId(task.task_id)}
                               title={t("create.clickToView")}
                             >
@@ -1766,7 +1742,7 @@ function DynamicInput(props: {
                     <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:text-[#7A1F1F]"
+                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1799,7 +1775,7 @@ function DynamicInput(props: {
                   <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:text-[#7A1F1F]"
+                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -2208,7 +2184,7 @@ function renderField(
   const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
     <Wrapper key={key} className={className}>
-    <span className="text-xs font-medium text-[var(--c-text-secondary)]">{field.label}</span>
+    <span className="text-label">{field.label}</span>
       <DynamicInput
         field={field}
         value={value}

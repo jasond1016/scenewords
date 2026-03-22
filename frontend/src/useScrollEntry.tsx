@@ -39,6 +39,7 @@ export function useScrollEntry<T extends HTMLElement = HTMLDivElement>(
 
 /**
  * Wrapper component for fade-slide-up entry animation.
+ * Uses custom spring-like cubic-bezier for premium feel.
  */
 export function ScrollReveal({
   children,
@@ -57,8 +58,8 @@ export function ScrollReveal({
       className={className}
       style={{
         opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(12px)",
-        transition: `opacity 600ms cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms, transform 600ms cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
+        transform: visible ? "translateY(0)" : "translateY(16px)",
+        transition: `opacity 700ms cubic-bezier(0.32, 0.72, 0, 1) ${delay}ms, transform 700ms cubic-bezier(0.32, 0.72, 0, 1) ${delay}ms`,
       }}
     >
       {children}

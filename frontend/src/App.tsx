@@ -135,81 +135,60 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-canvas">
-      {/* ── Minimal Top Bar ────────────────────────── */}
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur-sm">
+    <div className="min-h-[100dvh] bg-canvas pb-24">
+      {/* ── Compact Top Bar (logo + queue status) ────── */}
+      <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-5 py-3 sm:px-8">
-          {/* Left: Logo + Nav */}
-          <div className="flex items-center gap-6">
-            <NavLink
-              to="/create"
-              className="inline-flex items-center gap-2.5 no-underline"
-            >
-              <img
-                src={LOGO_MARK_SRC}
-                alt=""
-                aria-hidden="true"
-                className="h-8 w-8 shrink-0 rounded-md"
-              />
-              <span className="font-editorial text-xl text-[var(--c-text)]">
-                SceneWords
-              </span>
-            </NavLink>
+          {/* Left: Logo */}
+          <NavLink
+            to="/create"
+            className="inline-flex items-center gap-2.5 no-underline"
+          >
+            <img
+              src={LOGO_MARK_SRC}
+              alt=""
+              aria-hidden="true"
+              className="h-7 w-7 shrink-0 rounded-lg"
+            />
+            <span className="text-base font-bold tracking-tight text-[var(--c-text)]">
+              SceneWords
+            </span>
+          </NavLink>
 
-            <nav className="hidden items-center gap-1 sm:flex">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    `inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium no-underline transition-colors duration-150 ${
-                      isActive
-                        ? "bg-[rgba(0,0,0,0.06)] text-[var(--c-text)]"
-                        : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)] hover:bg-[rgba(0,0,0,0.03)]"
-                    }`
-                  }
-                >
-                  <item.icon size={16} weight="regular" />
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
+          {/* Desktop inline nav */}
+          <nav className="hidden items-center gap-1 sm:flex">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium no-underline transition-all duration-150 ${
+                    isActive
+                      ? "bg-[var(--c-surface-inset)] text-[var(--c-text)] font-semibold"
+                      : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)] hover:bg-[var(--c-border-subtle)]"
+                  }`
+                }
+              >
+                <item.icon size={15} weight="regular" />
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
 
           {/* Right: queue indicator */}
           <div className="flex items-center gap-3">
             {inProgressCount > 0 ? (
               <span className="tag tag-warning font-mono tabular-nums">
-                <CircleNotch size={12} className="animate-spin" />
+                <CircleNotch size={11} className="animate-spin" />
                 {t("app.topbar.queue", { count: inProgressCount })}
               </span>
             ) : null}
           </div>
         </div>
-
-        {/* Mobile nav — shown below md */}
-        <nav className="flex items-center gap-1 border-t border-border px-5 py-1.5 sm:hidden">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-medium no-underline transition-colors duration-150 ${
-                  isActive
-                    ? "bg-[rgba(0,0,0,0.06)] text-[var(--c-text)]"
-                    : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
-                }`
-              }
-            >
-              <item.icon size={16} weight="regular" />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
       </header>
 
       {/* ── Main Content ───────────────────────────── */}
-      <main className="mx-auto max-w-[1400px] px-5 py-8 sm:px-8 sm:py-12">
+      <main className="mx-auto max-w-[1400px] px-5 py-8 sm:px-8 sm:py-10">
         <Routes>
           <Route
             path="/"
@@ -248,6 +227,22 @@ export default function App() {
           />
         </Routes>
       </main>
+
+      {/* ── Floating Nav Pill (mobile) ──────────────── */}
+      <nav className="nav-pill sm:hidden" aria-label="Main navigation">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              `nav-pill-item ${isActive ? "nav-pill-item-active" : ""}`
+            }
+          >
+            <item.icon size={16} weight="regular" />
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
 
       {/* ── Toast Stack ────────────────────────────── */}
       {toasts.length ? (

@@ -62,14 +62,15 @@ export function MediaDetailSidebar(props: Props) {
 
   return (
     <div
-      className="flex h-full flex-col gap-3 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
+      className="flex h-full flex-col gap-3.5 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
       data-overlay-scroll="allow"
     >
-      <div className="rounded-xl border border-border bg-surface p-3">
-        <div className="mb-2 flex items-start justify-between gap-2">
+      {/* Task info card */}
+      <div className="rounded-xl border border-border bg-surface-raised p-3.5">
+        <div className="mb-2.5 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("jobs.assetDetailTitle")}</h3>
-            <p className="m-0 mt-1 truncate font-mono text-[11px] text-[var(--c-text-tertiary)]">
+            <p className="m-0 mt-1 truncate font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
               {task.task_id}
             </p>
             {task.provider_job_id ? (
@@ -83,7 +84,7 @@ export function MediaDetailSidebar(props: Props) {
               </p>
             ) : null}
           </div>
-          <span className="rounded-full bg-[rgba(0,0,0,0.05)] px-2 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] whitespace-nowrap">
+          <span className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] whitespace-nowrap">
             {statusLabel}
           </span>
         </div>
@@ -95,8 +96,8 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="min-h-0 rounded-xl border border-border bg-surface p-3">
-        <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">Prompt</p>
+      <div className="min-h-0 rounded-xl border border-border bg-surface-raised p-3.5">
+        <p className="m-0 mb-1.5 text-label">Prompt</p>
         <div
           className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
           data-overlay-scroll="allow"
@@ -117,7 +118,7 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-3 space-y-3">
+      <div className="rounded-xl border border-border bg-surface-raised p-3.5 space-y-3">
         {/* Tags row */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
@@ -203,7 +204,7 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <details className="rounded-xl border border-border bg-surface p-3">
+      <details className="rounded-xl border border-border bg-surface-raised p-3.5">
         <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
           {t("jobs.moreActions")}
         </summary>
@@ -255,7 +256,7 @@ export function MediaDetailSidebar(props: Props) {
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="m-0 text-[10px] uppercase tracking-wide text-[var(--c-text-tertiary)]">{label}</p>
+      <p className="m-0 text-label">{label}</p>
       <p className="m-0 mt-0.5 truncate text-[11px] font-semibold text-[var(--c-text)]">{value}</p>
     </div>
   );

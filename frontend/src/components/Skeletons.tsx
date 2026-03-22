@@ -17,7 +17,7 @@ export function SkeletonGrid({ count = 6 }: { count?: number }) {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="card space-y-3">
-          <div className="skeleton aspect-video w-full rounded-lg" />
+          <div className="skeleton aspect-video w-full rounded-xl" />
           <div className="skeleton h-3 w-3/4" />
           <div className="skeleton h-3 w-1/2" />
         </div>
@@ -32,26 +32,26 @@ export function SkeletonForm() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-2">
           <div className="skeleton h-3 w-16" />
-          <div className="skeleton h-9 w-full rounded-lg" />
+          <div className="skeleton h-10 w-full rounded-xl" />
         </div>
         <div className="space-y-2">
           <div className="skeleton h-3 w-12" />
-          <div className="skeleton h-9 w-full rounded-lg" />
+          <div className="skeleton h-10 w-full rounded-xl" />
         </div>
         <div className="space-y-2">
           <div className="skeleton h-3 w-20" />
-          <div className="skeleton h-9 w-full rounded-lg" />
+          <div className="skeleton h-10 w-full rounded-xl" />
         </div>
       </div>
       <hr className="divider" />
       <div className="space-y-2">
         <div className="skeleton h-3 w-12" />
-        <div className="skeleton h-24 w-full rounded-lg" />
+        <div className="skeleton h-28 w-full rounded-xl" />
       </div>
       <div className="flex gap-2">
-        <div className="skeleton h-8 w-16 rounded-md" />
-        <div className="skeleton h-8 w-16 rounded-md" />
-        <div className="skeleton h-8 w-16 rounded-md" />
+        <div className="skeleton h-9 w-20 rounded-full" />
+        <div className="skeleton h-9 w-20 rounded-full" />
+        <div className="skeleton h-9 w-20 rounded-full" />
       </div>
     </div>
   );
@@ -69,11 +69,11 @@ export function EmptyStateGeneric({
   description?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[rgba(0,0,0,0.04)]">
-        <Icon size={26} weight="regular" className="text-[var(--c-text-tertiary)]" />
+    <div className="flex flex-col items-center justify-center gap-4 py-24">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--c-surface-inset)] shadow-[var(--shadow-xs)]">
+        <Icon size={28} weight="light" className="text-[var(--c-text-tertiary)]" />
       </div>
-      <p className="m-0 text-sm font-medium text-[var(--c-text)]">{title}</p>
+      <p className="m-0 text-sm font-semibold text-[var(--c-text)]">{title}</p>
       {description ? (
         <p className="m-0 max-w-xs text-center text-xs leading-relaxed text-[var(--c-text-secondary)]">
           {description}
