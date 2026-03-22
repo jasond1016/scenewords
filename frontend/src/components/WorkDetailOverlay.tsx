@@ -228,15 +228,15 @@ export function WorkDetailOverlay(props: Props) {
 
   return (
     <MediaOverlayFrame
-      title={t("jobs.workPreview")}
+      title={t("works.workPreview")}
       currentIndex={lightboxIndex}
       totalItems={lightboxItems.length}
       isInfoHidden={isInfoHidden}
       onToggleInfo={() => setIsInfoHidden((current) => !current)}
       onClose={onClose}
-      showInfoLabel={t("jobs.showInfo")}
-      hideInfoLabel={t("jobs.hideInfo")}
-      backLabel={t("jobs.back")}
+      showInfoLabel={t("works.showInfo")}
+      hideInfoLabel={t("works.hideInfo")}
+      backLabel={t("works.back")}
       media={
         <AppLightboxStage
           items={lightboxItems}
@@ -251,8 +251,8 @@ export function WorkDetailOverlay(props: Props) {
       }
       mediaHint={
         currentLightboxIsPortrait
-          ? t("jobs.portraitHint")
-          : t("jobs.landscapeHint")
+          ? t("works.portraitHint")
+          : t("works.landscapeHint")
       }
       sidebar={
         <MediaDetailSidebar
@@ -275,8 +275,8 @@ export function WorkDetailOverlay(props: Props) {
             const payload = buildTaskRequestPayload(currentLightboxTask);
             const text = JSON.stringify(payload, null, 2);
             void copyText(text).then(
-              () => onHint?.(t("jobs.copyJsonSuccess")),
-              () => onHint?.(t("jobs.copyJsonFailed")),
+              () => onHint?.(t("works.copyJsonSuccess")),
+              () => onHint?.(t("works.copyJsonFailed")),
             );
           }}
           isRawResultOpen={isRawResultOpen}

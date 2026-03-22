@@ -8,7 +8,7 @@ import { useAppSettingsStore } from "./state";
 import { useTaskNotifications, type TaskToastNotice } from "./useTaskNotifications";
 import type { VideoTaskDetail } from "./types";
 import { CreatePage } from "./pages/CreatePage";
-import { JobsPage } from "./pages/JobsPage";
+import { WorksPage } from "./pages/WorksPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
@@ -216,7 +216,7 @@ export default function App() {
           <Route path="/assets" element={<Navigate to="/works" replace />} />
           <Route
             path="/works"
-            element={<JobsPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
+            element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
           />
           <Route
             path="/settings"

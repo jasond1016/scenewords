@@ -46,8 +46,8 @@ export function formatTaskActionSuccessMessage(
 ): string {
   const taskId = payload.taskId.slice(0, 8);
   return payload.action === "cancel"
-    ? t("jobs.cancelSuccess", { taskId })
-    : t("jobs.deleteSuccess", { taskId });
+    ? t("works.cancelSuccess", { taskId })
+    : t("works.deleteSuccess", { taskId });
 }
 
 export function formatTaskActionErrorMessage(
@@ -56,14 +56,14 @@ export function formatTaskActionErrorMessage(
   t: TranslateFn,
 ): string {
   return payload.action === "cancel"
-    ? t("jobs.cancelFailed", { message: error.message })
-    : t("jobs.deleteFailed", { message: error.message });
+    ? t("works.cancelFailed", { message: error.message })
+    : t("works.deleteFailed", { message: error.message });
 }
 
 export function formatRetryQueuedMessage(taskId: string, t: TranslateFn): string {
-  return t("jobs.retryQueued", { taskId: taskId.slice(0, 8) });
+  return t("works.retryQueued", { taskId: taskId.slice(0, 8) });
 }
 
 export function formatRetryErrorMessage(error: Error, t: TranslateFn): string {
-  return t("jobs.retryFailed", { message: error.message });
+  return t("works.retryFailed", { message: error.message });
 }

@@ -84,7 +84,7 @@ export function AppLightboxStage(props: Props) {
           scrollToZoom: true,
         }}
         render={{
-          slide: ({ slide }) => (isFailedSlide(slide) ? <FailedSlideCard label={t("jobs.generationFailed")} /> : undefined),
+          slide: ({ slide }) => (isFailedSlide(slide) ? <FailedSlideCard label={t("works.generationFailed")} /> : undefined),
           buttonPrev: () => null,
           buttonNext: () => null,
           buttonClose: () => null,

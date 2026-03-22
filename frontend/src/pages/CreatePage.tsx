@@ -1880,7 +1880,7 @@ function DynamicInput(props: {
             >
               <div className="flex items-center gap-4">
                 <p className="m-0 text-xs text-white/60">
-                  {t("jobs.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
+                  {t("works.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"

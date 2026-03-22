@@ -4,8 +4,8 @@
   "description": "AI media generation gateway — create videos and images from your iPad.",
   "start_url": "/static/",
   "display": "standalone",
-  "background_color": "#F7F6F3",
-  "theme_color": "#F7F6F3",
+  "background_color": "#F4F4F5",
+  "theme_color": "#F4F4F5",
   "icons": [
     {
       "src": "favicon-32.png",

@@ -62,7 +62,7 @@ const WORKS_FAVORITES_KEY = "scenewords_works_favorites_v1";
 
 type BrowseFilter = "all" | "image" | "video" | "favorite";
 
-export function JobsPage(props: Props) {
+export function WorksPage(props: Props) {
   const { tasks, loading } = props;
   const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
@@ -327,10 +327,10 @@ export function JobsPage(props: Props) {
   }
 
   const filterPills: Array<{ value: BrowseFilter; label: string; count: number }> = [
-    { value: "all", label: t("jobs.kindAll"), count: worksCount },
-    { value: "image", label: t("jobs.kindImage"), count: imageCount },
-    { value: "video", label: t("jobs.kindVideo"), count: videoCount },
-    { value: "favorite", label: t("jobs.favorite"), count: favoriteCount },
+    { value: "all", label: t("works.kindAll"), count: worksCount },
+    { value: "image", label: t("works.kindImage"), count: imageCount },
+    { value: "video", label: t("works.kindVideo"), count: videoCount },
+    { value: "favorite", label: t("works.favorite"), count: favoriteCount },
   ];
 
   return (
@@ -355,7 +355,7 @@ export function JobsPage(props: Props) {
           <div className="flex flex-wrap items-center gap-2">
             {!!inProgressTasks.length && (
               <span className="tag tag-warning font-mono tabular-nums">
-                {t("jobs.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
+                {t("works.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
               </span>
             )}
           </div>
@@ -385,15 +385,15 @@ export function JobsPage(props: Props) {
 
       {lightboxItem && currentLightboxTask ? (
         <MediaOverlayFrame
-          title={t("jobs.workPreview")}
+          title={t("works.workPreview")}
           currentIndex={lightboxIndex}
           totalItems={lightboxItems.length}
           isInfoHidden={isInfoHidden}
           onToggleInfo={() => setIsInfoHidden((current) => !current)}
           onClose={() => setLightboxState(null)}
-          showInfoLabel={t("jobs.showInfo")}
-          hideInfoLabel={t("jobs.hideInfo")}
-          backLabel={t("jobs.back")}
+          showInfoLabel={t("works.showInfo")}
+          hideInfoLabel={t("works.hideInfo")}
+          backLabel={t("works.back")}
           media={
             <AppLightboxStage
               items={lightboxItems}
@@ -408,8 +408,8 @@ export function JobsPage(props: Props) {
           }
           mediaHint={
             currentLightboxIsPortrait
-              ? t("jobs.portraitHint")
-              : t("jobs.landscapeHint")
+              ? t("works.portraitHint")
+              : t("works.landscapeHint")
           }
           sidebar={
             <MediaDetailSidebar
@@ -431,8 +431,8 @@ export function JobsPage(props: Props) {
                 const payload = buildTaskRequestPayload(currentLightboxTask);
                 const text = JSON.stringify(payload, null, 2);
                 void copyText(text).then(
-                  () => setHint(t("jobs.copyJsonSuccess")),
-                  () => setHint(t("jobs.copyJsonFailed")),
+                  () => setHint(t("works.copyJsonSuccess")),
+                  () => setHint(t("works.copyJsonFailed")),
                 );
               }}
               isRawResultOpen={isRawResultOpen}
@@ -504,11 +504,11 @@ function AssetCardMedia({
           {isFailed ? (
             <>
               <WarningCircle size={22} weight="regular" />
-              <span className="font-medium">{t("jobs.generationFailed")}</span>
+              <span className="font-medium">{t("works.generationFailed")}</span>
             </>
           ) : (
             <span className="font-medium">
-              {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
+              {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
             </span>
           )}
         </div>
@@ -551,12 +551,12 @@ function AssetCardMedia({
           <div className="absolute inset-x-0 bottom-0 p-2">
             <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
               <Play size={11} weight="fill" />
-              {t("jobs.videoLoading")}
+              {t("works.videoLoading")}
             </span>
           </div>
         </div>
         <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
-          {t("jobs.previewVideo")}
+          {t("works.previewVideo")}
         </span>
       </button>
     );
@@ -580,7 +580,7 @@ function AssetCardMedia({
           onError={() => setHasError(true)}
         />
         <span className="absolute inset-0 flex items-end justify-end bg-black/0 p-2 text-[10px] font-semibold text-white/0 transition-colors group-hover:bg-black/10 group-hover:text-white/85">
-          {t("jobs.previewImage")}
+          {t("works.previewImage")}
         </span>
       </button>
     );
@@ -608,7 +608,7 @@ function AssetCardMedia({
         onError={() => setHasError(true)}
       />
       <span className="absolute bottom-2 left-2 rounded bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
-        {t("jobs.previewVideo")}
+        {t("works.previewVideo")}
       </span>
     </button>
   );
@@ -729,7 +729,7 @@ function MasonryGrid({
                     event.stopPropagation();
                     toggleFavorite(task.task_id);
                   }}
-                  title={isFavorite ? t("jobs.unfavorite") : t("jobs.favorite")}
+                  title={isFavorite ? t("works.unfavorite") : t("works.favorite")}
                 >
                   <Star size={13} weight={isFavorite ? "fill" : "regular"} />
                 </button>
@@ -769,7 +769,7 @@ function MasonryGrid({
 
                 <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
                   <p className="m-0 line-clamp-2 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
-                    {task.prompt || t("jobs.emptyPrompt")}
+                    {task.prompt || t("works.emptyPrompt")}
                   </p>
                   <p className="m-0 truncate font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
                     {task.provider || task.model} · {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}

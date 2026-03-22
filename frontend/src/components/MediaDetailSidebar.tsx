@@ -69,18 +69,18 @@ export function MediaDetailSidebar(props: Props) {
       <div className="rounded-xl border border-border bg-surface-raised p-3.5">
         <div className="mb-2.5 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("jobs.assetDetailTitle")}</h3>
+            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("works.assetDetailTitle")}</h3>
             <p className="m-0 mt-1 truncate font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
               {task.task_id}
             </p>
             {task.provider_job_id ? (
               <p className="m-0 mt-1 truncate text-[10px] text-[var(--c-text-tertiary)]">
-                {t("jobs.upstreamJob")}: {task.provider_job_id}
+                {t("works.upstreamJob")}: {task.provider_job_id}
               </p>
             ) : null}
             {task.provider_status ? (
               <p className="m-0 mt-0.5 truncate text-[10px] text-[var(--c-text-tertiary)]">
-                {t("jobs.upstreamStatus")}: {task.provider_status}
+                {t("works.upstreamStatus")}: {task.provider_status}
               </p>
             ) : null}
           </div>
@@ -89,10 +89,10 @@ export function MediaDetailSidebar(props: Props) {
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--c-text-secondary)]">
-          <InfoCell label={t("jobs.provider")} value={task.provider} />
-          <InfoCell label={t("jobs.model")} value={task.model} />
-          <InfoCell label={t("jobs.resolution")} value={task.resolution ?? t("common.na")} />
-          <InfoCell label={t("jobs.created")} value={updatedAtLabel} />
+          <InfoCell label={t("works.provider")} value={task.provider} />
+          <InfoCell label={t("works.model")} value={task.model} />
+          <InfoCell label={t("works.resolution")} value={task.resolution ?? t("common.na")} />
+          <InfoCell label={t("works.created")} value={updatedAtLabel} />
         </div>
       </div>
 
@@ -103,12 +103,12 @@ export function MediaDetailSidebar(props: Props) {
           data-overlay-scroll="allow"
         >
           <p className="m-0 max-w-prose whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--c-text)]">
-            {task.prompt || t("jobs.emptyPrompt")}
+            {task.prompt || t("works.emptyPrompt")}
           </p>
           {task.negative_prompt ? (
             <div className="mt-2 border-t border-border pt-2">
               <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">
-                {t("jobs.negativePrompt")}
+                {t("works.negativePrompt")}
               </p>
               <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
                 {task.negative_prompt}
@@ -122,11 +122,11 @@ export function MediaDetailSidebar(props: Props) {
         {/* Tags row */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
-            {task.asset_type === "image" ? t("jobs.kindImage") : t("jobs.kindVideo")}
+            {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
           </span>
           {isFavorited ? (
             <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
-              {t("jobs.favorited")}
+              {t("works.favorited")}
             </span>
           ) : null}
         </div>
@@ -138,16 +138,16 @@ export function MediaDetailSidebar(props: Props) {
             className="btn-primary text-xs"
             onClick={onReuse}
           >
-            {t("jobs.reusePrompt")}
+            {t("works.reusePrompt")}
           </button>
           {downloadUrl ? (
             <a
               href={downloadUrl}
               download
               className="btn-secondary text-xs"
-              title={t("jobs.download")}
+              title={t("works.download")}
             >
-              {t("jobs.download")}
+              {t("works.download")}
             </a>
           ) : null}
           {cancelAction ? (
@@ -157,7 +157,7 @@ export function MediaDetailSidebar(props: Props) {
               onClick={cancelAction.onCancel}
               disabled={cancelAction.disabled}
             >
-              {t("jobs.cancelInProgress")}
+              {t("works.cancelInProgress")}
             </button>
           ) : null}
         </div>
@@ -165,7 +165,7 @@ export function MediaDetailSidebar(props: Props) {
         {/* Secondary actions row (retry + favorite) */}
         {(retryActions?.onSameSeed || retryActions?.onNewSeed || retryActions?.onDefault) ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
-            <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("jobs.retry", { mode: "" }).replace(/[() ]/g, "").trim() || "Retry"}</span>
+            <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("works.retry", { mode: "" }).replace(/[() ]/g, "").trim() || "Retry"}</span>
             {retryActions?.onSameSeed ? (
               <button type="button" className="btn-ghost text-xs" onClick={retryActions.onSameSeed} disabled={retryActions.disabled}>
                 {retryActions.sameSeedLabel}
@@ -191,7 +191,7 @@ export function MediaDetailSidebar(props: Props) {
             className="btn-ghost text-xs"
             onClick={onToggleFavorite}
           >
-            {isFavorited ? t("jobs.unfavorite") : t("jobs.favorite")}
+            {isFavorited ? t("works.unfavorite") : t("works.favorite")}
           </button>
           <button
             type="button"
@@ -199,14 +199,14 @@ export function MediaDetailSidebar(props: Props) {
             onClick={onDelete}
             disabled={deleteDisabled}
           >
-            {t("jobs.delete")}
+            {t("works.delete")}
           </button>
         </div>
       </div>
 
       <details className="rounded-xl border border-border bg-surface-raised p-3.5">
         <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
-          {t("jobs.moreActions")}
+          {t("works.moreActions")}
         </summary>
         <div className="mt-2 flex flex-col gap-2">
           <button
@@ -214,7 +214,7 @@ export function MediaDetailSidebar(props: Props) {
             className="text-left text-xs text-[var(--c-text-secondary)] underline decoration-dotted underline-offset-2 hover:text-[var(--c-text)]"
             onClick={onCopyRequestJson}
           >
-            {t("jobs.copyRequestJson")}
+            {t("works.copyRequestJson")}
           </button>
           <details
             open={isRawResultOpen}
@@ -223,7 +223,7 @@ export function MediaDetailSidebar(props: Props) {
             }}
           >
             <summary className="cursor-pointer text-xs text-[var(--c-text-secondary)]">
-              {t("jobs.rawResult")}
+              {t("works.rawResult")}
             </summary>
             {isRawResultOpen ? (
               rawResultPending ? (
