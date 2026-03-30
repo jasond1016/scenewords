@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  MagnifyingGlass,
   Star,
   Play,
   WarningCircle,
@@ -72,6 +73,8 @@ export function WorksPage(props: Props) {
   const handledTaskDeepLinkRef = useRef<string>("");
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [hint, setHint] = useState("");
   const [hoverVideoTaskId, setHoverVideoTaskId] = useState<string | null>(null);
@@ -109,15 +112,44 @@ export function WorksPage(props: Props) {
     localStorage.setItem(WORKS_FAVORITES_KEY, JSON.stringify(favoriteTaskIds));
   }, [favoriteTaskIds]);
 
+  const providerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          completedTasks
+            .map((task) => task.provider)
+            .filter((provider): provider is string => Boolean(provider)),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [completedTasks],
+  );
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const assetList = useMemo(() => {
+    let nextList = completedTasks;
     if (browseFilter === "favorite") {
-      return completedTasks.filter((task) => favoriteTaskIds.includes(task.task_id));
+      nextList = completedTasks.filter((task) => favoriteTaskIds.includes(task.task_id));
+    } else if (browseFilter !== "all") {
+      nextList = completedTasks.filter((task) => task.asset_type === browseFilter);
     }
-    if (browseFilter === "all") {
-      return completedTasks;
+
+    if (providerFilter !== "all") {
+      nextList = nextList.filter((task) => task.provider === providerFilter);
     }
-    return completedTasks.filter((task) => task.asset_type === browseFilter);
-  }, [browseFilter, completedTasks, favoriteTaskIds]);
+    if (!normalizedSearchQuery) {
+      return nextList;
+    }
+    return nextList.filter((task) => {
+      const searchable = [
+        task.task_id,
+        task.provider,
+        task.model,
+        task.prompt ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(normalizedSearchQuery);
+    });
+  }, [browseFilter, completedTasks, favoriteTaskIds, normalizedSearchQuery, providerFilter]);
 
   useEffect(() => {
     if (!assetList.length) {
@@ -336,7 +368,7 @@ export function WorksPage(props: Props) {
   return (
     <div className="flex w-full flex-col gap-6">
       <section className="card">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="segment-group">
             {filterPills.map((pill) => {
               const isActive = browseFilter === pill.value;
@@ -352,7 +384,35 @@ export function WorksPage(props: Props) {
               );
             })}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="relative block min-w-[240px]">
+              <MagnifyingGlass
+                size={14}
+                weight="regular"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]"
+              />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t("works.searchPlaceholder")}
+                className="input-base h-10 pl-9"
+                aria-label={t("works.searchPlaceholder")}
+              />
+            </label>
+            <select
+              value={providerFilter}
+              onChange={(event) => setProviderFilter(event.target.value)}
+              className="input-base h-10 min-w-[180px]"
+              aria-label={t("works.allProviders")}
+            >
+              <option value="all">{t("works.allProviders")}</option>
+              {providerOptions.map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
             {!!inProgressTasks.length && (
               <span className="tag tag-warning font-mono tabular-nums">
                 {t("works.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
@@ -360,8 +420,37 @@ export function WorksPage(props: Props) {
             )}
           </div>
         </div>
+      </section>
 
-        <div className="mt-4">
+      {!!inProgressTasks.length && (
+        <section className="card-flat space-y-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-1">
+              <span className="text-label">{t("works.statsInProgress", { count: inProgressTasks.length })}</span>
+              <p className="m-0 text-sm leading-relaxed text-[var(--c-text-secondary)]">
+                {t("works.queueBanner", { count: inProgressTasks.length })}
+              </p>
+            </div>
+          </div>
+
+          <InProgressStrip
+            tasks={inProgressTasks}
+            locale={locale}
+            t={t}
+            onCancel={(task) =>
+              deleteMutation.mutate({
+                taskId: task.task_id,
+                assetType: task.asset_type,
+                action: "cancel",
+              })
+            }
+            cancelDisabled={deleteMutation.isPending}
+          />
+        </section>
+      )}
+
+      <section className="card">
+        <div>
           <MasonryGrid
             items={assetList}
             selectedTaskId={selectedTaskId}
@@ -614,6 +703,61 @@ function AssetCardMedia({
   );
 }
 
+function InProgressStrip({
+  tasks,
+  locale,
+  t,
+  onCancel,
+  cancelDisabled,
+}: {
+  tasks: VideoTaskDetail[];
+  locale: string;
+  t: TranslateFn;
+  onCancel: (task: VideoTaskDetail) => void;
+  cancelDisabled?: boolean;
+}) {
+  const sortedTasks = [...tasks].sort(
+    (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max gap-3">
+        {sortedTasks.map((task) => (
+          <article
+            key={task.task_id}
+            className="flex w-[280px] flex-col gap-3 rounded-2xl border border-border bg-surface px-4 py-4 shadow-[var(--shadow-xs)]"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="tag tag-warning">{formatOverlayTaskStatus(task, t)}</span>
+              <span className="text-[10px] text-[var(--c-text-tertiary)]">
+                {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
+              </span>
+            </div>
+            <p className="m-0 line-clamp-3 text-sm font-semibold leading-6 text-[var(--c-text)]">
+              {task.prompt || t("works.emptyPrompt")}
+            </p>
+            <div className="space-y-1 text-[11px] text-[var(--c-text-secondary)]">
+              <p className="m-0 truncate">{task.provider || task.model}</p>
+              <p className="m-0">{formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}</p>
+            </div>
+            <div className="pt-1">
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={() => onCancel(task)}
+                disabled={cancelDisabled}
+              >
+                {t("works.cancelInProgress")}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function useWindowWidth() {
   const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1280);
 
@@ -768,12 +912,31 @@ function MasonryGrid({
                 />
 
                 <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
-                  <p className="m-0 line-clamp-2 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="tag tag-info">
+                      {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
+                    </span>
+                    <span
+                      className={`tag ${
+                        task.status === "failed"
+                          ? "tag-error"
+                          : task.status === "canceled"
+                            ? "tag-neutral"
+                            : "tag-success"
+                      }`}
+                    >
+                      {formatOverlayTaskStatus(task, t)}
+                    </span>
+                  </div>
+                  <p className="m-0 line-clamp-3 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
                     {task.prompt || t("works.emptyPrompt")}
                   </p>
-                  <p className="m-0 truncate font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
-                    {task.provider || task.model} · {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                  </p>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]">
+                    <span className="truncate">{task.provider || task.model}</span>
+                    <span className="shrink-0">
+                      {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+                    </span>
+                  </div>
                 </div>
               </article>
             );

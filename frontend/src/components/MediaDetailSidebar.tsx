@@ -65,39 +65,16 @@ export function MediaDetailSidebar(props: Props) {
       className="flex h-full flex-col gap-3.5 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
       data-overlay-scroll="allow"
     >
-      {/* Task info card */}
-      <div className="rounded-xl border border-border bg-surface-raised p-3.5">
+      <div className="min-h-0 rounded-xl border border-border bg-surface-raised p-3.5">
         <div className="mb-2.5 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("works.assetDetailTitle")}</h3>
-            <p className="m-0 mt-1 truncate font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
-              {task.task_id}
-            </p>
-            {task.provider_job_id ? (
-              <p className="m-0 mt-1 truncate text-[10px] text-[var(--c-text-tertiary)]">
-                {t("works.upstreamJob")}: {task.provider_job_id}
-              </p>
-            ) : null}
-            {task.provider_status ? (
-              <p className="m-0 mt-0.5 truncate text-[10px] text-[var(--c-text-tertiary)]">
-                {t("works.upstreamStatus")}: {task.provider_status}
-              </p>
-            ) : null}
+          <div className="space-y-1">
+            <p className="m-0 text-label">{t("works.promptLabel")}</p>
+            <p className="m-0 text-xs text-[var(--c-text-secondary)]">{t("works.promptDescription")}</p>
           </div>
           <span className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] whitespace-nowrap">
             {statusLabel}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--c-text-secondary)]">
-          <InfoCell label={t("works.provider")} value={task.provider} />
-          <InfoCell label={t("works.model")} value={task.model} />
-          <InfoCell label={t("works.resolution")} value={task.resolution ?? t("common.na")} />
-          <InfoCell label={t("works.created")} value={updatedAtLabel} />
-        </div>
-      </div>
-
-      <div className="min-h-0 rounded-xl border border-border bg-surface-raised p-3.5">
-        <p className="m-0 mb-1.5 text-label">Prompt</p>
         <div
           className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
           data-overlay-scroll="allow"
@@ -119,7 +96,6 @@ export function MediaDetailSidebar(props: Props) {
       </div>
 
       <div className="rounded-xl border border-border bg-surface-raised p-3.5 space-y-3">
-        {/* Tags row */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
             {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
@@ -131,7 +107,6 @@ export function MediaDetailSidebar(props: Props) {
           ) : null}
         </div>
 
-        {/* Primary actions row */}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -162,7 +137,6 @@ export function MediaDetailSidebar(props: Props) {
           ) : null}
         </div>
 
-        {/* Secondary actions row (retry + favorite) */}
         {(retryActions?.onSameSeed || retryActions?.onNewSeed || retryActions?.onDefault) ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
             <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("works.retry", { mode: "" }).replace(/[() ]/g, "").trim() || "Retry"}</span>
@@ -184,7 +158,6 @@ export function MediaDetailSidebar(props: Props) {
           </div>
         ) : null}
 
-        {/* Tertiary: favorite + delete */}
         <div className="flex items-center justify-between border-t border-border pt-2">
           <button
             type="button"
@@ -202,6 +175,41 @@ export function MediaDetailSidebar(props: Props) {
             {t("works.delete")}
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface-raised p-3.5">
+        <div className="mb-2.5 flex items-start justify-between gap-2">
+          <div className="space-y-1">
+            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("works.assetDetailTitle")}</h3>
+            <p className="m-0 text-xs text-[var(--c-text-secondary)]">{t("works.detailDescription")}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--c-text-secondary)]">
+          <InfoCell label={t("works.provider")} value={task.provider} />
+          <InfoCell label={t("works.model")} value={task.model} />
+          <InfoCell label={t("works.resolution")} value={task.resolution ?? t("common.na")} />
+          <InfoCell label={t("works.created")} value={updatedAtLabel} />
+        </div>
+        <details className="mt-3 border-t border-border pt-3">
+          <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
+            {t("works.technicalDetails")}
+          </summary>
+          <div className="mt-2 space-y-1 text-[11px] text-[var(--c-text-secondary)]">
+            <p className="m-0 break-all font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
+              {t("works.taskId")}: {task.task_id}
+            </p>
+            {task.provider_job_id ? (
+              <p className="m-0 break-all">
+                {t("works.upstreamJob")}: {task.provider_job_id}
+              </p>
+            ) : null}
+            {task.provider_status ? (
+              <p className="m-0 break-all">
+                {t("works.upstreamStatus")}: {task.provider_status}
+              </p>
+            ) : null}
+          </div>
+        </details>
       </div>
 
       <details className="rounded-xl border border-border bg-surface-raised p-3.5">
