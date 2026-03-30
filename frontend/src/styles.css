@@ -1082,8 +1082,6 @@ select.input-base {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 /* ── Tracked Task Card ──────────────────────────────── */
@@ -1124,6 +1122,29 @@ select.input-base {
 .recent-strip-item:hover {
   border-color: var(--c-border-focus);
   box-shadow: var(--shadow-sm);
+}
+
+.recent-task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 0.875rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-xl);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--duration-fast) var(--ease-out-expo),
+    box-shadow var(--duration-fast) var(--ease-out-expo),
+    transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.recent-task-card:hover {
+  border-color: var(--c-border-focus);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 @media (max-width: 640px) {
