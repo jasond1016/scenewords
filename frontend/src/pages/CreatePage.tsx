@@ -36,6 +36,7 @@ import {
 import type {
   ProviderCatalogResponse,
   ProviderInfo,
+  ProviderModelInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
   VideoGenerationRequest,
@@ -76,6 +77,8 @@ const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const VIDEO_POSTER_CACHE = new Map<string, string | null>();
+const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
+const SHARED_IMAGE_MASK_FIELD_KEY = "shared_image_mask_file_id";
 
 interface RecentPromptEntry {
   text: string;
@@ -84,6 +87,25 @@ interface RecentPromptEntry {
   operation: string;
   usedAt: string;
   pinned: boolean;
+}
+
+interface ImageModelVariant {
+  familyId: string;
+  familyLabel: string;
+  provider: ProviderInfo;
+  model: ProviderModelInfo;
+  resolutionKey: "1k" | "2k" | "4k";
+  resolutionLabel: "1K" | "2K" | "4K";
+  asyncEnabled: boolean;
+  generateOperation: ProviderModelOperationInfo | null;
+  editOperation: ProviderModelOperationInfo | null;
+}
+
+interface ImageModelFamily {
+  id: string;
+  label: string;
+  provider: ProviderInfo;
+  variants: ImageModelVariant[];
 }
 
 interface AdvancedGroup {
@@ -184,6 +206,10 @@ export function CreatePage(props: Props) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
+  const [imageSourceFiles, setImageSourceFiles] = useState<File[]>([]);
+  const [imageSourceReusedFileIds, setImageSourceReusedFileIds] = useState<string[]>([]);
+  const [imageMaskFiles, setImageMaskFiles] = useState<File[]>([]);
+  const [imageMaskReusedFileIds, setImageMaskReusedFileIds] = useState<string[]>([]);
   const [hint, setHint] = useState("");
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
@@ -316,8 +342,29 @@ export function CreatePage(props: Props) {
     for (const field of quickMediaFields) {
       excluded.add(fieldKey(field));
     }
+    if (selectedProvider && isImageProviderType(selectedProvider.type)) {
+      for (const field of selectedOperation.fields) {
+        if (
+          field.input_type === "file" ||
+          field.input_type === "file_list" ||
+          field.key === "image" ||
+          field.key === "mask_file_id"
+        ) {
+          excluded.add(fieldKey(field));
+        }
+      }
+    }
     return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
-  }, [durationField, orientationField, promptField, qualityField, quickMediaFields, resolutionField, selectedOperation]);
+  }, [
+    durationField,
+    orientationField,
+    promptField,
+    qualityField,
+    quickMediaFields,
+    resolutionField,
+    selectedProvider,
+    selectedOperation,
+  ]);
   const advancedGroups = useMemo(
     () => groupAdvancedFields(advancedFields),
     [advancedFields],
@@ -385,6 +432,49 @@ export function CreatePage(props: Props) {
     () => listVisibleProvidersByKind(providers, currentGenerationKind),
     [currentGenerationKind, providers],
   );
+  const imageModelFamilies = useMemo(
+    () =>
+      currentGenerationKind === "image" ? collectImageModelFamilies(providerChoices) : [],
+    [currentGenerationKind, providerChoices],
+  );
+  const currentImageFamily = useMemo(() => {
+    if (!imageModelFamilies.length) {
+      return null;
+    }
+    return (
+      imageModelFamilies.find((family) =>
+        family.variants.some((variant) => variant.model.name === modelName),
+      ) ?? imageModelFamilies[0]
+    );
+  }, [imageModelFamilies, modelName]);
+  const currentImageVariant = useMemo(() => {
+    if (!currentImageFamily) {
+      return null;
+    }
+    return (
+      currentImageFamily.variants.find((variant) => variant.model.name === modelName) ??
+      currentImageFamily.variants[0] ??
+      null
+    );
+  }, [currentImageFamily, modelName]);
+  const imageResolutionChoices = useMemo(
+    () =>
+      currentImageFamily
+        ? Array.from(
+            new Map(
+              currentImageFamily.variants.map((variant) => [
+                variant.resolutionKey,
+                variant.resolutionLabel,
+              ]),
+            ).values(),
+          )
+        : [],
+    [currentImageFamily],
+  );
+  const hasImageSourceAttachments =
+    imageSourceFiles.length > 0 || imageSourceReusedFileIds.length > 0;
+  const currentImageResolutionLabel = currentImageVariant?.resolutionLabel ?? "1K";
+  const currentImageAsyncEnabled = currentImageVariant?.asyncEnabled ?? false;
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
   const orientationValue = orientationField ? values[fieldKey(orientationField)] ?? "" : "";
   const qualityValue = qualityField ? values[fieldKey(qualityField)] ?? "" : "";
@@ -462,28 +552,124 @@ export function CreatePage(props: Props) {
     return t("create.promptPlaceholder");
   }, [promptField, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
+  const sharedImageSourceField = useMemo<ProviderOperationField>(
+    () => ({
+      key: SHARED_IMAGE_SOURCE_FIELD_KEY,
+      label: t("create.imageSourceField"),
+      target: "provider_options",
+      input_type: "file_list",
+      required: false,
+      default: null,
+      placeholder: null,
+      help_text: t("create.imageSourceHelp"),
+      min: null,
+      max: null,
+      step: null,
+      options: [],
+    }),
+    [t],
+  );
+  const sharedImageMaskField = useMemo<ProviderOperationField>(
+    () => ({
+      key: SHARED_IMAGE_MASK_FIELD_KEY,
+      label: t("create.imageMaskField"),
+      target: "provider_options",
+      input_type: "file",
+      required: false,
+      default: null,
+      placeholder: null,
+      help_text: t("create.imageMaskHelp"),
+      min: null,
+      max: null,
+      step: null,
+      options: [],
+    }),
+    [t],
+  );
+  const composerMediaFields = useMemo(() => {
+    if (currentGenerationKind !== "image") {
+      return quickMediaFields;
+    }
+    const fields = [sharedImageSourceField];
+    if (selectedOperation?.id === "edit") {
+      fields.push(sharedImageMaskField);
+    }
+    return fields;
+  }, [
+    currentGenerationKind,
+    quickMediaFields,
+    selectedOperation?.id,
+    sharedImageMaskField,
+    sharedImageSourceField,
+  ]);
+  const uiFiles = useMemo(() => {
+    if (currentGenerationKind !== "image") {
+      return files;
+    }
+    return {
+      ...files,
+      [fieldKey(sharedImageSourceField)]: imageSourceFiles,
+      [fieldKey(sharedImageMaskField)]: imageMaskFiles,
+    };
+  }, [
+    currentGenerationKind,
+    files,
+    imageMaskFiles,
+    imageSourceFiles,
+    sharedImageMaskField,
+    sharedImageSourceField,
+  ]);
+  const uiReusedFileIds = useMemo(() => {
+    if (currentGenerationKind !== "image") {
+      return reusedFileIds;
+    }
+    return {
+      ...reusedFileIds,
+      [fieldKey(sharedImageSourceField)]: imageSourceReusedFileIds,
+      [fieldKey(sharedImageMaskField)]: imageMaskReusedFileIds,
+    };
+  }, [
+    currentGenerationKind,
+    imageMaskReusedFileIds,
+    imageSourceReusedFileIds,
+    reusedFileIds,
+    sharedImageMaskField,
+    sharedImageSourceField,
+  ]);
 
   // Primary file field for inline "+" button
-  const primaryFileField = quickMediaFields[0] ?? null;
+  const primaryFileField = composerMediaFields[0] ?? null;
   // All inline file previews (from all quickMediaFields)
   const inlineFilePreviews = useMemo(() => {
     const items: Array<{ fieldKey: string; source: "local" | "reused"; index: number; file?: File; fileId?: string }> = [];
-    for (const field of quickMediaFields) {
+    for (const field of composerMediaFields) {
       const key = fieldKey(field);
-      const reused = reusedFileIds[key] ?? [];
+      const reused = uiReusedFileIds[key] ?? [];
       for (let i = 0; i < reused.length; i++) {
         items.push({ fieldKey: key, source: "reused", index: i, fileId: reused[i] });
       }
-      const local = files[key] ?? [];
+      const local = uiFiles[key] ?? [];
       for (let i = 0; i < local.length; i++) {
         items.push({ fieldKey: key, source: "local", index: i, file: local[i] });
       }
     }
     return items;
-  }, [quickMediaFields, files, reusedFileIds]);
+  }, [composerMediaFields, uiFiles, uiReusedFileIds]);
 
   // Model display label for the chip
   const modelChipLabel = useMemo(() => {
+    if (currentGenerationKind === "image" && currentImageFamily) {
+      const parts: string[] = [];
+      if (imageModelFamilies.length > 1) {
+        parts.push(currentImageFamily.provider.display_name);
+      }
+      parts.push(currentImageFamily.label);
+      parts.push(currentImageResolutionLabel);
+      parts.push(
+        currentImageAsyncEnabled ? t("create.imageAsyncOn") : t("create.imageAsyncOff"),
+      );
+      return parts.join(" · ");
+    }
     if (!selectedProvider || !selectedModel) return "";
     const parts: string[] = [];
     if (providerChoices.length > 1) parts.push(selectedProvider.display_name);
@@ -492,7 +678,18 @@ export function CreatePage(props: Props) {
       parts.push(selectedOperation.display_name);
     }
     return parts.join(" · ");
-  }, [selectedProvider, selectedModel, selectedOperation, providerChoices.length]);
+  }, [
+    currentGenerationKind,
+    currentImageAsyncEnabled,
+    currentImageFamily,
+    currentImageResolutionLabel,
+    imageModelFamilies.length,
+    providerChoices.length,
+    selectedOperation,
+    selectedProvider,
+    selectedModel,
+    t,
+  ]);
   const keyboardShortcutLabel = useMemo(() => {
     if (typeof navigator === "undefined") {
       return "Ctrl Enter";
@@ -511,6 +708,62 @@ export function CreatePage(props: Props) {
       setProviderId(videoProviders[0].id);
     }
   }, [currentGenerationKind, providerId, videoProviders]);
+
+  useEffect(() => {
+    if (currentGenerationKind === "image") {
+      return;
+    }
+    setImageSourceFiles([]);
+    setImageSourceReusedFileIds([]);
+    setImageMaskFiles([]);
+    setImageMaskReusedFileIds([]);
+  }, [currentGenerationKind]);
+
+  useEffect(() => {
+    if (
+      currentGenerationKind !== "image" ||
+      !currentImageFamily ||
+      !currentImageVariant ||
+      !hasImageSourceAttachments ||
+      !currentImageAsyncEnabled
+    ) {
+      return;
+    }
+    const nextVariant = pickImageFamilyVariant(currentImageFamily, {
+      resolutionKey: currentImageVariant.resolutionKey,
+      asyncEnabled: false,
+    });
+    if (!nextVariant || nextVariant.model.name === modelName) {
+      return;
+    }
+    setModelName(nextVariant.model.name);
+  }, [
+    currentGenerationKind,
+    currentImageAsyncEnabled,
+    currentImageFamily,
+    currentImageVariant,
+    hasImageSourceAttachments,
+    modelName,
+  ]);
+
+  useEffect(() => {
+    if (currentGenerationKind !== "image" || !currentImageVariant) {
+      return;
+    }
+    const nextOperation =
+      hasImageSourceAttachments && currentImageVariant.editOperation
+        ? currentImageVariant.editOperation
+        : currentImageVariant.generateOperation;
+    if (!nextOperation || nextOperation.id === operationId) {
+      return;
+    }
+    setOperationId(nextOperation.id);
+  }, [
+    currentGenerationKind,
+    currentImageVariant,
+    hasImageSourceAttachments,
+    operationId,
+  ]);
 
   useEffect(() => {
     persistLastSubmittedTaskId(lastSubmittedTaskId);
@@ -613,6 +866,7 @@ export function CreatePage(props: Props) {
       return;
     }
     const previousPrompt = values["request:prompt"] ?? "";
+    const previousResolution = values["request:resolution"] ?? "";
     const hydrated: Record<string, string> = {};
     const hydratedReusedFileIds: Record<string, string[]> = {};
     for (const field of selectedOperation.fields) {
@@ -649,6 +903,8 @@ export function CreatePage(props: Props) {
     applySettingDefaults(hydrated, selectedOperation, settings, providerId);
 
     const pending = settings.pendingReuseDraft;
+    let pendingImageSourceFileIds: string[] = [];
+    let pendingImageMaskFileIds: string[] = [];
     if (
       pending &&
       pending.provider === providerId &&
@@ -657,6 +913,8 @@ export function CreatePage(props: Props) {
     ) {
       const applied = applyDraft(hydrated, selectedOperation, pending);
       Object.assign(hydratedReusedFileIds, applied.reusedFileIds);
+      pendingImageSourceFileIds = extractDraftImageSourceFileIds(pending.providerOptions);
+      pendingImageMaskFileIds = extractDraftImageMaskFileIds(pending.providerOptions);
       skipNextPendingClearHydrationRef.current = true;
       settings.setPendingReuseDraft(null);
       setHint(
@@ -674,11 +932,26 @@ export function CreatePage(props: Props) {
         hydrated[promptKey] = previousPrompt;
       }
     }
+    if (resolutionField) {
+      const resolutionKey = fieldKey(resolutionField);
+      if (!hydrated[resolutionKey] && previousResolution.trim()) {
+        hydrated[resolutionKey] =
+          pickResolutionValue(resolutionField, "", parseResolutionMeta(previousResolution)) ??
+          previousResolution;
+      }
+    }
 
     setValues(hydrated);
     setFiles({});
     setReusedFileIds(hydratedReusedFileIds);
+    if (pendingImageSourceFileIds.length || pendingImageMaskFileIds.length) {
+      setImageSourceFiles([]);
+      setImageMaskFiles([]);
+      setImageSourceReusedFileIds(pendingImageSourceFileIds);
+      setImageMaskReusedFileIds(pendingImageMaskFileIds);
+    }
   }, [
+    currentGenerationKind,
     modelName,
     navigate,
     providerId,
@@ -718,8 +991,24 @@ export function CreatePage(props: Props) {
       for (const field of selectedOperation.fields) {
         const key = fieldKey(field);
         if (field.input_type === "file" || field.input_type === "file_list") {
-          const selectedFiles = files[key] ?? [];
-          const reusableIds = reusedFileIds[key] ?? [];
+          const {
+            selectedFiles,
+            reusableIds,
+          } = resolveSubmitFileState(
+            field,
+            {
+              files,
+              reusedFileIds,
+            },
+            currentGenerationKind === "image"
+              ? {
+                  sourceFiles: imageSourceFiles,
+                  sourceReusedFileIds: imageSourceReusedFileIds,
+                  maskFiles: imageMaskFiles,
+                  maskReusedFileIds: imageMaskReusedFileIds,
+                }
+              : null,
+          );
           if (!selectedFiles.length) {
             if (reusableIds.length) {
               const reusableValue =
@@ -825,6 +1114,20 @@ export function CreatePage(props: Props) {
   });
 
   const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
+    if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
+      setImageSourceFiles(nextFiles);
+      if (nextFiles.length) {
+        setImageSourceReusedFileIds([]);
+      }
+      return;
+    }
+    if (field.key === SHARED_IMAGE_MASK_FIELD_KEY) {
+      setImageMaskFiles(nextFiles.slice(0, 1));
+      if (nextFiles.length) {
+        setImageMaskReusedFileIds([]);
+      }
+      return;
+    }
     const key = fieldKey(field);
     setFiles((current) => ({ ...current, [key]: nextFiles }));
     if (field.input_type === "file") {
@@ -840,6 +1143,20 @@ export function CreatePage(props: Props) {
   };
 
   const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
+    if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
+      setImageSourceReusedFileIds(nextFileIds);
+      if (nextFileIds.length) {
+        setImageSourceFiles([]);
+      }
+      return;
+    }
+    if (field.key === SHARED_IMAGE_MASK_FIELD_KEY) {
+      setImageMaskReusedFileIds(nextFileIds.slice(0, 1));
+      if (nextFileIds.length) {
+        setImageMaskFiles([]);
+      }
+      return;
+    }
     const key = fieldKey(field);
     setReusedFileIds((current) => {
       if (!nextFileIds.length) {
@@ -885,14 +1202,14 @@ export function CreatePage(props: Props) {
   const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
     const key = item.fieldKey;
     if (item.source === "reused" && item.fileId) {
-      const current = reusedFileIds[key] ?? [];
+      const current = uiReusedFileIds[key] ?? [];
       const next = current.filter((id) => id !== item.fileId);
-      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      const field = composerMediaFields.find((f) => fieldKey(f) === key);
       if (field) onReusedFileIdsChanged(field, next);
     } else if (item.source === "local") {
-      const current = files[key] ?? [];
+      const current = uiFiles[key] ?? [];
       const next = current.filter((_, i) => i !== item.index);
-      const field = quickMediaFields.find((f) => fieldKey(f) === key);
+      const field = composerMediaFields.find((f) => fieldKey(f) === key);
       if (field) onFileFieldChanged(field, next);
     }
   };
@@ -920,6 +1237,28 @@ export function CreatePage(props: Props) {
       return;
     }
     setProviderId(nextProvider.id);
+  };
+  const selectImageVariant = (
+    familyId: string,
+    options?: { resolutionLabel?: string; asyncEnabled?: boolean },
+  ) => {
+    const family = imageModelFamilies.find((item) => item.id === familyId);
+    if (!family) {
+      return;
+    }
+    const nextVariant = pickImageFamilyVariant(family, {
+      resolutionKey: resolutionLabelToKey(options?.resolutionLabel ?? currentImageResolutionLabel),
+      asyncEnabled: options?.asyncEnabled ?? currentImageAsyncEnabled,
+    });
+    if (!nextVariant) {
+      return;
+    }
+    if (providerId !== nextVariant.provider.id) {
+      setProviderId(nextVariant.provider.id);
+    }
+    if (modelName !== nextVariant.model.name) {
+      setModelName(nextVariant.model.name);
+    }
   };
   const onRatioChanged = (nextRatio: string) => {
     if (!resolutionField) {
@@ -1241,7 +1580,7 @@ export function CreatePage(props: Props) {
           {/* Input row: thumbnails + textarea + submit */}
           <div className="composer-input-row">
             {/* Inline file thumbnails */}
-            {(quickMediaFields.length > 0) ? (
+            {composerMediaFields.length > 0 ? (
               <div className="composer-thumbs">
                 {inlineFilePreviews.map((item) => (
                   <InlineThumb
@@ -1344,41 +1683,136 @@ export function CreatePage(props: Props) {
                     </div>
                   ) : null}
 
-                  {/* Provider+Model list */}
-                  <div className="flex flex-col gap-1">
-                    {providerChoices.flatMap((provider) =>
-                      provider.models.flatMap((model) =>
-                        model.operations.map((operation) => {
-                          const isSelected = provider.id === providerId && model.name === modelName && operation.id === (selectedOperation?.id ?? operationId);
-                          const showOp = model.operations.length > 1;
-                          return (
+                  {currentGenerationKind === "image" && imageModelFamilies.length ? (
+                    <div className="flex flex-col gap-4">
+                      <div className="space-y-2">
+                        <p className="m-0 text-label">{t("create.imageModelLabel")}</p>
+                        <div className="flex flex-col gap-1">
+                          {imageModelFamilies.map((family) => {
+                            const isSelected = currentImageFamily?.id === family.id;
+                            return (
+                              <button
+                                type="button"
+                                key={family.id}
+                                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
+                                  isSelected
+                                    ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
+                                    : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
+                                }`}
+                                onClick={() => {
+                                  selectImageVariant(family.id);
+                                }}
+                              >
+                                <span className="flex-1 truncate">
+                                  {imageModelFamilies.length > 1
+                                    ? `${family.provider.display_name} · ${family.label}`
+                                    : family.label}
+                                </span>
+                                {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="m-0 text-label">{t("create.imageResolutionLabel")}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {imageResolutionChoices.map((resolution) => (
                             <button
                               type="button"
-                              key={`${provider.id}::${model.name}::${operation.id}`}
-                              className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
-                                isSelected
-                                  ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
-                                  : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
-                              }`}
+                              key={resolution}
+                              className={`chip ${currentImageResolutionLabel === resolution ? "chip-active" : ""}`}
                               onClick={() => {
-                                setProviderId(provider.id);
-                                setModelName(model.name);
-                                setOperationId(operation.id);
-                                setOpenPopover(null);
+                                if (currentImageFamily) {
+                                  selectImageVariant(currentImageFamily.id, {
+                                    resolutionLabel: resolution,
+                                  });
+                                }
                               }}
                             >
-                              <span className="flex-1 truncate">
-                                {providerChoices.length > 1 ? `${provider.display_name} · ` : ""}
-                                {model.display_name}
-                                {showOp ? ` · ${operation.display_name}` : ""}
-                              </span>
-                              {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
+                              {resolution}
                             </button>
-                          );
-                        }),
-                      ),
-                    )}
-                  </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="m-0 text-label">{t("create.imageAsyncLabel")}</p>
+                          {hasImageSourceAttachments ? (
+                            <span className="text-[11px] text-[var(--c-text-tertiary)]">
+                              {t("create.imageModeAutoEdit")}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="segment-group w-full">
+                          <button
+                            type="button"
+                            className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
+                            onClick={() => {
+                              if (currentImageFamily) {
+                                selectImageVariant(currentImageFamily.id, { asyncEnabled: false });
+                              }
+                            }}
+                          >
+                            {t("create.imageAsyncOff")}
+                          </button>
+                          <button
+                            type="button"
+                            className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
+                            onClick={() => {
+                              if (hasImageSourceAttachments || !currentImageFamily) {
+                                return;
+                              }
+                              selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
+                            }}
+                            disabled={hasImageSourceAttachments}
+                          >
+                            {t("create.imageAsyncOn")}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      {providerChoices.flatMap((provider) =>
+                        provider.models.flatMap((model) =>
+                          model.operations.map((operation) => {
+                            const isSelected =
+                              provider.id === providerId &&
+                              model.name === modelName &&
+                              operation.id === (selectedOperation?.id ?? operationId);
+                            const showOp = model.operations.length > 1;
+                            return (
+                              <button
+                                type="button"
+                                key={`${provider.id}::${model.name}::${operation.id}`}
+                                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
+                                  isSelected
+                                    ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
+                                    : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
+                                }`}
+                                onClick={() => {
+                                  setProviderId(provider.id);
+                                  setModelName(model.name);
+                                  setOperationId(operation.id);
+                                  setOpenPopover(null);
+                                }}
+                              >
+                                <span className="flex-1 truncate">
+                                  {providerChoices.length > 1 ? `${provider.display_name} · ` : ""}
+                                  {model.display_name}
+                                  {showOp ? ` · ${operation.display_name}` : ""}
+                                </span>
+                                {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
+                              </button>
+                            );
+                          }),
+                        ),
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -1528,12 +1962,12 @@ export function CreatePage(props: Props) {
             </div>
 
             {/* Quick media fields (full version with drag-drop) */}
-            {quickMediaFields.length > 0 ? (
+            {composerMediaFields.length > 0 ? (
               <div className="mb-4 space-y-3 rounded-xl border border-border bg-surface-raised p-4">
                 <p className="m-0 text-label">{t("create.referenceAssets")}</p>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {quickMediaFields.map((field) =>
-                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, "compact"),
+                  {composerMediaFields.map((field) =>
+                    renderField(field, values, uiFiles, uiReusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, "compact"),
                   )}
                 </div>
               </div>
@@ -1544,7 +1978,7 @@ export function CreatePage(props: Props) {
                 <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {group.fields.map((field) =>
-                    renderField(field, values, files, reusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
+                    renderField(field, values, uiFiles, uiReusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
                   )}
                 </div>
               </section>
@@ -2164,6 +2598,126 @@ function listVisibleProvidersByKind(
   return sortProvidersByPriority(visible, VIDEO_PROVIDER_PRIORITY);
 }
 
+function collectImageModelFamilies(providers: ProviderInfo[]): ImageModelFamily[] {
+  const families = new Map<string, ImageModelFamily>();
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      const parsed = parseImageModelVariant(model);
+      const familyId = `${provider.id}::${parsed.familyLabel}`;
+      const existing =
+        families.get(familyId) ??
+        {
+          id: familyId,
+          label: parsed.familyLabel,
+          provider,
+          variants: [],
+        };
+      existing.variants.push({
+        familyId,
+        familyLabel: parsed.familyLabel,
+        provider,
+        model,
+        resolutionKey: parsed.resolutionKey,
+        resolutionLabel: parsed.resolutionLabel,
+        asyncEnabled: parsed.asyncEnabled,
+        generateOperation: model.operations.find((operation) => operation.id === "generate") ?? null,
+        editOperation: model.operations.find((operation) => operation.id === "edit") ?? null,
+      });
+      families.set(familyId, existing);
+    }
+  }
+  return Array.from(families.values()).map((family) => ({
+    ...family,
+    variants: family.variants.sort((left, right) => {
+      const resolutionOrder = rankImageResolution(left.resolutionKey) - rankImageResolution(right.resolutionKey);
+      if (resolutionOrder !== 0) {
+        return resolutionOrder;
+      }
+      return Number(left.asyncEnabled) - Number(right.asyncEnabled);
+    }),
+  }));
+}
+
+function parseImageModelVariant(model: ProviderModelInfo): {
+  familyLabel: string;
+  resolutionKey: "1k" | "2k" | "4k";
+  resolutionLabel: "1K" | "2K" | "4K";
+  asyncEnabled: boolean;
+} {
+  const normalizedName = model.name.toLowerCase();
+  const normalizedDisplay = model.display_name.toLowerCase();
+  const asyncEnabled = normalizedName.includes("async") || normalizedDisplay.includes("async");
+  const resolutionKey = normalizedName.includes("4k") || normalizedDisplay.includes("4k")
+    ? "4k"
+    : normalizedName.includes("2k") || normalizedDisplay.includes("2k")
+      ? "2k"
+      : "1k";
+  const resolutionLabel = resolutionKeyToLabel(resolutionKey);
+  const familyLabel = model.display_name
+    .replace(/\s*\(1k\)/i, "")
+    .replace(/\s+1k\b/gi, "")
+    .replace(/\s+2k\b/gi, "")
+    .replace(/\s+4k\b/gi, "")
+    .replace(/\s+async\b/gi, "")
+    .trim();
+  return {
+    familyLabel: familyLabel || model.display_name,
+    resolutionKey,
+    resolutionLabel,
+    asyncEnabled,
+  };
+}
+
+function pickImageFamilyVariant(
+  family: ImageModelFamily,
+  options: { resolutionKey?: "1k" | "2k" | "4k"; asyncEnabled?: boolean },
+): ImageModelVariant | null {
+  const targetResolution = options.resolutionKey;
+  const targetAsync = options.asyncEnabled;
+  return (
+    family.variants.find(
+      (variant) =>
+        (targetResolution == null || variant.resolutionKey === targetResolution) &&
+        (targetAsync == null || variant.asyncEnabled === targetAsync),
+    ) ??
+    family.variants.find((variant) => targetResolution == null || variant.resolutionKey === targetResolution) ??
+    family.variants.find((variant) => targetAsync == null || variant.asyncEnabled === targetAsync) ??
+    family.variants[0] ??
+    null
+  );
+}
+
+function resolutionLabelToKey(label: string): "1k" | "2k" | "4k" {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "4k") {
+    return "4k";
+  }
+  if (normalized === "2k") {
+    return "2k";
+  }
+  return "1k";
+}
+
+function resolutionKeyToLabel(key: "1k" | "2k" | "4k"): "1K" | "2K" | "4K" {
+  if (key === "4k") {
+    return "4K";
+  }
+  if (key === "2k") {
+    return "2K";
+  }
+  return "1K";
+}
+
+function rankImageResolution(key: "1k" | "2k" | "4k"): number {
+  if (key === "1k") {
+    return 0;
+  }
+  if (key === "2k") {
+    return 1;
+  }
+  return 2;
+}
+
 function sortProvidersByPriority(
   providers: ProviderInfo[],
   priority: string[],
@@ -2703,6 +3257,50 @@ function normalizeUnknownToStringList(raw: unknown): string[] {
   return raw
     .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     .map((item) => item.trim());
+}
+
+function extractDraftImageSourceFileIds(providerOptions: Record<string, unknown>): string[] {
+  return normalizeUnknownToStringList(
+    providerOptions.image_file_ids ?? providerOptions.input_reference_file_ids,
+  );
+}
+
+function extractDraftImageMaskFileIds(providerOptions: Record<string, unknown>): string[] {
+  return normalizeUnknownToStringList(providerOptions.mask_file_id).slice(0, 1);
+}
+
+function resolveSubmitFileState(
+  field: ProviderOperationField,
+  baseState: {
+    files: Record<string, File[]>;
+    reusedFileIds: Record<string, string[]>;
+  },
+  imageState: {
+    sourceFiles: File[];
+    sourceReusedFileIds: string[];
+    maskFiles: File[];
+    maskReusedFileIds: string[];
+  } | null,
+): { selectedFiles: File[]; reusableIds: string[] } {
+  if (imageState) {
+    if (field.key === "image_file_ids" || field.key === "input_reference_file_ids") {
+      return {
+        selectedFiles: imageState.sourceFiles,
+        reusableIds: imageState.sourceReusedFileIds,
+      };
+    }
+    if (field.key === "mask_file_id") {
+      return {
+        selectedFiles: imageState.maskFiles,
+        reusableIds: imageState.maskReusedFileIds,
+      };
+    }
+  }
+  const key = fieldKey(field);
+  return {
+    selectedFiles: baseState.files[key] ?? [],
+    reusableIds: baseState.reusedFileIds[key] ?? [],
+  };
 }
 
 function groupAdvancedFields(fields: ProviderOperationField[]): AdvancedGroup[] {
