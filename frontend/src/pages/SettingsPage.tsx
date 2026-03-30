@@ -13,7 +13,6 @@ interface Props {
 
 type SettingCategory =
   | "language_gateway"
-  | "generation_defaults"
   | "notifications"
   | "privacy_storage";
 
@@ -71,7 +70,6 @@ export function SettingsPage(props: Props) {
 
   const sectionIds: Record<SettingCategory, string> = {
     language_gateway: "settings_language_gateway",
-    generation_defaults: "settings_generation_defaults",
     notifications: "settings_notifications",
     privacy_storage: "settings_privacy_storage",
   };
@@ -154,21 +152,16 @@ export function SettingsPage(props: Props) {
             active={activeCategory === "language_gateway"}
             onClick={() => jumpToCategory("language_gateway")}
           />
-        <CategoryButton
-          label={t("settings.generationDefaults")}
-          active={activeCategory === "generation_defaults"}
-          onClick={() => jumpToCategory("generation_defaults")}
-        />
-        <CategoryButton
-          label={t("settings.notifications")}
-          active={activeCategory === "notifications"}
-          onClick={() => jumpToCategory("notifications")}
-        />
-        <CategoryButton
-          label={t("settings.privacyStorage")}
-          active={activeCategory === "privacy_storage"}
-          onClick={() => jumpToCategory("privacy_storage")}
-        />
+          <CategoryButton
+            label={t("settings.notifications")}
+            active={activeCategory === "notifications"}
+            onClick={() => jumpToCategory("notifications")}
+          />
+          <CategoryButton
+            label={t("settings.privacyStorage")}
+            active={activeCategory === "privacy_storage"}
+            onClick={() => jumpToCategory("privacy_storage")}
+          />
         </div>
         <div className="flex items-center gap-2">
           {confirmRestore ? (
@@ -252,59 +245,6 @@ export function SettingsPage(props: Props) {
                   className="input-base"
                 />
               </div>
-            </div>
-          </section>
-
-          <section
-            id={sectionIds.generation_defaults}
-            className="card"
-          >
-            <h3 className="m-0 text-heading">{t("settings.generationDefaults")}</h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <SettingField label={t("settings.defaultImageProvider")}>
-                <select
-                  value={settings.defaultImageProvider}
-                  onChange={(event) => settings.setSettings({ defaultImageProvider: event.target.value })}
-                  className="w-full input-base"
-                >
-                  <option value="">{t("settings.defaultProviderAuto")}</option>
-                  {imageProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.display_name}
-                    </option>
-                  ))}
-                </select>
-              </SettingField>
-
-              <SettingField label={t("settings.defaultVideoProvider")}>
-                <select
-                  value={settings.defaultVideoProvider}
-                  onChange={(event) => settings.setSettings({ defaultVideoProvider: event.target.value })}
-                  className="w-full input-base"
-                >
-                  <option value="">{t("settings.defaultProviderAuto")}</option>
-                  {videoProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.display_name}
-                    </option>
-                  ))}
-                </select>
-              </SettingField>
-            </div>
-
-            <p className="mb-0 mt-3 text-xs text-[var(--c-text-secondary)]">
-              {isZh
-                ? "该 Provider 的比例/时长/质量等参数会按最近一次生成时的实际选择自动记忆。"
-                : "Ratio/duration/quality defaults are auto-remembered per provider from your latest generation."}
-            </p>
-
-            <div className="mt-3">
-              <ToggleRow
-                label={t("settings.restoreLastSession")}
-                checked={settings.restoreLastSession}
-                onChange={(checked) => settings.setSettings({ restoreLastSession: checked })}
-                isZh={isZh}
-              />
             </div>
           </section>
 
@@ -422,6 +362,12 @@ export function SettingsPage(props: Props) {
           >
             <h3 className="m-0 text-heading">{t("settings.privacyStorage")}</h3>
             <div className="mt-3 flex flex-col gap-2">
+              <ToggleRow
+                label={t("settings.restoreLastSession")}
+                checked={settings.restoreLastSession}
+                onChange={(checked) => settings.setSettings({ restoreLastSession: checked })}
+                isZh={isZh}
+              />
               <ToggleRow
                 label={t("settings.savePromptHistory")}
                 checked={settings.savePromptHistory}

@@ -782,6 +782,21 @@ export function CreatePage(props: Props) {
     if (!providers.length || providerId) {
       return;
     }
+    const restoredSession = restoreSession(settings.restoreLastSession);
+    if (restoredSession) {
+      const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
+      const restoredModel =
+        restoredProvider?.models.find((model) => model.name === restoredSession.model) ?? null;
+      const restoredOperation =
+        restoredModel?.operations.find((operation) => operation.id === restoredSession.operation) ??
+        null;
+      if (restoredProvider && restoredModel && restoredOperation) {
+        setProviderId(restoredProvider.id);
+        setModelName(restoredModel.name);
+        setOperationId(restoredOperation.id);
+        return;
+      }
+    }
     const preferredProviderId =
       currentGenerationKind === "image"
         ? settings.defaultImageProvider
@@ -806,6 +821,7 @@ export function CreatePage(props: Props) {
     providers,
     settings.defaultImageProvider,
     settings.defaultVideoProvider,
+    settings.restoreLastSession,
   ]);
 
   useEffect(() => {
@@ -975,6 +991,66 @@ export function CreatePage(props: Props) {
     pruneRecentPrompts(settings.historyRetentionDays);
   }, [settings.historyRetentionDays, settings.savePromptHistory]);
 
+  useEffect(() => {
+    if (!selectedProvider || !selectedModel || !selectedOperation) {
+      return;
+    }
+    const nextProviderDefaults = captureProviderDefaultsFromValues(
+      settings,
+      providerId,
+      selectedOperation,
+      values,
+    );
+    const nextSettings: Partial<AppSettingsState> = {
+      providerDefaults: {
+        ...settings.providerDefaults,
+        [providerId]: nextProviderDefaults,
+      },
+    };
+    if (isImageProviderType(selectedProvider.type)) {
+      nextSettings.defaultImageProvider = providerId;
+    } else {
+      nextSettings.defaultVideoProvider = providerId;
+    }
+    const currentDefaults = settings.providerDefaults[providerId];
+    const providerUnchanged =
+      nextSettings.defaultImageProvider === undefined ||
+      nextSettings.defaultImageProvider === settings.defaultImageProvider;
+    const videoProviderUnchanged =
+      nextSettings.defaultVideoProvider === undefined ||
+      nextSettings.defaultVideoProvider === settings.defaultVideoProvider;
+    const defaultsUnchanged =
+      currentDefaults?.defaultRatio === nextProviderDefaults.defaultRatio &&
+      currentDefaults?.defaultDurationSec === nextProviderDefaults.defaultDurationSec &&
+      currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality &&
+      currentDefaults?.defaultNegativePrompt === nextProviderDefaults.defaultNegativePrompt;
+    if (providerUnchanged && videoProviderUnchanged && defaultsUnchanged) {
+      saveSession({
+        provider: providerId,
+        model: modelName,
+        operation: selectedOperation.id,
+        values,
+      });
+      return;
+    }
+    settings.setSettings(nextSettings);
+    saveSession({
+      provider: providerId,
+      model: modelName,
+      operation: selectedOperation.id,
+      values,
+    });
+  }, [
+    modelName,
+    operationId,
+    providerId,
+    selectedModel,
+    selectedOperation,
+    selectedProvider,
+    settings,
+    values,
+  ]);
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!selectedOperation) {
@@ -1067,24 +1143,6 @@ export function CreatePage(props: Props) {
     onSuccess: async (response) => {
       setLastSubmittedTaskId(response.task_id);
       setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
-      const nextProviderDefaults = captureProviderDefaultsFromValues(
-        settings,
-        providerId,
-        selectedOperation,
-        values,
-      );
-      const nextSettings: Partial<AppSettingsState> = {
-        providerDefaults: {
-          ...settings.providerDefaults,
-          [providerId]: nextProviderDefaults,
-        },
-      };
-      if (selectedProvider && isImageProviderType(selectedProvider.type)) {
-        nextSettings.defaultImageProvider = providerId;
-      } else {
-        nextSettings.defaultVideoProvider = providerId;
-      }
-      settings.setSettings(nextSettings);
       if (settings.savePromptHistory && promptField) {
         const promptValue = (values[fieldKey(promptField)] ?? "").trim();
         if (promptValue) {
@@ -1098,12 +1156,6 @@ export function CreatePage(props: Props) {
           });
         }
       }
-      saveSession({
-        provider: providerId,
-        model: modelName,
-        operation: selectedOperation?.id ?? operationId,
-        values,
-      });
       await queryClient.invalidateQueries({
         queryKey: ["tasks", settings.gatewayToken],
       });
