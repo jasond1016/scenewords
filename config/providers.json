@@ -4,7 +4,7 @@
       "id": "local_comfy",
       "display_name": "Local ComfyUI",
       "type": "comfyui",
-      "enabled": true,
+      "enabled": false,
       "base_url": "http://127.0.0.1:8188",
       "public_base_url": "http://192.168.50.139:8188",
       "api_path": "/prompt",
@@ -70,57 +70,6 @@
           "name": "gemini-3-pro-image-preview-4k",
           "display_name": "Nano Banana 2 4K",
           "default": false
-        }
-      ]
-    },
-    {
-      "id": "sora2",
-      "display_name": "Sora 2 (Tuzi)",
-      "type": "tuzi_sora",
-      "enabled": true,
-      "base_url": "https://api.tu-zi.com",
-      "api_path": "/v1/videos",
-      "query_path": "/v1/videos/{task_id}",
-      "download_path": "/v1/videos/{task_id}/content",
-      "auth_env": "TUZI_API_KEY",
-      "default_timeout_sec": 1200,
-      "default_poll_interval_sec": 5,
-      "models": [
-        {
-          "name": "sora-2",
-          "display_name": "Sora 2",
-          "default": true,
-          "duration_options": [10, 15]
-        },
-        {
-          "name": "sora-2-pro",
-          "display_name": "Sora 2 Pro",
-          "default": false,
-          "duration_options": [10, 15]
-        },
-        {
-          "name": "sora-2-4s",
-          "display_name": "Sora 2 (4s)",
-          "default": false,
-          "duration_options": [4]
-        },
-        {
-          "name": "sora-2-8s",
-          "display_name": "Sora 2 (8s)",
-          "default": false,
-          "duration_options": [8]
-        },
-        {
-          "name": "sora-2-12s",
-          "display_name": "Sora 2 (12s)",
-          "default": false,
-          "duration_options": [12]
-        },
-        {
-          "name": "sora2",
-          "display_name": "Sora 2 (Legacy Alias)",
-          "default": false,
-          "duration_options": [10, 15]
         }
       ]
     },

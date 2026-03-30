@@ -74,7 +74,7 @@ const VEO_PROMPT_GUIDE_LINK_BLOG =
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
-const VIDEO_PROVIDER_PRIORITY = ["veo31", "sora2", "local_comfy"];
+const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const VIDEO_POSTER_CACHE = new Map<string, string | null>();
 
 interface RecentPromptEntry {
