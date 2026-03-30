@@ -7,12 +7,18 @@ import type {
 
 export const SESSION_STORAGE_KEY = "scenewords_last_session_v3";
 export const FIELD_STORAGE_PREFIX = "scenewords_field_v3";
+export type SessionKind = "image" | "video";
 
 export interface SessionSnapshot {
   provider: string;
   model: string;
   operation: string;
   values: Record<string, string>;
+}
+
+interface SessionSnapshotMap {
+  image?: SessionSnapshot;
+  video?: SessionSnapshot;
 }
 
 export function fieldKey(field: ProviderOperationField): string {
@@ -347,25 +353,47 @@ function sortUniqueNumbers(values: number[]): number[] {
   return Array.from(new Set(values)).sort((left, right) => left - right);
 }
 
-export function saveSession(snapshot: SessionSnapshot): void {
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+export function saveSession(kind: SessionKind, snapshot: SessionSnapshot): void {
+  const current = readSessionSnapshotMap();
+  current[kind] = snapshot;
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(current));
 }
 
-export function restoreSession(enabled: boolean): SessionSnapshot | null {
+export function restoreSession(enabled: boolean, kind: SessionKind): SessionSnapshot | null {
   if (!enabled) {
     return null;
   }
-  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!raw) {
+  const parsed = readSessionSnapshotMap();
+  const snapshot = parsed[kind];
+  if (!snapshot) {
     return null;
   }
+  return isSessionSnapshot(snapshot) ? snapshot : null;
+}
+
+function readSessionSnapshotMap(): SessionSnapshotMap {
+  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
   try {
-    const parsed = JSON.parse(raw) as SessionSnapshot;
-    if (!parsed.provider || !parsed.model || !parsed.operation) {
-      return null;
+    const parsed = JSON.parse(raw) as SessionSnapshotMap | SessionSnapshot;
+    if (isSessionSnapshot(parsed)) {
+      return {
+        image: parsed,
+        video: parsed,
+      };
     }
     return parsed;
   } catch {
-    return null;
+    return {};
   }
+}
+
+function isSessionSnapshot(value: unknown): value is SessionSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as SessionSnapshot;
+  return Boolean(candidate.provider && candidate.model && candidate.operation);
 }

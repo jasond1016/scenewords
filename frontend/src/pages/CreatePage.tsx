@@ -782,15 +782,20 @@ export function CreatePage(props: Props) {
     if (!providers.length || providerId) {
       return;
     }
-    const restoredSession = restoreSession(settings.restoreLastSession);
+    const restoredSession = restoreSession(settings.restoreLastSession, currentGenerationKind);
     if (restoredSession) {
       const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
+      const restoredProviderMatchesKind = restoredProvider
+        ? currentGenerationKind === "image"
+          ? isImageProviderType(restoredProvider.type)
+          : !isImageProviderType(restoredProvider.type)
+        : false;
       const restoredModel =
         restoredProvider?.models.find((model) => model.name === restoredSession.model) ?? null;
       const restoredOperation =
         restoredModel?.operations.find((operation) => operation.id === restoredSession.operation) ??
         null;
-      if (restoredProvider && restoredModel && restoredOperation) {
+      if (restoredProvider && restoredProviderMatchesKind && restoredModel && restoredOperation) {
         setProviderId(restoredProvider.id);
         setModelName(restoredModel.name);
         setOperationId(restoredOperation.id);
@@ -907,7 +912,7 @@ export function CreatePage(props: Props) {
       }
     }
 
-    const session = restoreSession(settings.restoreLastSession);
+    const session = restoreSession(settings.restoreLastSession, currentGenerationKind);
     if (
       session &&
       session.provider === providerId &&
@@ -1025,7 +1030,7 @@ export function CreatePage(props: Props) {
       currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality &&
       currentDefaults?.defaultNegativePrompt === nextProviderDefaults.defaultNegativePrompt;
     if (providerUnchanged && videoProviderUnchanged && defaultsUnchanged) {
-      saveSession({
+      saveSession(currentGenerationKind, {
         provider: providerId,
         model: modelName,
         operation: selectedOperation.id,
@@ -1034,7 +1039,7 @@ export function CreatePage(props: Props) {
       return;
     }
     settings.setSettings(nextSettings);
-    saveSession({
+    saveSession(currentGenerationKind, {
       provider: providerId,
       model: modelName,
       operation: selectedOperation.id,
@@ -1281,6 +1286,26 @@ export function CreatePage(props: Props) {
   const onGenerationKindChanged = (nextKind: "image" | "video") => {
     if (nextKind === currentGenerationKind) {
       return;
+    }
+    const restoredSession = restoreSession(settings.restoreLastSession, nextKind);
+    if (restoredSession) {
+      const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
+      const restoredProviderMatchesKind = restoredProvider
+        ? nextKind === "image"
+          ? isImageProviderType(restoredProvider.type)
+          : !isImageProviderType(restoredProvider.type)
+        : false;
+      const restoredModel =
+        restoredProvider?.models.find((model) => model.name === restoredSession.model) ?? null;
+      const restoredOperation =
+        restoredModel?.operations.find((operation) => operation.id === restoredSession.operation) ??
+        null;
+      if (restoredProvider && restoredProviderMatchesKind && restoredModel && restoredOperation) {
+        setProviderId(restoredProvider.id);
+        setModelName(restoredModel.name);
+        setOperationId(restoredOperation.id);
+        return;
+      }
     }
     const preferredProviderId =
       nextKind === "image" ? settings.defaultImageProvider : settings.defaultVideoProvider;
