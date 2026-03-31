@@ -3,19 +3,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   MagnifyingGlass,
-  Star,
-  Play,
-  WarningCircle,
 } from "@phosphor-icons/react";
 import { fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
+import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n, type TranslateFn } from "../i18n";
 import {
   buildLightboxItems,
-  extractVideoPoster,
   inferTaskPortrait,
   type LightboxKind,
 } from "../lightbox";
@@ -41,7 +38,6 @@ import {
 } from "../overlayTaskPresentation";
 import { useAppSettingsStore } from "../state";
 import {
-  readFavoriteTaskIds,
   useCompactOverlayInfo,
   useEscapeToClose,
   useOverlayScrollLock,
@@ -49,8 +45,6 @@ import {
 import type { VideoTaskDetail, VideoTaskResponse } from "../types";
 import {
   errorMessage,
-  extractImageUrls,
-  extractVideoUrl,
   formatTime,
 } from "../utils";
 
@@ -59,9 +53,7 @@ interface Props {
   loading: boolean;
 }
 
-const WORKS_FAVORITES_KEY = "scenewords_works_favorites_v1";
-
-type BrowseFilter = "all" | "image" | "video" | "favorite";
+type BrowseFilter = "all" | "image" | "video";
 
 export function WorksPage(props: Props) {
   const { tasks, loading } = props;
@@ -77,10 +69,6 @@ export function WorksPage(props: Props) {
   const [providerFilter, setProviderFilter] = useState("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [hint, setHint] = useState("");
-  const [hoverVideoTaskId, setHoverVideoTaskId] = useState<string | null>(null);
-  const [favoriteTaskIds, setFavoriteTaskIds] = useState<string[]>(() =>
-    readFavoriteTaskIds(WORKS_FAVORITES_KEY),
-  );
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
   const isLightboxOpen = lightboxState !== null;
   const { isInfoHidden, setIsInfoHidden } = useCompactOverlayInfo(isLightboxOpen);
@@ -108,10 +96,6 @@ export function WorksPage(props: Props) {
     [inProgressTasks],
   );
 
-  useEffect(() => {
-    localStorage.setItem(WORKS_FAVORITES_KEY, JSON.stringify(favoriteTaskIds));
-  }, [favoriteTaskIds]);
-
   const providerOptions = useMemo(
     () =>
       Array.from(
@@ -126,9 +110,7 @@ export function WorksPage(props: Props) {
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const assetList = useMemo(() => {
     let nextList = completedTasks;
-    if (browseFilter === "favorite") {
-      nextList = completedTasks.filter((task) => favoriteTaskIds.includes(task.task_id));
-    } else if (browseFilter !== "all") {
+    if (browseFilter !== "all") {
       nextList = completedTasks.filter((task) => task.asset_type === browseFilter);
     }
 
@@ -149,7 +131,7 @@ export function WorksPage(props: Props) {
         .toLowerCase();
       return searchable.includes(normalizedSearchQuery);
     });
-  }, [browseFilter, completedTasks, favoriteTaskIds, normalizedSearchQuery, providerFilter]);
+  }, [browseFilter, completedTasks, normalizedSearchQuery, providerFilter]);
 
   useEffect(() => {
     if (!assetList.length) {
@@ -313,12 +295,6 @@ export function WorksPage(props: Props) {
   const worksCount = completedTasks.length;
   const imageCount = completedTasks.filter((task) => task.asset_type === "image").length;
   const videoCount = completedTasks.filter((task) => task.asset_type === "video").length;
-  const favoriteCount = completedTasks.filter((task) => favoriteTaskIds.includes(task.task_id)).length;
-  const toggleFavorite = (taskId: string) => {
-    setFavoriteTaskIds((current) =>
-      current.includes(taskId) ? current.filter((id) => id !== taskId) : [taskId, ...current],
-    );
-  };
   const sidebarActions = currentLightboxTask
     ? buildMediaSidebarActions({
         task: currentLightboxTask,
@@ -362,7 +338,6 @@ export function WorksPage(props: Props) {
     { value: "all", label: t("works.kindAll"), count: worksCount },
     { value: "image", label: t("works.kindImage"), count: imageCount },
     { value: "video", label: t("works.kindVideo"), count: videoCount },
-    { value: "favorite", label: t("works.favorite"), count: favoriteCount },
   ];
 
   return (
@@ -385,25 +360,25 @@ export function WorksPage(props: Props) {
             })}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="relative block min-w-[240px]">
+          <div className="grid gap-2 sm:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)] sm:items-center xl:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)_auto]">
+            <label className="flex h-10 w-full min-w-0 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-3 shadow-[var(--shadow-xs)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--c-border-focus)] focus-within:shadow-[0_0_0_3px_rgba(161,161,170,0.12)]">
               <MagnifyingGlass
                 size={14}
                 weight="regular"
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]"
+                className="shrink-0 text-[var(--c-text-tertiary)]"
               />
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={t("works.searchPlaceholder")}
-                className="input-base h-10 pl-9"
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-tertiary)]"
                 aria-label={t("works.searchPlaceholder")}
               />
             </label>
             <select
               value={providerFilter}
               onChange={(event) => setProviderFilter(event.target.value)}
-              className="input-base h-10 min-w-[180px]"
+              className="input-base h-10 w-full min-w-0"
               aria-label={t("works.allProviders")}
             >
               <option value="all">{t("works.allProviders")}</option>
@@ -455,17 +430,10 @@ export function WorksPage(props: Props) {
             items={assetList}
             selectedTaskId={selectedTaskId}
             setSelectedTaskId={setSelectedTaskId}
-            hoverVideoTaskId={hoverVideoTaskId}
-            setHoverVideoTaskId={setHoverVideoTaskId}
-            t={t}
             openImageLightbox={openImageLightbox}
             openVideoLightbox={openVideoLightbox}
             formatTime={formatTime}
-            extractImageUrls={extractImageUrls}
-            extractVideoUrl={extractVideoUrl}
             locale={locale}
-            favoriteTaskIds={favoriteTaskIds}
-            toggleFavorite={toggleFavorite}
           />
         </div>
       </section>
@@ -505,13 +473,11 @@ export function WorksPage(props: Props) {
               task={currentLightboxTask}
               statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
               updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-              isFavorited={favoriteTaskIds.includes(currentLightboxTask.task_id)}
               downloadUrl={lightboxItem.url}
               onReuse={() => {
                 settings.setPendingReuseDraft(toDraft(currentLightboxTask));
                 navigate("/create");
               }}
-              onToggleFavorite={() => toggleFavorite(currentLightboxTask.task_id)}
               onDelete={sidebarActions?.onDelete ?? (() => undefined)}
               deleteDisabled={sidebarActions?.deleteDisabled}
               cancelAction={sidebarActions?.cancelAction}
@@ -538,168 +504,6 @@ export function WorksPage(props: Props) {
         />
       ) : null}
     </div>
-  );
-}
-
-function AssetCardMedia({
-  task,
-  thumb,
-  videoUrl,
-  videoPoster,
-  isHovered,
-  isPortrait,
-  onHover,
-  onOpen,
-  t,
-}: {
-  task: VideoTaskDetail;
-  thumb: string | null;
-  videoUrl: string | null;
-  videoPoster: string | null;
-  isHovered: boolean;
-  isPortrait: boolean;
-  onHover: (id: string | null) => void;
-  onOpen: () => void;
-  t: TranslateFn;
-}) {
-  const [hasError, setHasError] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState<boolean>(() =>
-    task.asset_type === "video" ? Boolean(videoPoster) : true,
-  );
-  const mediaWrapClass = isPortrait ? "aspect-[3/4]" : "aspect-video";
-  const isVideoTask = task.asset_type === "video";
-
-  useEffect(() => {
-    if (!isVideoTask) {
-      return;
-    }
-    setIsVideoReady(Boolean(videoPoster));
-  }, [isVideoTask, videoPoster, videoUrl]);
-
-  if (hasError || (!thumb && !videoUrl)) {
-    const isFailed = task.status === "failed";
-    return (
-      <button
-        type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border ${
-          isFailed ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
-        }`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-      >
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs">
-          {isFailed ? (
-            <>
-              <WarningCircle size={22} weight="regular" />
-              <span className="font-medium">{t("works.generationFailed")}</span>
-            </>
-          ) : (
-            <span className="font-medium">
-              {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
-            </span>
-          )}
-        </div>
-      </button>
-    );
-  }
-
-  if (isVideoTask) {
-    return (
-      <button
-        type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-        onMouseEnter={() => onHover(task.task_id)}
-        onMouseLeave={() => onHover(null)}
-      >
-        <video
-          className="h-full w-full object-cover"
-          src={videoUrl ?? undefined}
-          poster={videoPoster ?? thumb ?? undefined}
-          muted
-          playsInline
-          preload={isHovered ? "metadata" : "none"}
-          autoPlay={isHovered}
-          loop
-          onLoadedData={() => setIsVideoReady(true)}
-          onCanPlay={() => setIsVideoReady(true)}
-          onError={() => setHasError(true)}
-        />
-        <div
-          className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${
-            isVideoReady ? "opacity-0" : "opacity-100"
-          }`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-[#F4F4F5] via-[#E4E4E7] to-[#D4D4D8]" />
-          <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 p-2">
-            <span className="inline-flex items-center gap-1 rounded bg-white/80 px-2 py-1 text-[10px] font-medium text-[var(--c-text-secondary)]">
-              <Play size={11} weight="fill" />
-              {t("works.videoLoading")}
-            </span>
-          </div>
-        </div>
-        <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
-          {t("works.previewVideo")}
-        </span>
-      </button>
-    );
-  }
-
-  if (thumb) {
-    return (
-      <button
-        type="button"
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-      >
-        <img
-          className="h-full w-full object-cover"
-          src={thumb}
-          alt={task.task_id}
-          loading="lazy"
-          onError={() => setHasError(true)}
-        />
-        <span className="absolute inset-0 flex items-end justify-end bg-black/0 p-2 text-[10px] font-semibold text-white/0 transition-colors group-hover:bg-black/10 group-hover:text-white/85">
-          {t("works.previewImage")}
-        </span>
-      </button>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-black`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
-      }}
-      onMouseEnter={() => onHover(task.task_id)}
-      onMouseLeave={() => onHover(null)}
-    >
-      <video
-        className="h-full w-full object-cover"
-        src={videoUrl ?? undefined}
-        muted
-        playsInline
-        preload={isHovered ? "metadata" : "none"}
-        autoPlay={isHovered}
-        loop
-        onError={() => setHasError(true)}
-      />
-      <span className="absolute bottom-2 left-2 rounded bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
-        {t("works.previewVideo")}
-      </span>
-    </button>
   );
 }
 
@@ -785,32 +589,18 @@ function MasonryGrid({
   items,
   selectedTaskId,
   setSelectedTaskId,
-  hoverVideoTaskId,
-  setHoverVideoTaskId,
-  t,
   openImageLightbox,
   openVideoLightbox,
   formatTime,
-  extractImageUrls,
-  extractVideoUrl,
   locale,
-  favoriteTaskIds,
-  toggleFavorite,
 }: {
   items: VideoTaskDetail[];
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
-  hoverVideoTaskId: string | null;
-  setHoverVideoTaskId: (id: string | null) => void;
-  t: (key: string, params?: Record<string, string | number>) => string;
   openImageLightbox: (id: string, url?: string) => void;
   openVideoLightbox: (id: string, url?: string) => void;
   formatTime: (date: string, locale?: string) => string;
-  extractImageUrls: (task: VideoTaskDetail) => string[];
-  extractVideoUrl: (task: VideoTaskDetail) => string | null;
   locale: string;
-  favoriteTaskIds: string[];
-  toggleFavorite: (taskId: string) => void;
 }) {
   const width = useWindowWidth();
   const columnCount = width >= 1280 ? 4 : width >= 980 ? 3 : width >= 640 ? 2 : 1;
@@ -841,104 +631,23 @@ function MasonryGrid({
       {columns.map((columnItems, columnIndex) => (
         <div key={columnIndex} className="flex flex-1 flex-col gap-4">
           {columnItems.map((task) => {
-            const imageUrls = extractImageUrls(task);
-            const thumb = imageUrls[0] ?? null;
-            const videoUrl = task.asset_type === "video" ? extractVideoUrl(task) : null;
-            const videoPoster = task.asset_type === "video" ? extractVideoPoster(task) ?? thumb : null;
-            const isFavorite = favoriteTaskIds.includes(task.task_id);
-            const isPortrait = inferTaskPortrait(task);
             return (
-              <article
+              <TaskPreviewCard
                 key={task.task_id}
-                className={`media-card p-2 ${
-                  task.task_id === selectedTaskId ? "media-card-selected" : ""
-                }`}
+                task={task}
+                className="media-card p-2"
+                selected={task.task_id === selectedTaskId}
+                timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+                providerLabel={task.provider || task.model}
                 onClick={() => {
                   setSelectedTaskId(task.task_id);
                   if (task.asset_type === "video") {
-                    openVideoLightbox(task.task_id, videoUrl ?? undefined);
+                    openVideoLightbox(task.task_id);
                   } else {
-                    openImageLightbox(task.task_id, thumb ?? undefined);
+                    openImageLightbox(task.task_id);
                   }
                 }}
-              >
-                <button
-                  type="button"
-                  className={`absolute right-3 top-3 z-20 flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition-all duration-200 ${
-                    isFavorite
-                      ? "border-[var(--c-accent)] bg-accent-bg text-accent"
-                      : "border-border bg-white/90 text-[var(--c-text-tertiary)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent)]"
-                  }`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleFavorite(task.task_id);
-                  }}
-                  title={isFavorite ? t("works.unfavorite") : t("works.favorite")}
-                >
-                  <Star size={13} weight={isFavorite ? "fill" : "regular"} />
-                </button>
-
-                <AssetCardMedia
-                  task={task}
-                  thumb={thumb}
-                  videoUrl={videoUrl}
-                  videoPoster={videoPoster}
-                  isHovered={hoverVideoTaskId === task.task_id}
-                  isPortrait={isPortrait}
-                  onHover={setHoverVideoTaskId}
-                  onOpen={() => {
-                    setSelectedTaskId(task.task_id);
-                    if (task.asset_type === "video") {
-                      if (videoUrl) {
-                        openVideoLightbox(task.task_id, videoUrl);
-                        return;
-                      }
-                      openVideoLightbox(task.task_id);
-                      return;
-                    }
-                    if (thumb) {
-                      openImageLightbox(task.task_id, thumb);
-                      return;
-                    }
-                    if (task.status === "failed") {
-                      if (task.asset_type === "image") {
-                        openImageLightbox(task.task_id);
-                      } else {
-                        openVideoLightbox(task.task_id);
-                      }
-                    }
-                  }}
-                  t={t}
-                />
-
-                <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="tag tag-info">
-                      {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
-                    </span>
-                    <span
-                      className={`tag ${
-                        task.status === "failed"
-                          ? "tag-error"
-                          : task.status === "canceled"
-                            ? "tag-neutral"
-                            : "tag-success"
-                      }`}
-                    >
-                      {formatOverlayTaskStatus(task, t)}
-                    </span>
-                  </div>
-                  <p className="m-0 line-clamp-3 text-xs font-semibold leading-relaxed text-[var(--c-text)]">
-                    {task.prompt || t("works.emptyPrompt")}
-                  </p>
-                  <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]">
-                    <span className="truncate">{task.provider || task.model}</span>
-                    <span className="shrink-0">
-                      {formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                    </span>
-                  </div>
-                </div>
-              </article>
+              />
             );
           })}
         </div>

@@ -50,6 +50,7 @@ import {
   fieldKey,
   fieldStorageKey,
   findField,
+  formatTime,
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
@@ -57,8 +58,10 @@ import {
   saveSession,
   valueToStoredString,
 } from "../utils";
+import { useVideoPosterUrl } from "../useVideoPoster";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { SkeletonForm } from "../components/Skeletons";
+import { TaskPreviewCard } from "../components/TaskPreviewCard";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -76,7 +79,6 @@ const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
-const VIDEO_POSTER_CACHE = new Map<string, string | null>();
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
 const SHARED_IMAGE_MASK_FIELD_KEY = "shared_image_mask_file_id";
 
@@ -111,85 +113,6 @@ interface ImageModelFamily {
 interface AdvancedGroup {
   id: "prompt" | "inputs" | "behavior" | "runtime" | "developer" | "misc";
   fields: ProviderOperationField[];
-}
-
-function captureVideoPoster(src: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    if (typeof document === "undefined" || typeof window === "undefined") {
-      resolve(null);
-      return;
-    }
-
-    const video = document.createElement("video");
-    let settled = false;
-    const timeoutId = window.setTimeout(() => finish(null), 5000);
-
-    function finish(value: string | null) {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeoutId);
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-      resolve(value);
-    }
-
-    function drawFrame() {
-      if (!video.videoWidth || !video.videoHeight) {
-        finish(null);
-        return;
-      }
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          finish(null);
-          return;
-        }
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish(canvas.toDataURL("image/jpeg", 0.82));
-      } catch {
-        finish(null);
-      }
-    }
-
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.crossOrigin = "anonymous";
-    video.addEventListener("error", () => finish(null), { once: true });
-    video.addEventListener("loadedmetadata", () => {
-      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-      const targetTime = duration > 0
-        ? Math.min(Math.max(duration * 0.15, 0.4), Math.max(duration - 0.1, 0))
-        : 0;
-
-      if (targetTime <= 0.05) {
-        if (video.readyState >= 2) {
-          drawFrame();
-        } else {
-          video.addEventListener("loadeddata", drawFrame, { once: true });
-        }
-        return;
-      }
-
-      video.addEventListener("seeked", drawFrame, { once: true });
-      try {
-        video.currentTime = targetTime;
-      } catch {
-        if (video.readyState >= 2) {
-          drawFrame();
-        } else {
-          video.addEventListener("loadeddata", drawFrame, { once: true });
-        }
-      }
-    }, { once: true });
-
-    video.src = src;
-    video.load();
-  });
 }
 
 export function CreatePage(props: Props) {
@@ -380,23 +303,6 @@ export function CreatePage(props: Props) {
         .slice(0, 8),
     [tasks],
   );
-  const recentTaskPreviewMap = useMemo(() => {
-    const map = new Map<string, { kind: "image" | "video"; url: string }>();
-    for (const task of recentTasks) {
-      if (task.asset_type === "video") {
-        const videoUrl = extractVideoUrl(task);
-        if (videoUrl) {
-          map.set(task.task_id, { kind: "video", url: videoUrl });
-        }
-        continue;
-      }
-      const imageUrl = extractImageUrls(task)[0] ?? "";
-      if (imageUrl) {
-        map.set(task.task_id, { kind: "image", url: imageUrl });
-      }
-    }
-    return map;
-  }, [recentTasks]);
   const trackedTask = useMemo(
     () =>
       lastSubmittedTaskId
@@ -1471,8 +1377,8 @@ export function CreatePage(props: Props) {
   return (
     <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 60px)" }}>
       {/* ── Canvas Area (above composer) ─────────────── */}
-      <div className="create-canvas px-5 sm:px-8">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 py-8 sm:gap-8 sm:py-10">
+      <div className="create-canvas">
+        <div className="flex w-full min-w-0 flex-col gap-6 sm:gap-8">
 
           {/* Tracked Task */}
           {lastSubmittedTaskId && trackedTask ? (
@@ -1569,61 +1475,25 @@ export function CreatePage(props: Props) {
             </div>
 
             {recentTasks.length > 0 ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {recentTasks.map((task) => {
-                  const preview = recentTaskPreviewMap.get(task.task_id) ?? null;
-                  const tone =
-                    statusTone(task) === "ok"
-                      ? "tag-success"
-                      : statusTone(task) === "danger"
-                        ? "tag-error"
-                        : statusTone(task) === "warn"
-                          ? "tag-warning"
-                          : "tag-neutral";
                   return (
-                    <button
+                    <TaskPreviewCard
                       key={task.task_id}
-                      type="button"
-                      className="recent-task-card"
+                      task={task}
+                      className="media-card p-2"
+                      providerLabel={task.provider || task.model}
+                      timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+                      statusBadge={
+                        showRecentStatusBadge(task)
+                          ? {
+                              label: statusLabel(task),
+                              tone: statusTone(task),
+                            }
+                          : null
+                      }
                       onClick={() => setRecentOverlayTaskId(task.task_id)}
-                    >
-                      <div className="relative overflow-hidden rounded-[18px] border border-border bg-canvas">
-                        {preview ? (
-                          preview.kind === "video" ? (
-                            <VideoPosterPreview
-                              src={preview.url}
-                              className="aspect-[4/3] w-full"
-                              imageClassName="block h-full w-full object-cover"
-                            />
-                          ) : (
-                            <img src={preview.url} alt="" className="block aspect-[4/3] w-full object-cover" loading="lazy" />
-                          )
-                        ) : (
-                          <div className={`aspect-[4/3] w-full ${
-                            task.status === "failed" || task.status === "canceled"
-                              ? "bg-error-bg"
-                              : task.status === "queued" || task.status === "running"
-                                ? "bg-warning-bg"
-                                : "bg-surface-raised"
-                          }`}>
-                          </div>
-                        )}
-                        {showRecentStatusBadge(task) ? (
-                          <div className="absolute left-3 top-3">
-                          <span className={`tag ${tone}`}>{statusLabel(task)}</span>
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-1 flex-col gap-2 px-1">
-                        <p className="m-0 line-clamp-3 text-left text-sm font-semibold leading-6 text-[var(--c-text)]">
-                          {task.prompt?.trim() || "—"}
-                        </p>
-                        <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--c-text-tertiary)]">
-                          <span className="truncate">{task.provider}</span>
-                          <span className="shrink-0">{new Date(task.created_at).toLocaleDateString(locale === "zh-CN" ? "zh-CN" : "en-US")}</span>
-                        </div>
-                      </div>
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -2125,35 +1995,7 @@ function VideoPosterPreview({
   imageClassName: string;
 }) {
   const { t } = useI18n();
-  const [posterUrl, setPosterUrl] = useState<string | null>(() => VIDEO_POSTER_CACHE.get(src) ?? null);
-
-  useEffect(() => {
-    const cached = VIDEO_POSTER_CACHE.get(src);
-    if (cached !== undefined) {
-      setPosterUrl(cached);
-      return;
-    }
-
-    let active = true;
-    setPosterUrl(null);
-    captureVideoPoster(src)
-      .then((poster) => {
-        VIDEO_POSTER_CACHE.set(src, poster);
-        if (active) {
-          setPosterUrl(poster);
-        }
-      })
-      .catch(() => {
-        VIDEO_POSTER_CACHE.set(src, null);
-        if (active) {
-          setPosterUrl(null);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [src]);
+  const posterUrl = useVideoPosterUrl(src);
 
   return (
     <div className={`relative overflow-hidden ${className}`}>

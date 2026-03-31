@@ -128,7 +128,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
    - Gemini: POST predictLongRunning → 轮询 operation → 获取结果
 9. 生成成功 → 下载远程媒体到 data/outputs/assets/{task_id}/
 10. 更新 SQLite: status=succeeded, result 包含 local_video_url / local_image_urls
-11. 前端定时轮询 GET /v1/video/tasks 发现状态变化 → 显示结果 + Toast 通知
+11. 前端定时轮询 GET /v1/video/tasks 发现状态变化 → 刷新作品列表与任务状态
 ```
 
 ---
@@ -183,7 +183,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 |------|------|------|
 | **创作** | `pages/CreatePage.tsx` | Composer Bar 布局（Seedance 风格 prompt-first UX）。底部固定输入栏（prompt textarea + 参考图缩略图 + 提交按钮），上方为可选展开的参数区域（Provider/Model/Operation 选择、分辨率、时长等）。根据后端 capabilities 动态渲染字段 |
 | **作品** | `pages/WorksPage.tsx` | 已生成作品的列表/网格视图。支持按类型（图片/视频/收藏）筛选、按 Provider/状态过滤、搜索。点击卡片打开 Lightbox 预览 + 详情面板 |
-| **设置** | `pages/SettingsPage.tsx` | 网关 Token 配置、语言切换、主题（亮/暗/跟随系统）、通知偏好等 |
+| **设置** | `pages/SettingsPage.tsx` | 网关 Token 配置、语言切换、主题（亮/暗/跟随系统）、隐私/存储偏好等 |
 
 > **💡 导航演进：** 从底部 Tab 改为 **顶部固定导航栏**（sticky header，3 列 grid：Logo / 居中 pill nav / 队列指示器）。原因：iPad 横屏时底部 Tab 浪费纵向空间，顶部栏更符合桌面端习惯且不遮挡内容区。
 >
@@ -195,7 +195,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 
 | 组件 | 职责 |
 |------|------|
-| `App.tsx` | 根组件。顶部 sticky 导航栏（pill nav），任务列表轮询，Toast 通知管理，暗色模式 class toggle |
+| `App.tsx` | 根组件。顶部 sticky 导航栏（pill nav），任务列表轮询，暗色模式 class toggle |
 | `WorkDetailOverlay.tsx` | 任务详情浮层（点击任务卡片展开） |
 | `AppLightboxStage.tsx` | 全屏 Lightbox 媒体预览 |
 | `MediaOverlayFrame.tsx` | 媒体预览外框 |
@@ -206,12 +206,11 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 
 | 模块 | 说明 |
 |------|------|
-| `state.ts` | Zustand store（持久化 key: `scenewords_gateway_settings_v1`）。持久化网关 Token、上次选择的 Provider/Model、语言偏好、主题偏好（`theme: "light" | "dark" | "system"`）、通知设置、费用显示偏好、Provider 默认参数等。另有非持久化字段 `pendingReuseDraft` 用于跨页面复用草稿 |
+| `state.ts` | Zustand store（持久化 key: `scenewords_gateway_settings_v1`）。持久化网关 Token、上次选择的 Provider/Model、语言偏好、主题偏好（`theme: "light" | "dark" | "system"`）、费用显示偏好、Provider 默认参数等。另有非持久化字段 `pendingReuseDraft` 用于跨页面复用草稿 |
 | `api.ts` | 封装所有后端 API 调用（fetchTasks, fetchCatalog, createTask, uploadFile 等） |
 | `types.ts` | TypeScript 类型定义（VideoTaskDetail, ProviderCatalog 等） |
 | `i18n.ts` | 国际化支持（zh-CN / en 双语，~180 个翻译 key） |
 | `lightbox.ts` | Lightbox 状态逻辑 |
-| `useTaskNotifications.ts` | 任务完成 Toast 通知 hook |
 | `useMediaOverlay.ts` | 媒体预览浮层 hook |
 | `useScrollEntry.tsx` | IntersectionObserver 驱动的滚动入场动画 hook |
 
@@ -324,7 +323,7 @@ uv run --group dev pytest -q
 
 ```
 frontend/src/
-  ├── App.tsx                        # 根组件，顶部导航 + 轮询 + Toast + 暗色模式
+  ├── App.tsx                        # 根组件，顶部导航 + 轮询 + 暗色模式
   ├── api.ts                         # API 调用封装
   ├── main.tsx                       # React 入口
   ├── state.ts                       # Zustand 全局状态（theme / pendingReuseDraft）
@@ -334,7 +333,6 @@ frontend/src/
   ├── lightbox.ts                    # Lightbox 状态
   ├── utils.ts                       # 通用工具函数
   ├── useMediaOverlay.ts             # 媒体预览浮层 hook
-  ├── useTaskNotifications.ts        # 任务通知 hook
   ├── useScrollEntry.tsx             # IntersectionObserver 滚动入场动画
   ├── overlayTaskActions.ts          # 浮层任务操作
   ├── overlayTaskPresentation.ts     # 浮层展示逻辑

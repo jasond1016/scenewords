@@ -13,7 +13,6 @@ interface Props {
 
 type SettingCategory =
   | "language_gateway"
-  | "notifications"
   | "privacy_storage";
 
 const SETTINGS_STORE_KEY = "scenewords_gateway_settings_v1";
@@ -70,7 +69,6 @@ export function SettingsPage(props: Props) {
 
   const sectionIds: Record<SettingCategory, string> = {
     language_gateway: "settings_language_gateway",
-    notifications: "settings_notifications",
     privacy_storage: "settings_privacy_storage",
   };
 
@@ -110,10 +108,6 @@ export function SettingsPage(props: Props) {
       restoreLastSession: true,
       retryModeDefault: "same_seed",
       showBothRetryActions: true,
-      notifyOnSuccess: true,
-      notifyOnFailure: true,
-      notifySound: true,
-      notifyBadge: true,
       costMode: "local_config",
       currency: "USD",
       showEstimatedCostPreSubmit: true,
@@ -125,15 +119,6 @@ export function SettingsPage(props: Props) {
       theme: "system",
     });
     setHint(isZh ? "已恢复默认设置（Token 保留）。" : "Defaults restored (token kept).");
-  };
-
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) {
-      setHint(t("settings.notificationUnsupported"));
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    setHint(t("settings.notificationPermission", { permission }));
   };
 
   const clearLocalCache = () => {
@@ -151,11 +136,6 @@ export function SettingsPage(props: Props) {
             label={isZh ? "语言与网关" : "Language & Gateway"}
             active={activeCategory === "language_gateway"}
             onClick={() => jumpToCategory("language_gateway")}
-          />
-          <CategoryButton
-            label={t("settings.notifications")}
-            active={activeCategory === "notifications"}
-            onClick={() => jumpToCategory("notifications")}
           />
           <CategoryButton
             label={t("settings.privacyStorage")}
@@ -307,114 +287,65 @@ export function SettingsPage(props: Props) {
             </div>
           </details>
         </div>
-          <section
-            id={sectionIds.notifications}
-            className="card"
-          >
-            <h3 className="m-0 text-heading">{t("settings.notifications")}</h3>
-            <div className="mt-3 flex flex-col gap-2">
-              <ToggleRow
-                label={t("settings.notifySuccess")}
-                checked={settings.notifyOnSuccess}
-                onChange={(checked) => settings.setSettings({ notifyOnSuccess: checked })}
-                isZh={isZh}
+        <section
+          id={sectionIds.privacy_storage}
+          className="card"
+        >
+          <h3 className="m-0 text-heading">{t("settings.privacyStorage")}</h3>
+          <div className="mt-3 flex flex-col gap-2">
+            <ToggleRow
+              label={t("settings.restoreLastSession")}
+              checked={settings.restoreLastSession}
+              onChange={(checked) => settings.setSettings({ restoreLastSession: checked })}
+              isZh={isZh}
+            />
+            <ToggleRow
+              label={t("settings.savePromptHistory")}
+              checked={settings.savePromptHistory}
+              onChange={(checked) => settings.setSettings({ savePromptHistory: checked })}
+              isZh={isZh}
+            />
+
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-raised px-3 py-2">
+              <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.historyRetentionDays")}</span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={settings.historyRetentionDays}
+                onChange={(event) =>
+                  settings.setSettings({ historyRetentionDays: Number(event.target.value) || 90 })
+                }
+                className="w-20 input-base text-right"
               />
-              <ToggleRow
-                label={t("settings.notifyFailure")}
-                checked={settings.notifyOnFailure}
-                onChange={(checked) => settings.setSettings({ notifyOnFailure: checked })}
-                isZh={isZh}
-              />
-              <ToggleRow
-                label={t("settings.notifySound")}
-                checked={settings.notifySound}
-                onChange={(checked) => settings.setSettings({ notifySound: checked })}
-                isZh={isZh}
-              />
-              <ToggleRow
-                label={t("settings.notifyBadge")}
-                checked={settings.notifyBadge}
-                onChange={(checked) => settings.setSettings({ notifyBadge: checked })}
-                isZh={isZh}
-              />
-              <div className="rounded-xl bg-surface-raised p-2.5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-[var(--c-text)]">
-                    {t("settings.requestNotificationPermission")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void requestNotificationPermission();
-                    }}
-                    className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[11px] font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
-                  >
-                    {isZh ? "请求" : "Request"}
-                  </button>
-                </div>
-              </div>
             </div>
-          </section>
 
-          <section
-            id={sectionIds.privacy_storage}
-            className="card"
-          >
-            <h3 className="m-0 text-heading">{t("settings.privacyStorage")}</h3>
-            <div className="mt-3 flex flex-col gap-2">
-              <ToggleRow
-                label={t("settings.restoreLastSession")}
-                checked={settings.restoreLastSession}
-                onChange={(checked) => settings.setSettings({ restoreLastSession: checked })}
-                isZh={isZh}
-              />
-              <ToggleRow
-                label={t("settings.savePromptHistory")}
-                checked={settings.savePromptHistory}
-                onChange={(checked) => settings.setSettings({ savePromptHistory: checked })}
-                isZh={isZh}
-              />
-
-              <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-raised px-3 py-2">
-                <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.historyRetentionDays")}</span>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={settings.historyRetentionDays}
-                  onChange={(event) =>
-                    settings.setSettings({ historyRetentionDays: Number(event.target.value) || 90 })
-                  }
-                  className="w-20 input-base text-right"
-                />
+            <div className="rounded-xl border border-border bg-warning-bg p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-warning-text">
+                  {isZh ? "本地缓存摘要" : "Local Cache Summary"}
+                </span>
+                <span className="rounded-full bg-warning-bg px-2 py-1 text-[10px] font-semibold text-warning-text">
+                  {historyStatusLabel}
+                </span>
               </div>
-
-              <div className="rounded-xl border border-border bg-warning-bg p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-warning-text">
-                    {isZh ? "本地缓存摘要" : "Local Cache Summary"}
-                  </span>
-                  <span className="rounded-full bg-warning-bg px-2 py-1 text-[10px] font-semibold text-warning-text">
-                    {historyStatusLabel}
-                  </span>
-                </div>
-                <p className="m-0 text-[11px] text-warning-text">
-                  {isZh ? "缓存键数量" : "Cache keys"}: {cacheStats.keyCount}
-                </p>
-                <p className="mb-0 mt-0.5 text-[11px] text-warning-text">
-                  {isZh ? "缓存占用" : "Cache size"}: {formatBytes(cacheStats.sizeBytes)}
-                </p>
-                <button
-                  type="button"
-                  onClick={clearLocalCache}
-                  className="btn-danger mt-2 text-xs"
-                >
-                  <Trash size={13} />
-                  {t("settings.clearLocalCache")}
-                </button>
-              </div>
+              <p className="m-0 text-[11px] text-warning-text">
+                {isZh ? "缓存键数量" : "Cache keys"}: {cacheStats.keyCount}
+              </p>
+              <p className="mb-0 mt-0.5 text-[11px] text-warning-text">
+                {isZh ? "缓存占用" : "Cache size"}: {formatBytes(cacheStats.sizeBytes)}
+              </p>
+              <button
+                type="button"
+                onClick={clearLocalCache}
+                className="btn-danger mt-2 text-xs"
+              >
+                <Trash size={13} />
+                {t("settings.clearLocalCache")}
+              </button>
             </div>
-          </section>
+          </div>
+        </section>
       </section>
 
       {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}

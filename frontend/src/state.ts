@@ -35,10 +35,6 @@ export interface AppSettingsState {
   restoreLastSession: boolean;
   retryModeDefault: RetryMode;
   showBothRetryActions: boolean;
-  notifyOnSuccess: boolean;
-  notifyOnFailure: boolean;
-  notifySound: boolean;
-  notifyBadge: boolean;
   costMode: "provider_api" | "local_config";
   currency: string;
   showEstimatedCostPreSubmit: boolean;
@@ -65,10 +61,6 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   restoreLastSession: true,
   retryModeDefault: "same_seed",
   showBothRetryActions: true,
-  notifyOnSuccess: true,
-  notifyOnFailure: true,
-  notifySound: true,
-  notifyBadge: true,
   costMode: "local_config",
   currency: "USD",
   showEstimatedCostPreSubmit: true,
@@ -81,6 +73,19 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   theme: "system",
   pendingReuseDraft: null,
 };
+
+const SETTINGS_STORAGE_VERSION = 2;
+
+function stripLegacyNotificationSettings(
+  state: Record<string, unknown>,
+): Record<string, unknown> {
+  const rest = { ...state };
+  delete rest.notifyOnSuccess;
+  delete rest.notifyOnFailure;
+  delete rest.notifySound;
+  delete rest.notifyBadge;
+  return rest;
+}
 
 export const useAppSettingsStore = create<AppSettingsState>()(
   persist(
@@ -95,6 +100,15 @@ export const useAppSettingsStore = create<AppSettingsState>()(
     }),
     {
       name: "scenewords_gateway_settings_v1",
+      version: SETTINGS_STORAGE_VERSION,
+      migrate: (persistedState) => {
+        if (!persistedState || typeof persistedState !== "object") {
+          return persistedState as unknown as AppSettingsState;
+        }
+        return stripLegacyNotificationSettings(
+          persistedState as Record<string, unknown>,
+        ) as unknown as AppSettingsState;
+      },
       partialize: (state) => ({
         gatewayToken: state.gatewayToken,
         defaultImageProvider: state.defaultImageProvider,
@@ -106,10 +120,6 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         restoreLastSession: state.restoreLastSession,
         retryModeDefault: state.retryModeDefault,
         showBothRetryActions: state.showBothRetryActions,
-        notifyOnSuccess: state.notifyOnSuccess,
-        notifyOnFailure: state.notifyOnFailure,
-        notifySound: state.notifySound,
-        notifyBadge: state.notifyBadge,
         costMode: state.costMode,
         currency: state.currency,
         showEstimatedCostPreSubmit: state.showEstimatedCostPreSubmit,

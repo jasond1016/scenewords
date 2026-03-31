@@ -66,12 +66,20 @@ export function useOverlayScrollLock(isOpen: boolean) {
 
     let lastTouchY: number | null = null;
 
-    const getAllowedContainer = (target: EventTarget | null): HTMLElement | null => {
+    const findAllowedContainers = (target: EventTarget | null): HTMLElement[] => {
       if (!(target instanceof Element)) {
-        return null;
+        return [];
       }
-      const container = target.closest(allowScrollSelector);
-      return container instanceof HTMLElement ? container : null;
+
+      const containers: HTMLElement[] = [];
+      let current: Element | null = target;
+      while (current) {
+        if (current.matches(allowScrollSelector) && current instanceof HTMLElement) {
+          containers.push(current);
+        }
+        current = current.parentElement;
+      }
+      return containers;
     };
 
     const isGestureTarget = (target: EventTarget | null): boolean => {
@@ -111,8 +119,8 @@ export function useOverlayScrollLock(isOpen: boolean) {
       if (isGestureTarget(event.target)) {
         return;
       }
-      const container = getAllowedContainer(event.target);
-      if (!container) {
+      const containers = findAllowedContainers(event.target);
+      if (!containers.length) {
         event.preventDefault();
         return;
       }
@@ -120,7 +128,10 @@ export function useOverlayScrollLock(isOpen: boolean) {
       const deltaY = currentY - (lastTouchY ?? currentY);
       lastTouchY = currentY;
       const intendedScrollDelta = -deltaY;
-      if (!canScrollContainer(container, intendedScrollDelta)) {
+      const scrollContainer = containers.find((container) =>
+        canScrollContainer(container, intendedScrollDelta),
+      );
+      if (!scrollContainer) {
         event.preventDefault();
       }
     };
@@ -128,12 +139,15 @@ export function useOverlayScrollLock(isOpen: boolean) {
       if (isGestureTarget(event.target)) {
         return;
       }
-      const container = getAllowedContainer(event.target);
-      if (!container) {
+      const containers = findAllowedContainers(event.target);
+      if (!containers.length) {
         event.preventDefault();
         return;
       }
-      if (!canScrollContainer(container, event.deltaY)) {
+      const scrollContainer = containers.find((container) =>
+        canScrollContainer(container, event.deltaY),
+      );
+      if (!scrollContainer) {
         event.preventDefault();
       }
     };

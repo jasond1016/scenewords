@@ -21,10 +21,8 @@ interface Props {
   task: VideoTaskDetail;
   statusLabel: string;
   updatedAtLabel: string;
-  isFavorited: boolean;
   downloadUrl?: string | null;
   onReuse: () => void;
-  onToggleFavorite: () => void;
   onDelete: () => void;
   deleteDisabled?: boolean;
   cancelAction?: SidebarCancelAction;
@@ -36,6 +34,8 @@ interface Props {
   rawResultError?: string | null;
   rawResultPayload: string;
   errorText?: string | null;
+  isFavorited?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 export function MediaDetailSidebar(props: Props) {
@@ -43,10 +43,8 @@ export function MediaDetailSidebar(props: Props) {
     task,
     statusLabel,
     updatedAtLabel,
-    isFavorited,
     downloadUrl,
     onReuse,
-    onToggleFavorite,
     onDelete,
     deleteDisabled,
     cancelAction,
@@ -58,6 +56,8 @@ export function MediaDetailSidebar(props: Props) {
     rawResultError,
     rawResultPayload,
     errorText,
+    isFavorited = false,
+    onToggleFavorite,
   } = props;
   const { t } = useI18n();
   const [isSharing, setIsSharing] = useState(false);
@@ -138,10 +138,10 @@ export function MediaDetailSidebar(props: Props) {
 
   return (
     <div
-      className="flex h-full flex-col gap-3.5 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
+      className="flex h-full min-h-0 flex-col gap-3.5 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
       data-overlay-scroll="allow"
     >
-      <div className="min-h-0 rounded-xl border border-border bg-surface-raised p-3.5">
+      <div className="min-h-0 shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
         <div className="mb-2.5 flex items-start justify-between gap-2">
           <div className="space-y-1">
             <p className="m-0 text-label">{t("works.promptLabel")}</p>
@@ -171,12 +171,12 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface-raised p-3.5 space-y-3">
+      <div className="shrink-0 space-y-3 rounded-xl border border-border bg-surface-raised p-3.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
             {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
           </span>
-          {isFavorited ? (
+          {onToggleFavorite && isFavorited ? (
             <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
               {t("works.favorited")}
             </span>
@@ -250,26 +250,39 @@ export function MediaDetailSidebar(props: Props) {
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between border-t border-border pt-2">
-          <button
-            type="button"
-            className="btn-ghost text-xs"
-            onClick={onToggleFavorite}
-          >
-            {isFavorited ? t("works.unfavorite") : t("works.favorite")}
-          </button>
-          <button
-            type="button"
-            className="btn-ghost text-xs text-error-text"
-            onClick={onDelete}
-            disabled={deleteDisabled}
-          >
-            {t("works.delete")}
-          </button>
-        </div>
+        {onToggleFavorite ? (
+          <div className="flex items-center justify-between border-t border-border pt-2">
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={onToggleFavorite}
+            >
+              {isFavorited ? t("works.unfavorite") : t("works.favorite")}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-xs text-error-text"
+              onClick={onDelete}
+              disabled={deleteDisabled}
+            >
+              {t("works.delete")}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end border-t border-border pt-2">
+            <button
+              type="button"
+              className="btn-ghost text-xs text-error-text"
+              onClick={onDelete}
+              disabled={deleteDisabled}
+            >
+              {t("works.delete")}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="rounded-xl border border-border bg-surface-raised p-3.5">
+      <div className="shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
         <div className="mb-2.5 flex items-start justify-between gap-2">
           <div className="space-y-1">
             <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("works.assetDetailTitle")}</h3>
@@ -304,7 +317,7 @@ export function MediaDetailSidebar(props: Props) {
         </details>
       </div>
 
-      <details className="rounded-xl border border-border bg-surface-raised p-3.5">
+      <details className="shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
         <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
           {t("works.moreActions")}
         </summary>
@@ -335,7 +348,10 @@ export function MediaDetailSidebar(props: Props) {
                   {rawResultError}
                 </p>
               ) : (
-                <pre className="mt-2 max-h-44 overflow-auto rounded-lg border border-border bg-canvas p-2 text-[10px] text-[var(--c-text-secondary)]">
+                <pre
+                  className="mt-2 max-h-44 overflow-auto rounded-lg border border-border bg-canvas p-2 text-[10px] text-[var(--c-text-secondary)]"
+                  data-overlay-scroll="allow"
+                >
                   {rawResultPayload}
                 </pre>
               )
@@ -345,7 +361,7 @@ export function MediaDetailSidebar(props: Props) {
       </details>
 
       {errorText ? (
-        <p className="m-0 rounded-lg border border-[#F1D7CF] bg-error-bg px-2.5 py-2 text-xs text-error-text">
+        <p className="m-0 shrink-0 rounded-lg border border-[#F1D7CF] bg-error-bg px-2.5 py-2 text-xs text-error-text">
           {errorText}
         </p>
       ) : null}
