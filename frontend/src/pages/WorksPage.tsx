@@ -450,7 +450,7 @@ export function WorksPage(props: Props) {
           onClose={() => setLightboxState(null)}
           showInfoLabel={t("works.showInfo")}
           hideInfoLabel={t("works.hideInfo")}
-          backLabel={t("works.back")}
+          closeLabel={t("common.close")}
           media={
             <AppLightboxStage
               items={lightboxItems}

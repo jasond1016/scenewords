@@ -20,16 +20,10 @@ export function readFavoriteTaskIds(storageKey: string): string[] {
 }
 
 export function useCompactOverlayInfo(isOpen: boolean) {
-  const [isInfoHidden, setIsInfoHidden] = useState(false);
+  const [isInfoHidden, setIsInfoHidden] = useState(true);
 
   useEffect(() => {
-    if (!isOpen) {
-      setIsInfoHidden(false);
-      return;
-    }
-    const prefersCompactInfo =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches;
-    setIsInfoHidden(prefersCompactInfo);
+    setIsInfoHidden(true);
   }, [isOpen]);
 
   return { isInfoHidden, setIsInfoHidden };

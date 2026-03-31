@@ -236,7 +236,7 @@ export function WorkDetailOverlay(props: Props) {
       onClose={onClose}
       showInfoLabel={t("works.showInfo")}
       hideInfoLabel={t("works.hideInfo")}
-      backLabel={t("works.back")}
+      closeLabel={t("common.close")}
       media={
         <AppLightboxStage
           items={lightboxItems}

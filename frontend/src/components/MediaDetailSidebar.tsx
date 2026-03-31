@@ -261,7 +261,7 @@ export function MediaDetailSidebar(props: Props) {
             </button>
             <button
               type="button"
-              className="btn-ghost text-xs text-error-text"
+              className="btn-danger text-xs"
               onClick={onDelete}
               disabled={deleteDisabled}
             >
@@ -272,7 +272,7 @@ export function MediaDetailSidebar(props: Props) {
           <div className="flex items-center justify-end border-t border-border pt-2">
             <button
               type="button"
-              className="btn-ghost text-xs text-error-text"
+              className="btn-danger text-xs"
               onClick={onDelete}
               disabled={deleteDisabled}
             >

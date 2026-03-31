@@ -1,3 +1,4 @@
+import { Info, X } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
   sidebar?: ReactNode;
   showInfoLabel: string;
   hideInfoLabel: string;
-  backLabel: string;
+  closeLabel: string;
 }
 
 export function MediaOverlayFrame(props: Props) {
@@ -28,8 +29,11 @@ export function MediaOverlayFrame(props: Props) {
     sidebar,
     showInfoLabel,
     hideInfoLabel,
-    backLabel,
+    closeLabel,
   } = props;
+  const infoToggleLabel = isInfoHidden ? showInfoLabel : hideInfoLabel;
+  const toggleButtonClass =
+    "absolute z-30 inline-flex h-14 w-9 items-center justify-center rounded-l-2xl rounded-r-xl border border-border bg-surface/88 text-[var(--c-text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-md transition-[background-color,border-color,color,opacity,transform] duration-200 hover:border-[var(--c-border-strong)] hover:bg-surface-raised hover:text-[var(--c-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-border-focus)]";
 
   return (
     <div
@@ -39,7 +43,7 @@ export function MediaOverlayFrame(props: Props) {
       onClick={onClose}
     >
       <div
-        className="relative flex h-full w-full overflow-hidden rounded-2xl border border-border bg-canvas shadow-[var(--shadow-overlay)] sm:flex-row"
+        className="relative flex h-full w-full overflow-hidden rounded-2xl border border-border bg-canvas shadow-[var(--shadow-overlay)]"
         onClick={(event) => event.stopPropagation()}
       >
         {/* Media panel */}
@@ -55,17 +59,12 @@ export function MediaOverlayFrame(props: Props) {
               ) : null}
               <button
                 type="button"
-                className="btn-secondary text-xs"
-                onClick={onToggleInfo}
-              >
-                {isInfoHidden ? showInfoLabel : hideInfoLabel}
-              </button>
-              <button
-                type="button"
-                className="btn-primary text-xs"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--c-surface-inset)]/72 text-[var(--c-text-tertiary)] transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-surface-raised hover:text-[var(--c-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-border-focus)]"
                 onClick={onClose}
+                aria-label={closeLabel}
+                title={closeLabel}
               >
-                {backLabel}
+                <X size={16} weight="regular" />
               </button>
             </div>
           </div>
@@ -84,10 +83,44 @@ export function MediaOverlayFrame(props: Props) {
         </div>
 
         {/* Sidebar */}
-        {!isInfoHidden && sidebar ? (
-          <aside className="absolute inset-x-2 bottom-2 top-[58px] z-30 overflow-hidden rounded-xl border border-border bg-surface/95 p-3 shadow-[var(--shadow-lg)] backdrop-blur-md sm:static sm:inset-auto sm:w-[360px] sm:shrink-0 sm:rounded-none sm:border-l sm:border-t-0 sm:bg-surface sm:p-3 sm:shadow-none sm:backdrop-blur-none">
-            {sidebar}
-          </aside>
+        {sidebar ? (
+          <div
+            className={`absolute bottom-2 right-2 top-[58px] z-30 w-[min(360px,calc(100%-1rem))] overflow-visible transition-[opacity,transform] duration-200 sm:w-[360px] ${
+              isInfoHidden
+                ? "pointer-events-none translate-x-4 opacity-0"
+                : "pointer-events-auto translate-x-0 opacity-100"
+            }`}
+            aria-hidden={isInfoHidden}
+          >
+            <button
+              type="button"
+              className={`${toggleButtonClass} -left-3 top-1/2 -translate-y-1/2 ${
+                isInfoHidden ? "pointer-events-none opacity-0" : "opacity-100"
+              }`}
+              onClick={onToggleInfo}
+              aria-label={infoToggleLabel}
+              aria-pressed={!isInfoHidden}
+              title={infoToggleLabel}
+            >
+              <Info size={16} weight="regular" />
+            </button>
+            <aside className="h-full overflow-hidden rounded-xl border border-border bg-surface/94 p-3 shadow-[var(--shadow-lg)] backdrop-blur-md">
+              {sidebar}
+            </aside>
+          </div>
+        ) : null}
+
+        {sidebar && isInfoHidden ? (
+          <button
+            type="button"
+            className={`${toggleButtonClass} right-2 top-1/2 -translate-y-1/2`}
+            onClick={onToggleInfo}
+            aria-label={infoToggleLabel}
+            aria-pressed={!isInfoHidden}
+            title={infoToggleLabel}
+          >
+            <Info size={16} weight="regular" />
+          </button>
         ) : null}
       </div>
     </div>
