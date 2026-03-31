@@ -77,6 +77,7 @@ const VEO_PROMPT_GUIDE_LINK_BLOG =
   "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1";
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const LAST_GENERATION_KIND_KEY = "scenewords_last_generation_kind_v1";
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
@@ -126,6 +127,9 @@ export function CreatePage(props: Props) {
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [operationId, setOperationId] = useState("");
+  const [currentGenerationKind, setCurrentGenerationKind] = useState<"image" | "video">(
+    () => readLastGenerationKind(),
+  );
   const [values, setValues] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
@@ -328,10 +332,6 @@ export function CreatePage(props: Props) {
   const videoProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "video"),
     [providers],
-  );
-  const currentGenerationKind: "image" | "video" = useMemo(
-    () => (selectedProvider && isImageProviderType(selectedProvider.type) ? "image" : "video"),
-    [selectedProvider],
   );
   const canSwitchGenerationKind = imageProviders.length > 0 && videoProviders.length > 0;
   const providerChoices = useMemo(
@@ -676,6 +676,10 @@ export function CreatePage(props: Props) {
   }, [lastSubmittedTaskId]);
 
   useEffect(() => {
+    persistLastGenerationKind(currentGenerationKind);
+  }, [currentGenerationKind]);
+
+  useEffect(() => {
     if (!recentOverlayTaskId) {
       return;
     }
@@ -740,6 +744,13 @@ export function CreatePage(props: Props) {
     if (!pending || !providers.length) {
       return;
     }
+    const pendingProvider = providers.find((provider) => provider.id === pending.provider) ?? null;
+    if (pendingProvider) {
+      const pendingKind = isImageProviderType(pendingProvider.type) ? "image" : "video";
+      if (pendingKind !== currentGenerationKind) {
+        setCurrentGenerationKind(pendingKind);
+      }
+    }
     if (providerId !== pending.provider) {
       setProviderId(pending.provider);
     }
@@ -749,7 +760,14 @@ export function CreatePage(props: Props) {
     if (operationId !== pending.operation) {
       setOperationId(pending.operation);
     }
-  }, [modelName, operationId, providerId, providers.length, settings.pendingReuseDraft]);
+  }, [
+    currentGenerationKind,
+    modelName,
+    operationId,
+    providerId,
+    providers,
+    settings.pendingReuseDraft,
+  ]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -1193,6 +1211,7 @@ export function CreatePage(props: Props) {
     if (nextKind === currentGenerationKind) {
       return;
     }
+    setCurrentGenerationKind(nextKind);
     const restoredSession = restoreSession(settings.restoreLastSession, nextKind);
     if (restoredSession) {
       const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
@@ -2690,6 +2709,23 @@ function persistLastSubmittedTaskId(taskId: string | null): void {
       LAST_SUBMITTED_TASK_KEY,
       JSON.stringify({ taskId, savedAt: new Date().toISOString() }),
     );
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readLastGenerationKind(): "image" | "video" {
+  try {
+    const raw = localStorage.getItem(LAST_GENERATION_KIND_KEY)?.trim();
+    return raw === "image" ? "image" : "video";
+  } catch {
+    return "video";
+  }
+}
+
+function persistLastGenerationKind(kind: "image" | "video"): void {
+  try {
+    localStorage.setItem(LAST_GENERATION_KIND_KEY, kind);
   } catch {
     // ignore storage failures
   }
