@@ -66,7 +66,7 @@ export VIDEO_GATEWAY_MAX_UPLOAD_MB="10"
 3. 启动服务
 
 ```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 4. 在 iPad Safari 访问
@@ -74,6 +74,82 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```text
 http://<Windows-PC-IP>:8000
 ```
+
+## iPad 内网 HTTPS 访问
+
+如果你想让 iPad 在局域网里访问时也能使用需要安全上下文的能力，例如“保存到相册 / 原生分享”，推荐使用：
+
+- `mkcert` 生成本地根证书和指定 IP 的服务器证书
+- iPad 手动安装并信任该根证书
+- SceneWords 使用 HTTPS 在内网直接提供服务
+
+证书目录 `certs/` 已加入 `.gitignore`，不会纳入 Git 管理；启动脚本会纳入 Git 管理。
+
+### 1. 生成证书
+
+示例：
+
+```powershell
+mkcert -install
+mkcert -cert-file certs\scenewords-ip.pem -key-file certs\scenewords-ip-key.pem 192.168.1.23 127.0.0.1 localhost
+```
+
+### 2. 在 iPad 上信任根证书
+
+执行下面命令查看 `mkcert` 根证书目录：
+
+```powershell
+mkcert -CAROOT
+```
+
+把其中的 `rootCA.pem` 安装到 iPad，然后到：
+
+```text
+设置 > 通用 > 关于本机 > 证书信任设置
+```
+
+手动开启完全信任。
+
+### 3. PowerShell 启动 HTTPS
+
+```powershell
+.\scripts\run-https.ps1 -LanIp 192.168.1.23
+```
+
+可选参数：
+
+```powershell
+.\scripts\run-https.ps1 -LanIp 192.168.1.23 -Port 9443 -CertFile certs\scenewords-ip.pem -KeyFile certs\scenewords-ip-key.pem
+```
+
+### 4. Git Bash 启动 HTTPS
+
+```bash
+./scripts/run-https.sh --lan-ip 192.168.1.23
+```
+
+可选参数：
+
+```bash
+./scripts/run-https.sh \
+  --lan-ip 192.168.1.23 \
+  --port 9443 \
+  --cert-file certs/scenewords-ip.pem \
+  --key-file certs/scenewords-ip-key.pem \
+  --reload
+```
+
+### 5. iPad 访问地址
+
+```text
+https://192.168.1.23:8443
+```
+
+如果打不开，优先检查：
+
+- Windows 防火墙是否放行对应端口
+- 访问的 IP 是否和证书中的 IP 完全一致
+- iPad 是否已经对 `mkcert` 根证书开启“完全信任”
 
 ## 前端开发
 
