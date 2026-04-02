@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ChangeEvent,
   type DragEvent,
 } from "react";
@@ -20,14 +21,13 @@ import {
   VideoCamera,
   X,
   CaretDown,
-  GearSix,
 } from "@phosphor-icons/react";
 import {
   createVideoTask,
   fetchUploadedFileBinary,
   uploadFile,
 } from "../api";
-import { useI18n } from "../i18n";
+import { useI18n, type SupportedLocale } from "../i18n";
 import {
   useAppSettingsStore,
   type AppSettingsState,
@@ -71,10 +71,8 @@ interface Props {
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
 const MAX_RECENT_PROMPTS = 20;
-const VEO_PROMPT_GUIDE_LINK_DOCS =
-  "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide?hl=zh-cn";
-const VEO_PROMPT_GUIDE_LINK_BLOG =
-  "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1";
+const COMPOSER_PROMPT_MIN_ROWS = 4;
+const COMPOSER_PROMPT_MAX_ROWS = 9;
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const LAST_GENERATION_KIND_KEY = "scenewords_last_generation_kind_v1";
@@ -116,6 +114,16 @@ interface AdvancedGroup {
   fields: ProviderOperationField[];
 }
 
+interface ModelSelectorChoice {
+  key: string;
+  label: string;
+  meta: string;
+  providerId: string;
+  modelName: string;
+  operationId?: string;
+  familyId?: string;
+}
+
 export function CreatePage(props: Props) {
   const { catalog, loading, tasks } = props;
   const { locale, t } = useI18n();
@@ -144,7 +152,7 @@ export function CreatePage(props: Props) {
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
-  const [openPopover, setOpenPopover] = useState<"model" | "params" | null>(null);
+  const [openPopover, setOpenPopover] = useState<"kind" | "model" | "format" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -180,11 +188,6 @@ export function CreatePage(props: Props) {
       null
     );
   }, [operationId, selectedModel]);
-  const showVeoPromptGuide = useMemo(() => {
-    const providerType = selectedProvider?.type?.toLowerCase() ?? "";
-    const modelLower = modelName.toLowerCase();
-    return providerType.includes("veo") || modelLower.includes("veo");
-  }, [modelName, selectedProvider?.type]);
   const promptField = useMemo(
     () =>
       selectedOperation?.fields.find(
@@ -333,7 +336,6 @@ export function CreatePage(props: Props) {
     () => listVisibleProvidersByKind(providers, "video"),
     [providers],
   );
-  const canSwitchGenerationKind = imageProviders.length > 0 && videoProviders.length > 0;
   const providerChoices = useMemo(
     () => listVisibleProvidersByKind(providers, currentGenerationKind),
     [currentGenerationKind, providers],
@@ -377,6 +379,56 @@ export function CreatePage(props: Props) {
         : [],
     [currentImageFamily],
   );
+  const modelChoices = useMemo<ModelSelectorChoice[]>(() => {
+    if (currentGenerationKind === "image") {
+      return imageModelFamilies.map((family) => ({
+        key: family.id,
+        label: family.label,
+        meta:
+          imageModelFamilies.length > 1
+            ? family.provider.display_name
+            : "",
+        providerId: family.provider.id,
+        modelName: family.variants[0]?.model.name ?? "",
+        familyId: family.id,
+      }));
+    }
+
+    return providerChoices.flatMap((provider) =>
+      provider.models.flatMap((model) =>
+        model.operations.map((operation) => {
+          const metaParts: string[] = [];
+          if (providerChoices.length > 1) {
+            metaParts.push(provider.display_name);
+          }
+          if (model.operations.length > 1) {
+            metaParts.push(operation.display_name);
+          }
+          return {
+            key: `${provider.id}::${model.name}::${operation.id}`,
+            label: model.display_name,
+            meta: metaParts.join(" · "),
+            providerId: provider.id,
+            modelName: model.name,
+            operationId: operation.id,
+          };
+        }),
+      ),
+    );
+  }, [currentGenerationKind, imageModelFamilies, providerChoices]);
+  const activeModelChoiceKey = useMemo(() => {
+    if (currentGenerationKind === "image") {
+      return currentImageFamily?.id ?? "";
+    }
+    return `${providerId}::${modelName}::${selectedOperation?.id ?? operationId}`;
+  }, [
+    currentGenerationKind,
+    currentImageFamily?.id,
+    modelName,
+    operationId,
+    providerId,
+    selectedOperation?.id,
+  ]);
   const hasImageSourceAttachments =
     imageSourceFiles.length > 0 || imageSourceReusedFileIds.length > 0;
   const currentImageResolutionLabel = currentImageVariant?.resolutionLabel ?? "1K";
@@ -561,39 +613,31 @@ export function CreatePage(props: Props) {
     }
     return items;
   }, [composerMediaFields, uiFiles, uiReusedFileIds]);
-
-  // Model display label for the chip
   const modelChipLabel = useMemo(() => {
-    if (currentGenerationKind === "image" && currentImageFamily) {
-      const parts: string[] = [];
-      if (imageModelFamilies.length > 1) {
-        parts.push(currentImageFamily.provider.display_name);
-      }
-      parts.push(currentImageFamily.label);
-      parts.push(currentImageResolutionLabel);
-      parts.push(
-        currentImageAsyncEnabled ? t("create.imageAsyncOn") : t("create.imageAsyncOff"),
-      );
-      return parts.join(" · ");
+    const activeChoice = modelChoices.find((choice) => choice.key === activeModelChoiceKey) ?? null;
+    if (activeChoice) {
+      return activeChoice.label;
     }
-    if (!selectedProvider || !selectedModel) return "";
+    return t("create.model");
+  }, [activeModelChoiceKey, modelChoices, t]);
+  const formatChipLabel = useMemo(() => {
     const parts: string[] = [];
-    if (providerChoices.length > 1) parts.push(selectedProvider.display_name);
-    parts.push(selectedModel.display_name);
-    if (selectedModel.operations.length > 1 && selectedOperation) {
-      parts.push(selectedOperation.display_name);
+    if (currentRatioDisplay && currentRatioDisplay !== "-") {
+      parts.push(currentRatioDisplay);
     }
-    return parts.join(" · ");
+    if (currentGenerationKind === "image") {
+      if (currentImageResolutionLabel) {
+        parts.push(currentImageResolutionLabel);
+      }
+    } else if (currentSizeDisplay && currentSizeDisplay !== "-") {
+      parts.push(currentSizeDisplay);
+    }
+    return parts.join(" · ") || t("create.quickFormat");
   }, [
     currentGenerationKind,
-    currentImageAsyncEnabled,
-    currentImageFamily,
     currentImageResolutionLabel,
-    imageModelFamilies.length,
-    providerChoices.length,
-    selectedOperation,
-    selectedProvider,
-    selectedModel,
+    currentRatioDisplay,
+    currentSizeDisplay,
     t,
   ]);
   const keyboardShortcutLabel = useMemo(() => {
@@ -1169,16 +1213,28 @@ export function CreatePage(props: Props) {
   const autoResizeTextarea = () => {
     const el = textareaRef.current;
     if (!el) return;
+    const style = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(style.lineHeight) || 24;
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
+    const minHeight = lineHeight * COMPOSER_PROMPT_MIN_ROWS + paddingTop + paddingBottom;
+    const maxHeight = lineHeight * COMPOSER_PROMPT_MAX_ROWS + paddingTop + paddingBottom;
+    const isFocused = document.activeElement === el;
+    const isCaretAtEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, minHeight), maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+
+    if (el.scrollHeight > maxHeight && (!isFocused || isCaretAtEnd)) {
+      el.scrollTop = el.scrollHeight;
+    }
   };
 
-  // Restore textarea height when content is present on mount / route return
+  // Restore textarea height when the prompt changes on mount / route return.
   useEffect(() => {
-    if (promptValue) {
-      // Defer to next frame so the DOM has rendered the value
-      requestAnimationFrame(autoResizeTextarea);
-    }
+    // Defer to next frame so the DOM has rendered the value.
+    requestAnimationFrame(autoResizeTextarea);
   }, [promptValue]);
   const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
     const key = item.fieldKey;
@@ -1537,7 +1593,6 @@ export function CreatePage(props: Props) {
           void submitMutation.mutateAsync();
         }}
       >
-        {/* Popover backdrop */}
         {openPopover ? (
           <div className="popover-backdrop" onClick={() => setOpenPopover(null)} />
         ) : null}
@@ -1579,7 +1634,7 @@ export function CreatePage(props: Props) {
               <textarea
                 ref={textareaRef}
                 className="composer-textarea"
-                rows={1}
+                rows={COMPOSER_PROMPT_MIN_ROWS}
                 value={promptValue}
                 placeholder={promptPlaceholder}
                 onChange={(e) => {
@@ -1608,273 +1663,274 @@ export function CreatePage(props: Props) {
           {/* Hint message */}
           {hint ? <p className="m-0 text-[11px] text-[var(--c-text-secondary)]">{hint}</p> : null}
 
-          {/* Chip row */}
           <div className="composer-chip-row">
-            {/* Model selector chip */}
+            <div className="composer-popover-anchor">
+              <button
+                type="button"
+                className={`chip ${openPopover === "kind" ? "chip-active" : ""}`}
+                onClick={() => setOpenPopover(openPopover === "kind" ? null : "kind")}
+              >
+                {currentGenerationKind === "image" ? <ImageSquare size={13} weight="fill" /> : <VideoCamera size={13} weight="fill" />}
+                <span>{currentGenerationKind === "image" ? t("create.quickImage") : t("create.quickVideo")}</span>
+                <CaretDown size={10} />
+              </button>
+
+              {openPopover === "kind" ? (
+                <div className="composer-popover">
+                  <p className="m-0 mb-3 text-label">{t("create.quickType")}</p>
+                  <div className="composer-menu-list">
+                    <button
+                      type="button"
+                      className={`composer-menu-item ${currentGenerationKind === "image" ? "composer-menu-item-active" : ""}`}
+                      onClick={() => {
+                        onGenerationKindChanged("image");
+                        setOpenPopover(null);
+                      }}
+                      disabled={!imageProviders.length}
+                    >
+                      <div className="composer-menu-item__content">
+                        <ImageSquare size={16} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
+                        <span>{t("create.quickImage")}</span>
+                      </div>
+                      {currentGenerationKind === "image" ? <span className="composer-menu-check">✓</span> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={`composer-menu-item ${currentGenerationKind === "video" ? "composer-menu-item-active" : ""}`}
+                      onClick={() => {
+                        onGenerationKindChanged("video");
+                        setOpenPopover(null);
+                      }}
+                      disabled={!videoProviders.length}
+                    >
+                      <div className="composer-menu-item__content">
+                        <VideoCamera size={16} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
+                        <span>{t("create.quickVideo")}</span>
+                      </div>
+                      {currentGenerationKind === "video" ? <span className="composer-menu-check">✓</span> : null}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="composer-popover-anchor">
               <button
                 type="button"
                 className={`chip ${openPopover === "model" ? "chip-active" : ""}`}
                 onClick={() => setOpenPopover(openPopover === "model" ? null : "model")}
               >
-                {currentGenerationKind === "image" ? <ImageSquare size={13} weight="fill" /> : <VideoCamera size={13} weight="fill" />}
-                <span className="max-w-[180px] truncate">{modelChipLabel || t("create.model")}</span>
+                <span className="max-w-[180px] truncate">{modelChipLabel}</span>
                 <CaretDown size={10} />
               </button>
 
-              {/* Model popover */}
               {openPopover === "model" ? (
                 <div className="composer-popover">
                   <p className="m-0 mb-3 text-label">{t("create.model")}</p>
+                  <div className="composer-menu-list">
+                    {modelChoices.map((choice) => {
+                      const isSelected = activeModelChoiceKey === choice.key;
+                      return (
+                        <button
+                          type="button"
+                          key={choice.key}
+                          className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
+                          onClick={() => {
+                            if (currentGenerationKind === "image" && choice.familyId) {
+                              selectImageVariant(choice.familyId);
+                            } else {
+                              setProviderId(choice.providerId);
+                              setModelName(choice.modelName);
+                              if (choice.operationId) {
+                                setOperationId(choice.operationId);
+                              }
+                            }
+                            setOpenPopover(null);
+                          }}
+                        >
+                          <div className="composer-menu-item__content composer-menu-item__content-stack">
+                            <span>{choice.label}</span>
+                            {choice.meta ? (
+                              <span className="composer-menu-item__meta">{choice.meta}</span>
+                            ) : null}
+                          </div>
+                          {isSelected ? <span className="composer-menu-check">✓</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                  {/* Generation kind toggle */}
-                  {canSwitchGenerationKind ? (
-                    <div className="segment-group mb-3 w-full">
-                      <button
-                        type="button"
-                        className={`segment-item flex-1 ${currentGenerationKind === "image" ? "segment-active" : ""}`}
-                        onClick={() => onGenerationKindChanged("image")}
-                      >
-                        <ImageSquare size={13} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
-                        {t("create.quickImage")}
-                      </button>
-                      <button
-                        type="button"
-                        className={`segment-item flex-1 ${currentGenerationKind === "video" ? "segment-active" : ""}`}
-                        onClick={() => onGenerationKindChanged("video")}
-                      >
-                        <VideoCamera size={13} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
-                        {t("create.quickVideo")}
-                      </button>
+                  {currentGenerationKind === "image" && currentImageFamily ? (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="m-0 text-label">{t("create.quickMode")}</p>
+                        {hasImageSourceAttachments ? (
+                          <span className="text-[11px] text-[var(--c-text-tertiary)]">
+                            {t("create.imageModeAutoEdit")}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="segment-group w-full">
+                        <button
+                          type="button"
+                          className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
+                          onClick={() => selectImageVariant(currentImageFamily.id, { asyncEnabled: false })}
+                        >
+                          {t("create.imageAsyncOff")}
+                        </button>
+                        <button
+                          type="button"
+                          className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
+                          onClick={() => {
+                            if (hasImageSourceAttachments) {
+                              return;
+                            }
+                            selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
+                          }}
+                          disabled={hasImageSourceAttachments}
+                        >
+                          {t("create.imageAsyncOn")}
+                        </button>
+                      </div>
+                      <p className="m-0 text-[11px] leading-5 text-[var(--c-text-secondary)]">
+                        {currentImageAsyncEnabled
+                          ? t("create.imageModeBudgetDesc")
+                          : t("create.imageModeFastDesc")}
+                      </p>
                     </div>
                   ) : null}
-
-                  {currentGenerationKind === "image" && imageModelFamilies.length ? (
-                    <div className="flex flex-col gap-4">
-                      <div className="space-y-2">
-                        <p className="m-0 text-label">{t("create.imageModelLabel")}</p>
-                        <div className="flex flex-col gap-1">
-                          {imageModelFamilies.map((family) => {
-                            const isSelected = currentImageFamily?.id === family.id;
-                            return (
-                              <button
-                                type="button"
-                                key={family.id}
-                                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
-                                  isSelected
-                                    ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
-                                    : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
-                                }`}
-                                onClick={() => {
-                                  selectImageVariant(family.id);
-                                }}
-                              >
-                                <span className="flex-1 truncate">
-                                  {imageModelFamilies.length > 1
-                                    ? `${family.provider.display_name} · ${family.label}`
-                                    : family.label}
-                                </span>
-                                {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="m-0 text-label">{t("create.imageResolutionLabel")}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {imageResolutionChoices.map((resolution) => (
-                            <button
-                              type="button"
-                              key={resolution}
-                              className={`chip ${currentImageResolutionLabel === resolution ? "chip-active" : ""}`}
-                              onClick={() => {
-                                if (currentImageFamily) {
-                                  selectImageVariant(currentImageFamily.id, {
-                                    resolutionLabel: resolution,
-                                  });
-                                }
-                              }}
-                            >
-                              {resolution}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="m-0 text-label">{t("create.imageAsyncLabel")}</p>
-                          {hasImageSourceAttachments ? (
-                            <span className="text-[11px] text-[var(--c-text-tertiary)]">
-                              {t("create.imageModeAutoEdit")}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="segment-group w-full">
-                          <button
-                            type="button"
-                            className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
-                            onClick={() => {
-                              if (currentImageFamily) {
-                                selectImageVariant(currentImageFamily.id, { asyncEnabled: false });
-                              }
-                            }}
-                          >
-                            {t("create.imageAsyncOff")}
-                          </button>
-                          <button
-                            type="button"
-                            className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
-                            onClick={() => {
-                              if (hasImageSourceAttachments || !currentImageFamily) {
-                                return;
-                              }
-                              selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
-                            }}
-                            disabled={hasImageSourceAttachments}
-                          >
-                            {t("create.imageAsyncOn")}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      {providerChoices.flatMap((provider) =>
-                        provider.models.flatMap((model) =>
-                          model.operations.map((operation) => {
-                            const isSelected =
-                              provider.id === providerId &&
-                              model.name === modelName &&
-                              operation.id === (selectedOperation?.id ?? operationId);
-                            const showOp = model.operations.length > 1;
-                            return (
-                              <button
-                                type="button"
-                                key={`${provider.id}::${model.name}::${operation.id}`}
-                                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
-                                  isSelected
-                                    ? "bg-[var(--c-surface-inset)] font-semibold text-[var(--c-text)]"
-                                    : "text-[var(--c-text-secondary)] hover:bg-[var(--c-border-subtle)] hover:text-[var(--c-text)]"
-                                }`}
-                                onClick={() => {
-                                  setProviderId(provider.id);
-                                  setModelName(model.name);
-                                  setOperationId(operation.id);
-                                  setOpenPopover(null);
-                                }}
-                              >
-                                <span className="flex-1 truncate">
-                                  {providerChoices.length > 1 ? `${provider.display_name} · ` : ""}
-                                  {model.display_name}
-                                  {showOp ? ` · ${operation.display_name}` : ""}
-                                </span>
-                                {isSelected ? <span className="text-[var(--c-accent)]">✓</span> : null}
-                              </button>
-                            );
-                          }),
-                        ),
-                      )}
-                    </div>
-                  )}
                 </div>
               ) : null}
             </div>
 
-            {/* Params chip */}
             {hasQuickParams ? (
               <div className="composer-popover-anchor">
                 <button
                   type="button"
-                  className={`chip ${openPopover === "params" ? "chip-active" : ""}`}
-                  onClick={() => setOpenPopover(openPopover === "params" ? null : "params")}
+                  className={`chip ${openPopover === "format" ? "chip-active" : ""}`}
+                  onClick={() => setOpenPopover(openPopover === "format" ? null : "format")}
                 >
                   <Faders size={13} weight="bold" />
-                  <span>{t("create.quickParams")}</span>
+                  <span className="max-w-[180px] truncate">{formatChipLabel}</span>
+                  <CaretDown size={10} />
                 </button>
 
-                {/* Params popover */}
-                {openPopover === "params" ? (
+                {openPopover === "format" ? (
                   <div className="composer-popover composer-popover-wide">
-                    <p className="m-0 mb-4 text-sm font-semibold text-[var(--c-text)]">{t("create.quickParams")}</p>
-
                     <div className="flex flex-col gap-4">
-                      {/* Ratio */}
-                      {resolutionField && (ratioChoices.length > 0 || resolutionValue) ? (
+                      {Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
                         <div className="space-y-2">
                           <p className="m-0 text-label">{t("create.quickRatio")}</p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div
+                            className="composer-ratio-grid"
+                            style={{
+                              gridTemplateColumns: `repeat(${(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).length}, minmax(0, 1fr))`,
+                            }}
+                          >
                             {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                               <button
                                 type="button"
                                 key={`ratio_${ratio}`}
-                                className={`chip ${currentRatioDisplay === ratio ? "chip-active" : ""}`}
+                                className={`composer-ratio-card ${currentRatioDisplay === ratio ? "composer-ratio-card-active" : ""}`}
                                 onClick={() => onRatioChanged(ratio)}
                               >
-                                {ratio}
+                                <span className="composer-ratio-card__preview">
+                                  <span
+                                    className="composer-ratio-card__frame"
+                                    style={buildRatioPreviewStyle(ratio)}
+                                  />
+                                </span>
+                                <span className="composer-ratio-card__label">{ratio}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                       ) : null}
 
-                      {/* Quality / Size */}
-                      {hasQuickSize ? (
+                      {(currentGenerationKind === "image"
+                        ? imageResolutionChoices.length > 0
+                        : hasQuickSize) ? (
                         <div className="space-y-2">
-                          <p className="m-0 text-label">{t("create.quickSize")}</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {(qualityField ? qualityChoices : sizeChoices).map((size) => {
-                              const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                              const label = qualityField
-                                ? qualityField.options.find((o) => o.value === size)?.label ?? size
-                                : size;
-                              return (
-                                <button type="button" key={`size_${size}`} className={`chip ${active ? "chip-active" : ""}`} onClick={() => onSizeChanged(size)}>
-                                  {label}
-                                </button>
-                              );
-                            })}
+                          <p className="m-0 text-label">
+                            {currentGenerationKind === "image"
+                              ? t("create.imageResolutionLabel")
+                              : t("create.quickSize")}
+                          </p>
+                          <div className="composer-resolution-grid">
+                            {currentGenerationKind === "image"
+                              ? imageResolutionChoices.map((resolution) => (
+                                  <button
+                                    type="button"
+                                    key={resolution}
+                                    className={`composer-resolution-card ${currentImageResolutionLabel === resolution ? "composer-resolution-card-active" : ""}`}
+                                    onClick={() => {
+                                      if (!currentImageFamily) {
+                                        return;
+                                      }
+                                      selectImageVariant(currentImageFamily.id, {
+                                        resolutionLabel: resolution,
+                                      });
+                                    }}
+                                  >
+                                    <span className="composer-resolution-card__eyebrow">
+                                      {describeResolutionChoice(resolution, locale)}
+                                    </span>
+                                    <span className="composer-resolution-card__label">{resolution}</span>
+                                  </button>
+                                ))
+                              : (qualityField ? qualityChoices : sizeChoices).map((size) => {
+                                  const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                                  const label = qualityField
+                                    ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                                    : size;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`size_${size}`}
+                                      className={`composer-resolution-card ${active ? "composer-resolution-card-active" : ""}`}
+                                      onClick={() => onSizeChanged(size)}
+                                    >
+                                      <span className="composer-resolution-card__eyebrow">{t("create.quickSize")}</span>
+                                      <span className="composer-resolution-card__label">{label}</span>
+                                    </button>
+                                  );
+                                })}
                           </div>
                         </div>
                       ) : null}
 
-                      {/* Orientation */}
                       {orientationField && orientationChoices.length > 0 ? (
                         <div className="space-y-2">
                           <p className="m-0 text-label">{t("create.quickOrientation")}</p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="composer-choice-grid composer-choice-grid-3">
                             {orientationChoices.map((option) => (
-                              <button type="button" key={`o_${option.value}`} className={`chip ${orientationValue === option.value ? "chip-active" : ""}`} onClick={() => onOrientationChanged(option.value)}>
-                                {option.label}
+                              <button
+                                type="button"
+                                key={`o_${option.value}`}
+                                className={`composer-choice-pill ${orientationValue === option.value ? "composer-choice-pill-active" : ""}`}
+                                onClick={() => onOrientationChanged(option.value)}
+                              >
+                                <span className="composer-choice-pill__label">{option.label}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                       ) : null}
 
-                      {/* Duration */}
                       {durationField && durationChoices.length > 0 ? (
                         <div className="space-y-2">
                           <p className="m-0 text-label">{t("create.quickDuration")}</p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="composer-choice-strip">
                             {durationChoices.map((seconds) => (
-                              <button type="button" key={`d_${seconds}`} className={`chip ${durationValue === String(seconds) ? "chip-active" : ""}`} onClick={() => onFieldChanged(durationField, String(seconds))}>
-                                {seconds}s
+                              <button
+                                type="button"
+                                key={`d_${seconds}`}
+                                className={`composer-choice-pill ${durationValue === String(seconds) ? "composer-choice-pill-active" : ""}`}
+                                onClick={() => onFieldChanged(durationField!, String(seconds))}
+                              >
+                                <span className="composer-choice-pill__label">{seconds}s</span>
                               </button>
                             ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {/* Veo prompt guide */}
-                      {showVeoPromptGuide ? (
-                        <div className="rounded-xl border border-border bg-info-bg p-3 text-xs">
-                          <p className="m-0 mb-1 font-medium text-info-text">{t("create.veoPromptGuideTitle")}</p>
-                          <div className="flex flex-wrap gap-3">
-                            <a href={VEO_PROMPT_GUIDE_LINK_DOCS} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkDocs")}</a>
-                            <a href={VEO_PROMPT_GUIDE_LINK_BLOG} target="_blank" rel="noreferrer" className="text-info-text underline decoration-dotted underline-offset-2">{t("create.veoPromptGuideLinkBlog")}</a>
                           </div>
                         </div>
                       ) : null}
@@ -1883,28 +1939,17 @@ export function CreatePage(props: Props) {
                 ) : null}
               </div>
             ) : null}
+          </div>
 
-            {/* Advanced button */}
-            {advancedFields.length > 0 ? (
-              <button
-                type="button"
-                className="chip"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                <GearSix size={13} />
-                <span>{t("create.advancedLabel")}</span>
-                <span className="text-[10px] text-[var(--c-text-tertiary)]">{advancedFields.length}</span>
-              </button>
-            ) : null}
-
-            {/* Keyboard shortcut hint */}
-            <kbd className="ml-auto hidden rounded-full bg-[var(--c-surface-inset)] px-2 py-0.5 text-[10px] font-medium text-[var(--c-text-tertiary)] sm:inline">
+          <div className="composer-meta-row">
+            <kbd className="composer-shortcut">
               {keyboardShortcutLabel}
             </kbd>
 
-            {/* Queue count */}
             {inProgressCount > 0 ? (
-              <span className="tag tag-warning font-mono tabular-nums text-[10px]">{t("app.topbar.queue", { count: inProgressCount })}</span>
+              <span className="tag tag-warning font-mono tabular-nums text-[10px]">
+                {t("app.topbar.queue", { count: inProgressCount })}
+              </span>
             ) : null}
           </div>
         </div>
@@ -2654,6 +2699,64 @@ function rankImageResolution(key: "1k" | "2k" | "4k"): number {
     return 1;
   }
   return 2;
+}
+
+function describeResolutionChoice(
+  resolution: string,
+  locale: SupportedLocale,
+): string {
+  const normalized = resolution.trim().toUpperCase();
+  if (locale === "zh-CN") {
+    if (normalized === "4K") {
+      return "超清";
+    }
+    if (normalized === "2K") {
+      return "高清";
+    }
+    if (normalized === "1K") {
+      return "标准";
+    }
+    return "分辨率";
+  }
+  if (normalized === "4K") {
+    return "Ultra";
+  }
+  if (normalized === "2K") {
+    return "HD";
+  }
+  if (normalized === "1K") {
+    return "Base";
+  }
+  return "Resolution";
+}
+
+function buildRatioPreviewStyle(ratio: string): CSSProperties {
+  const match = ratio.match(/^\s*(\d+)\s*:\s*(\d+)\s*$/);
+  if (!match) {
+    return {
+      width: "18px",
+      height: "12px",
+    };
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!(Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0)) {
+    return {
+      width: "18px",
+      height: "12px",
+    };
+  }
+
+  const maxWidth = 28;
+  const maxHeight = 14;
+  const minSize = 8;
+  const scale = Math.min(maxWidth / width, maxHeight / height);
+
+  return {
+    width: `${Math.max(minSize, Math.round(width * scale))}px`,
+    height: `${Math.max(minSize, Math.round(height * scale))}px`,
+  };
 }
 
 function sortProvidersByPriority(
