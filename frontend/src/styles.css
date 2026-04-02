@@ -632,8 +632,11 @@ select.input-base {
 .chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.375rem;
   padding: 0.375rem 0.75rem;
+  min-height: 32px;
+  box-sizing: border-box;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--c-text-secondary);
@@ -1140,29 +1143,35 @@ select.input-base {
   color: color-mix(in srgb, var(--c-accent-text) 82%, var(--c-text-tertiary) 18%);
 }
 
-.composer-meta-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
 .composer-shortcut {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  box-sizing: border-box;
   border-radius: var(--radius-full);
-  padding: 0.125rem 0.5rem;
+  padding: 0.125rem 0.625rem;
   background: var(--c-surface-inset);
   color: var(--c-text-tertiary);
   font-size: 0.625rem;
   font-weight: 600;
+  line-height: 1;
 }
 
 .composer-chip-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.composer-chip-row .tag {
+  min-height: 32px;
+  padding: 0.125rem 0.625rem;
+  box-sizing: border-box;
+  justify-content: center;
+  line-height: 1;
 }
 
 /* ── Inline Image Thumbnails ────────────────────────── */
@@ -1402,6 +1411,10 @@ select.input-base {
 
   .composer-selector-group {
     padding: 10px;
+  }
+
+  .composer-chip-row {
+    flex-wrap: wrap;
   }
 
   .composer-choice-pill {

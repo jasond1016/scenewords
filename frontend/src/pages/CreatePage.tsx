@@ -1939,9 +1939,7 @@ export function CreatePage(props: Props) {
                 ) : null}
               </div>
             ) : null}
-          </div>
 
-          <div className="composer-meta-row">
             <kbd className="composer-shortcut">
               {keyboardShortcutLabel}
             </kbd>
