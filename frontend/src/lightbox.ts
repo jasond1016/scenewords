@@ -28,9 +28,11 @@ declare module "yet-another-react-lightbox" {
 }
 
 export type AppLightboxSlide = Slide | FailedSlide;
+export type MediaOrientation = "landscape" | "portrait" | "square";
 
 const LANDSCAPE_FALLBACK_DIMENSIONS = { width: 1600, height: 900 };
 const PORTRAIT_FALLBACK_DIMENSIONS = { width: 900, height: 1600 };
+const RATIO_FALLBACK_MAX_DIMENSION = 1600;
 
 export function buildLightboxItems(
   tasks: VideoTaskDetail[],
@@ -180,20 +182,24 @@ export function extractVideoPoster(task: VideoTaskDetail): string | null {
 }
 
 export function inferTaskPortrait(task: VideoTaskDetail): boolean {
+  return inferTaskOrientation(task) === "portrait";
+}
+
+export function inferTaskOrientation(task: VideoTaskDetail): MediaOrientation {
   const ratio = parseResolutionRatio(task.resolution);
   if (ratio != null) {
-    return ratio < 1;
+    return toOrientation(ratio);
   }
   const providerWidth = readNumber(task.provider_options ?? {}, "width");
   const providerHeight = readNumber(task.provider_options ?? {}, "height");
   if (providerWidth != null && providerHeight != null && providerWidth > 0) {
-    return providerHeight / providerWidth > 1;
+    return toOrientation(providerWidth / providerHeight);
   }
   const providerRatio = readAspectRatio(task.provider_options ?? {}, "aspect_ratio");
   if (providerRatio != null) {
-    return providerRatio < 1;
+    return toOrientation(providerRatio);
   }
-  return false;
+  return "landscape";
 }
 
 function resolveMediaDimensions(
@@ -240,10 +246,11 @@ function parseResolutionDimensions(
   if (rawWidth >= 128 && rawHeight >= 128) {
     return { width: rawWidth, height: rawHeight };
   }
-  const scale = 100;
+
+  const scale = RATIO_FALLBACK_MAX_DIMENSION / Math.max(rawWidth, rawHeight);
   return {
-    width: Math.round(rawWidth * scale),
-    height: Math.round(rawHeight * scale),
+    width: Math.max(1, Math.round(rawWidth * scale)),
+    height: Math.max(1, Math.round(rawHeight * scale)),
   };
 }
 
@@ -310,4 +317,14 @@ function inferVideoMimeType(url: string): string {
     return "application/x-mpegURL";
   }
   return "video/mp4";
+}
+
+function toOrientation(ratio: number): MediaOrientation {
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return "landscape";
+  }
+  if (Math.abs(ratio - 1) < 0.001) {
+    return "square";
+  }
+  return ratio < 1 ? "portrait" : "landscape";
 }

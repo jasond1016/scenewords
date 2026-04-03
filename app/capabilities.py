@@ -193,6 +193,22 @@ def _resolution_field(default_value: str = "1280x720") -> ProviderOperationField
     )
 
 
+def _tuzi_veo_resolution_field(default_value: str = "1280x720") -> ProviderOperationField:
+    return _field(
+        "resolution",
+        "分辨率",
+        input_type="select",
+        required=True,
+        default=default_value,
+        options=[
+            _option("1280x720", "720P 横屏"),
+            _option("720x1280", "720P 竖屏"),
+            _option("3840x2160", "4K 横屏"),
+            _option("2160x3840", "4K 竖屏"),
+        ],
+    )
+
+
 def _orientation_mode_field(default_value: str = "auto") -> ProviderOperationField:
     return _field(
         "orientation_mode",
@@ -473,7 +489,7 @@ def _tuzi_veo_operations(
                     step=1,
                     options=duration_options,
                 ),
-                _resolution_field(),
+                _tuzi_veo_resolution_field(),
                 _orientation_mode_field(),
                 _field(
                     "start_frame_file_id",

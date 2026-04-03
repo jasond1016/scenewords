@@ -109,6 +109,23 @@ interface ImageModelFamily {
   variants: ImageModelVariant[];
 }
 
+interface VideoModelVariant {
+  familyId: string;
+  familyLabel: string;
+  provider: ProviderInfo;
+  model: ProviderModelInfo;
+  operation: ProviderModelOperationInfo | null;
+  resolutionKey: "720p" | "4k";
+  resolutionLabel: "720P" | "4K";
+}
+
+interface VideoModelFamily {
+  id: string;
+  label: string;
+  provider: ProviderInfo;
+  variants: VideoModelVariant[];
+}
+
 interface AdvancedGroup {
   id: "prompt" | "inputs" | "behavior" | "runtime" | "developer" | "misc";
   fields: ProviderOperationField[];
@@ -345,6 +362,11 @@ export function CreatePage(props: Props) {
       currentGenerationKind === "image" ? collectImageModelFamilies(providerChoices) : [],
     [currentGenerationKind, providerChoices],
   );
+  const videoModelFamilies = useMemo(
+    () =>
+      currentGenerationKind === "video" ? collectTuziVideoModelFamilies(providerChoices) : [],
+    [currentGenerationKind, providerChoices],
+  );
   const currentImageFamily = useMemo(() => {
     if (!imageModelFamilies.length) {
       return null;
@@ -365,6 +387,61 @@ export function CreatePage(props: Props) {
       null
     );
   }, [currentImageFamily, modelName]);
+  const currentImageFamilySupportsModeSwitch = useMemo(() => {
+    if (!currentImageFamily) {
+      return false;
+    }
+    const hasAsyncVariant = currentImageFamily.variants.some((variant) => variant.asyncEnabled);
+    const hasSyncVariant = currentImageFamily.variants.some((variant) => !variant.asyncEnabled);
+    return hasAsyncVariant && hasSyncVariant;
+  }, [currentImageFamily]);
+  const currentVideoFamily = useMemo(() => {
+    if (!videoModelFamilies.length) {
+      return null;
+    }
+    return (
+      videoModelFamilies.find((family) =>
+        family.variants.some((variant) => variant.model.name === modelName),
+      ) ?? videoModelFamilies[0]
+    );
+  }, [modelName, videoModelFamilies]);
+  const currentVideoVariant = useMemo(() => {
+    if (!currentVideoFamily) {
+      return null;
+    }
+    return (
+      currentVideoFamily.variants.find((variant) => variant.model.name === modelName) ??
+      currentVideoFamily.variants[0] ??
+      null
+    );
+  }, [currentVideoFamily, modelName]);
+  const videoResolutionChoices = useMemo(
+    () =>
+      currentVideoFamily
+        ? Array.from(
+            new Map(
+              currentVideoFamily.variants.map((variant) => [
+                variant.resolutionKey,
+                variant.resolutionLabel,
+              ]),
+            ).values(),
+          )
+        : [],
+    [currentVideoFamily],
+  );
+  const imageFamilySupportsModeSwitchIds = useMemo(
+    () =>
+      new Set(
+        imageModelFamilies
+          .filter((family) => {
+            const hasAsyncVariant = family.variants.some((variant) => variant.asyncEnabled);
+            const hasSyncVariant = family.variants.some((variant) => !variant.asyncEnabled);
+            return hasAsyncVariant && hasSyncVariant;
+          })
+          .map((family) => family.id),
+      ),
+    [imageModelFamilies],
+  );
   const imageResolutionChoices = useMemo(
     () =>
       currentImageFamily
@@ -384,14 +461,48 @@ export function CreatePage(props: Props) {
       return imageModelFamilies.map((family) => ({
         key: family.id,
         label: family.label,
-        meta:
-          imageModelFamilies.length > 1
-            ? family.provider.display_name
-            : "",
+        meta: "",
         providerId: family.provider.id,
         modelName: family.variants[0]?.model.name ?? "",
         familyId: family.id,
       }));
+    }
+
+    if (videoModelFamilies.length) {
+      const groupedProviderIds = new Set(videoModelFamilies.map((family) => family.provider.id));
+      const groupedChoices = videoModelFamilies.map((family) => ({
+        key: family.id,
+        label: family.label,
+        meta: providerChoices.length > 1 ? family.provider.display_name : "",
+        providerId: family.provider.id,
+        modelName: family.variants[0]?.model.name ?? "",
+        operationId: family.variants[0]?.operation?.id,
+        familyId: family.id,
+      }));
+      const fallbackChoices = providerChoices
+        .filter((provider) => !groupedProviderIds.has(provider.id))
+        .flatMap((provider) =>
+          provider.models.flatMap((model) =>
+            model.operations.map((operation) => {
+              const metaParts: string[] = [];
+              if (providerChoices.length > 1) {
+                metaParts.push(provider.display_name);
+              }
+              if (model.operations.length > 1) {
+                metaParts.push(operation.display_name);
+              }
+              return {
+                key: `${provider.id}::${model.name}::${operation.id}`,
+                label: model.display_name,
+                meta: metaParts.join(" · "),
+                providerId: provider.id,
+                modelName: model.name,
+                operationId: operation.id,
+              };
+            }),
+          ),
+        );
+      return [...groupedChoices, ...fallbackChoices];
     }
 
     return providerChoices.flatMap((provider) =>
@@ -420,10 +531,14 @@ export function CreatePage(props: Props) {
     if (currentGenerationKind === "image") {
       return currentImageFamily?.id ?? "";
     }
+    if (currentVideoFamily) {
+      return currentVideoFamily.id;
+    }
     return `${providerId}::${modelName}::${selectedOperation?.id ?? operationId}`;
   }, [
     currentGenerationKind,
     currentImageFamily?.id,
+    currentVideoFamily,
     modelName,
     operationId,
     providerId,
@@ -468,6 +583,13 @@ export function CreatePage(props: Props) {
   const hasQuickSize = useMemo(
     () => Boolean((qualityField && qualityChoices.length) || sizeChoices.length),
     [qualityChoices.length, qualityField, sizeChoices.length],
+  );
+  const hideVideoRatioSelector = useMemo(
+    () =>
+      currentGenerationKind === "video" &&
+      selectedProvider?.type === "tuzi_veo" &&
+      orientationChoices.length > 0,
+    [currentGenerationKind, orientationChoices.length, selectedProvider?.type],
   );
   const currentRatioDisplay = useMemo(() => {
     if (!resolutionField) {
@@ -622,13 +744,15 @@ export function CreatePage(props: Props) {
   }, [activeModelChoiceKey, modelChoices, t]);
   const formatChipLabel = useMemo(() => {
     const parts: string[] = [];
-    if (currentRatioDisplay && currentRatioDisplay !== "-") {
+    if (!hideVideoRatioSelector && currentRatioDisplay && currentRatioDisplay !== "-") {
       parts.push(currentRatioDisplay);
     }
     if (currentGenerationKind === "image") {
       if (currentImageResolutionLabel) {
         parts.push(currentImageResolutionLabel);
       }
+    } else if (selectedProvider?.type === "tuzi_veo" && currentVideoVariant) {
+      parts.push(currentVideoVariant.resolutionLabel);
     } else if (currentSizeDisplay && currentSizeDisplay !== "-") {
       parts.push(currentSizeDisplay);
     }
@@ -638,6 +762,9 @@ export function CreatePage(props: Props) {
     currentImageResolutionLabel,
     currentRatioDisplay,
     currentSizeDisplay,
+    currentVideoVariant,
+    hideVideoRatioSelector,
+    selectedProvider?.type,
     t,
   ]);
   const keyboardShortcutLabel = useMemo(() => {
@@ -713,6 +840,33 @@ export function CreatePage(props: Props) {
     currentImageVariant,
     hasImageSourceAttachments,
     operationId,
+  ]);
+
+  useEffect(() => {
+    if (
+      currentGenerationKind !== "video" ||
+      selectedProvider?.type !== "tuzi_veo" ||
+      !currentVideoVariant ||
+      !resolutionField
+    ) {
+      return;
+    }
+    const expectedSize = currentVideoVariant.resolutionLabel;
+    if (currentSizeDisplay === expectedSize) {
+      return;
+    }
+    const nextResolution = pickResolutionValue(resolutionField, resolutionValue, { size: expectedSize });
+    if (!nextResolution || nextResolution === resolutionValue) {
+      return;
+    }
+    onFieldChanged(resolutionField, nextResolution);
+  }, [
+    currentGenerationKind,
+    currentSizeDisplay,
+    currentVideoVariant,
+    resolutionField,
+    resolutionValue,
+    selectedProvider?.type,
   ]);
 
   useEffect(() => {
@@ -1318,6 +1472,39 @@ export function CreatePage(props: Props) {
       setModelName(nextVariant.model.name);
     }
   };
+  const selectVideoVariant = (
+    familyId: string,
+    options?: { resolutionLabel?: string },
+  ) => {
+    const family = videoModelFamilies.find((item) => item.id === familyId);
+    if (!family) {
+      return;
+    }
+    const nextVariant = pickVideoFamilyVariant(family, {
+      resolutionKey: videoResolutionLabelToKey(
+        options?.resolutionLabel ?? currentVideoVariant?.resolutionLabel ?? "720P",
+      ),
+    });
+    if (!nextVariant) {
+      return;
+    }
+    if (providerId !== nextVariant.provider.id) {
+      setProviderId(nextVariant.provider.id);
+    }
+    if (modelName !== nextVariant.model.name) {
+      setModelName(nextVariant.model.name);
+    }
+    if (nextVariant.operation && operationId !== nextVariant.operation.id) {
+      setOperationId(nextVariant.operation.id);
+    }
+    if (resolutionField) {
+      const targetSize = nextVariant.resolutionLabel;
+      const nextResolution = pickResolutionValue(resolutionField, resolutionValue, { size: targetSize });
+      if (nextResolution && nextResolution !== resolutionValue) {
+        onFieldChanged(resolutionField, nextResolution);
+      }
+    }
+  };
   const onRatioChanged = (nextRatio: string) => {
     if (!resolutionField) {
       return;
@@ -1350,6 +1537,10 @@ export function CreatePage(props: Props) {
     onFieldChanged(resolutionField, nextResolution);
   };
   const onSizeChanged = (nextSize: string) => {
+    if (currentGenerationKind === "video" && selectedProvider?.type === "tuzi_veo" && currentVideoFamily) {
+      selectVideoVariant(currentVideoFamily.id, { resolutionLabel: nextSize });
+      return;
+    }
     if (qualityField) {
       onFieldChanged(qualityField, nextSize);
       return;
@@ -1738,14 +1929,24 @@ export function CreatePage(props: Props) {
                           onClick={() => {
                             if (currentGenerationKind === "image" && choice.familyId) {
                               selectImageVariant(choice.familyId);
+                              if (!imageFamilySupportsModeSwitchIds.has(choice.familyId)) {
+                                setOpenPopover(null);
+                              }
+                            } else if (
+                              currentGenerationKind === "video" &&
+                              choice.familyId &&
+                              videoModelFamilies.some((family) => family.id === choice.familyId)
+                            ) {
+                              selectVideoVariant(choice.familyId);
+                              setOpenPopover(null);
                             } else {
                               setProviderId(choice.providerId);
                               setModelName(choice.modelName);
                               if (choice.operationId) {
                                 setOperationId(choice.operationId);
                               }
+                              setOpenPopover(null);
                             }
-                            setOpenPopover(null);
                           }}
                         >
                           <div className="composer-menu-item__content composer-menu-item__content-stack">
@@ -1760,7 +1961,9 @@ export function CreatePage(props: Props) {
                     })}
                   </div>
 
-                  {currentGenerationKind === "image" && currentImageFamily ? (
+                  {currentGenerationKind === "image" &&
+                  currentImageFamily &&
+                  currentImageFamilySupportsModeSwitch ? (
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <p className="m-0 text-label">{t("create.quickMode")}</p>
@@ -1774,7 +1977,10 @@ export function CreatePage(props: Props) {
                         <button
                           type="button"
                           className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
-                          onClick={() => selectImageVariant(currentImageFamily.id, { asyncEnabled: false })}
+                          onClick={() => {
+                            selectImageVariant(currentImageFamily.id, { asyncEnabled: false });
+                            setOpenPopover(null);
+                          }}
                         >
                           {t("create.imageAsyncOff")}
                         </button>
@@ -1786,6 +1992,7 @@ export function CreatePage(props: Props) {
                               return;
                             }
                             selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
+                            setOpenPopover(null);
                           }}
                           disabled={hasImageSourceAttachments}
                         >
@@ -1818,7 +2025,8 @@ export function CreatePage(props: Props) {
                 {openPopover === "format" ? (
                   <div className="composer-popover composer-popover-wide">
                     <div className="flex flex-col gap-4">
-                      {Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
+                      {!hideVideoRatioSelector &&
+                      Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
                         <div className="space-y-2">
                           <p className="m-0 text-label">{t("create.quickRatio")}</p>
                           <div
@@ -1849,7 +2057,9 @@ export function CreatePage(props: Props) {
 
                       {(currentGenerationKind === "image"
                         ? imageResolutionChoices.length > 0
-                        : hasQuickSize) ? (
+                        : selectedProvider?.type === "tuzi_veo"
+                          ? videoResolutionChoices.length > 0
+                          : hasQuickSize) ? (
                         <div className="space-y-2">
                           <p className="m-0 text-label">
                             {currentGenerationKind === "image"
@@ -1878,8 +2088,16 @@ export function CreatePage(props: Props) {
                                     <span className="composer-resolution-card__label">{resolution}</span>
                                   </button>
                                 ))
-                              : (qualityField ? qualityChoices : sizeChoices).map((size) => {
+                              : (selectedProvider?.type === "tuzi_veo"
+                                  ? videoResolutionChoices
+                                  : qualityField
+                                    ? qualityChoices
+                                    : sizeChoices).map((size) => {
                                   const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                                  const isTuziVeo = selectedProvider?.type === "tuzi_veo";
+                                  const resolvedActive = isTuziVeo
+                                    ? currentVideoVariant?.resolutionLabel === size
+                                    : active;
                                   const label = qualityField
                                     ? qualityField.options.find((option) => option.value === size)?.label ?? size
                                     : size;
@@ -1887,7 +2105,7 @@ export function CreatePage(props: Props) {
                                     <button
                                       type="button"
                                       key={`size_${size}`}
-                                      className={`composer-resolution-card ${active ? "composer-resolution-card-active" : ""}`}
+                                      className={`composer-resolution-card ${resolvedActive ? "composer-resolution-card-active" : ""}`}
                                       onClick={() => onSizeChanged(size)}
                                     >
                                       <span className="composer-resolution-card__eyebrow">{t("create.quickSize")}</span>
@@ -2619,6 +2837,88 @@ function collectImageModelFamilies(providers: ProviderInfo[]): ImageModelFamily[
   }));
 }
 
+function collectTuziVideoModelFamilies(providers: ProviderInfo[]): VideoModelFamily[] {
+  const families = new Map<string, VideoModelFamily>();
+  for (const provider of providers) {
+    if (provider.type !== "tuzi_veo") {
+      continue;
+    }
+    for (const model of provider.models) {
+      const parsed = parseVideoModelVariant(model);
+      const familyId = `${provider.id}::${parsed.familyLabel}`;
+      const existing =
+        families.get(familyId) ??
+        {
+          id: familyId,
+          label: parsed.familyLabel,
+          provider,
+          variants: [],
+        };
+      existing.variants.push({
+        familyId,
+        familyLabel: parsed.familyLabel,
+        provider,
+        model,
+        operation: model.operations.find((operation) => operation.is_default) ?? model.operations[0] ?? null,
+        resolutionKey: parsed.resolutionKey,
+        resolutionLabel: parsed.resolutionLabel,
+      });
+      families.set(familyId, existing);
+    }
+  }
+  return Array.from(families.values()).map((family) => ({
+    ...family,
+    variants: family.variants.sort(
+      (left, right) => rankVideoResolution(left.resolutionKey) - rankVideoResolution(right.resolutionKey),
+    ),
+  }));
+}
+
+function parseVideoModelVariant(model: ProviderModelInfo): {
+  familyLabel: string;
+  resolutionKey: "720p" | "4k";
+  resolutionLabel: "720P" | "4K";
+} {
+  const normalizedName = model.name.toLowerCase();
+  const normalizedDisplay = model.display_name.toLowerCase();
+  const resolutionKey = normalizedName.includes("4k") || normalizedDisplay.includes("4k")
+    ? "4k"
+    : "720p";
+  const resolutionLabel = resolutionKey === "4k" ? "4K" : "720P";
+  const familyLabel = model.display_name
+    .replace(/\s+4k\b/gi, "")
+    .replace(/\s+720p\b/gi, "")
+    .trim();
+  return {
+    familyLabel: familyLabel || model.display_name,
+    resolutionKey,
+    resolutionLabel,
+  };
+}
+
+function pickVideoFamilyVariant(
+  family: VideoModelFamily,
+  options: { resolutionKey?: "720p" | "4k" },
+): VideoModelVariant | null {
+  const targetResolution = options.resolutionKey;
+  return (
+    family.variants.find(
+      (variant) => targetResolution == null || variant.resolutionKey === targetResolution,
+    ) ??
+    family.variants[0] ??
+    null
+  );
+}
+
+function videoResolutionLabelToKey(label: string): "720p" | "4k" {
+  const normalized = label.trim().toLowerCase();
+  return normalized === "4k" ? "4k" : "720p";
+}
+
+function rankVideoResolution(key: "720p" | "4k"): number {
+  return key === "4k" ? 1 : 0;
+}
+
 function parseImageModelVariant(model: ProviderModelInfo): {
   familyLabel: string;
   resolutionKey: "1k" | "2k" | "4k";
@@ -2932,9 +3232,15 @@ function parseResolutionMeta(raw: string): { ratio: string; size: string } {
     const width = Number(resolutionMatch[1]);
     const height = Number(resolutionMatch[2]);
     if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      let size = `${Math.min(width, height)}P`;
+      if (Math.max(width, height) >= 3840 || Math.min(width, height) >= 2160) {
+        size = "4K";
+      } else if (Math.max(width, height) >= 2560 || Math.min(width, height) >= 1440) {
+        size = "2K";
+      }
       return {
         ratio: normalizeAspectRatio(width, height),
-        size: `${Math.min(width, height)}P`,
+        size,
       };
     }
   }

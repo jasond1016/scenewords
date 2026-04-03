@@ -8,7 +8,7 @@ import { MediaOverlayFrame } from "./MediaOverlayFrame";
 import { useI18n } from "../i18n";
 import {
   buildLightboxItems,
-  inferTaskPortrait,
+  inferTaskOrientation,
   resolveInitialLightboxState,
 } from "../lightbox";
 import {
@@ -108,7 +108,9 @@ export function WorkDetailOverlay(props: Props) {
   const currentLightboxTask = lightboxItem
     ? taskById.get(lightboxItem.taskId) ?? null
     : null;
-  const currentLightboxIsPortrait = currentLightboxTask ? inferTaskPortrait(currentLightboxTask) : false;
+  const currentLightboxOrientation = currentLightboxTask
+    ? inferTaskOrientation(currentLightboxTask)
+    : "landscape";
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
 
   const taskDetailQuery = useQuery({
@@ -250,9 +252,11 @@ export function WorkDetailOverlay(props: Props) {
         />
       }
       mediaHint={
-        currentLightboxIsPortrait
+        currentLightboxOrientation === "portrait"
           ? t("works.portraitHint")
-          : t("works.landscapeHint")
+          : currentLightboxOrientation === "square"
+            ? t("works.squareHint")
+            : t("works.landscapeHint")
       }
       sidebar={
         <MediaDetailSidebar
