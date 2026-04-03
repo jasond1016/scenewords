@@ -1,5 +1,7 @@
+import { DotsThree, Info, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslateFn } from "../i18n";
+import { deriveTaskFormatMeta } from "../overlayTaskPresentation";
 import type { VideoTaskDetail } from "../types";
 
 export interface SidebarRetryActions {
@@ -34,8 +36,6 @@ interface Props {
   rawResultError?: string | null;
   rawResultPayload: string;
   errorText?: string | null;
-  isFavorited?: boolean;
-  onToggleFavorite?: () => void;
 }
 
 export function MediaDetailSidebar(props: Props) {
@@ -56,12 +56,12 @@ export function MediaDetailSidebar(props: Props) {
     rawResultError,
     rawResultPayload,
     errorText,
-    isFavorited = false,
-    onToggleFavorite,
   } = props;
   const { t } = useI18n();
   const [isSharing, setIsSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const formatMeta = deriveTaskFormatMeta(task);
   const buildSharedFileName = (contentType?: string): string => {
     const base = `${task.provider || "scenewords"}_${task.task_id.slice(0, 8)}`;
     const normalizedType = contentType?.toLowerCase() ?? "";
@@ -137,60 +137,14 @@ export function MediaDetailSidebar(props: Props) {
   };
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col gap-3.5 overflow-y-auto overscroll-contain pr-1 sm:pr-0"
-      data-overlay-scroll="allow"
-    >
-      <div className="min-h-0 shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
-        <div className="mb-2.5 flex items-start justify-between gap-2">
-          <div className="space-y-1">
-            <p className="m-0 text-label">{t("works.promptLabel")}</p>
-            <p className="m-0 text-xs text-[var(--c-text-secondary)]">{t("works.promptDescription")}</p>
-          </div>
-          <span className="rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-[10px] font-semibold text-[var(--c-text-secondary)] whitespace-nowrap">
-            {statusLabel}
-          </span>
-        </div>
-        <div
-          className="max-h-[40vh] overflow-y-auto overscroll-contain pr-1 sm:max-h-[30vh]"
-          data-overlay-scroll="allow"
-        >
-          <p className="m-0 max-w-prose whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--c-text)]">
-            {task.prompt || t("works.emptyPrompt")}
-          </p>
-          {task.negative_prompt ? (
-            <div className="mt-2 border-t border-border pt-2">
-              <p className="m-0 mb-1 text-[11px] font-semibold text-[var(--c-text-secondary)]">
-                {t("works.negativePrompt")}
-              </p>
-              <p className="m-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
-                {task.negative_prompt}
-              </p>
-            </div>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {downloadUrl ? (
+            <a href={downloadUrl} download className="btn-secondary text-xs" title={t("works.download")}>
+              {t("works.download")}
+            </a>
           ) : null}
-        </div>
-      </div>
-
-      <div className="shrink-0 space-y-3 rounded-xl border border-border bg-surface-raised p-3.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-info-bg px-2 py-1 text-[10px] font-semibold text-info-text">
-            {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
-          </span>
-          {onToggleFavorite && isFavorited ? (
-            <span className="rounded-full bg-accent-bg px-2 py-1 text-[10px] font-semibold text-accent">
-              {t("works.favorited")}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-primary text-xs"
-            onClick={onReuse}
-          >
-            {t("works.reusePrompt")}
-          </button>
           {downloadUrl ? (
             <button
               type="button"
@@ -204,20 +158,10 @@ export function MediaDetailSidebar(props: Props) {
               {isSharing ? t("works.sharing") : t("works.share")}
             </button>
           ) : null}
-          {downloadUrl ? (
-            <a
-              href={downloadUrl}
-              download
-              className="btn-secondary text-xs"
-              title={t("works.download")}
-            >
-              {t("works.download")}
-            </a>
-          ) : null}
           {cancelAction ? (
             <button
               type="button"
-              className="btn-danger text-xs"
+              className="btn-secondary text-xs"
               onClick={cancelAction.onCancel}
               disabled={cancelAction.disabled}
             >
@@ -225,117 +169,91 @@ export function MediaDetailSidebar(props: Props) {
             </button>
           ) : null}
         </div>
-        {shareError ? (
-          <p className="m-0 text-[11px] text-error-text">{shareError}</p>
-        ) : null}
 
-        {(retryActions?.onSameSeed || retryActions?.onNewSeed || retryActions?.onDefault) ? (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
-            <span className="text-[11px] text-[var(--c-text-tertiary)]">{t("works.retry", { mode: "" }).replace(/[() ]/g, "").trim() || "Retry"}</span>
-            {retryActions?.onSameSeed ? (
-              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onSameSeed} disabled={retryActions.disabled}>
-                {retryActions.sameSeedLabel}
-              </button>
-            ) : null}
-            {retryActions?.onNewSeed ? (
-              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onNewSeed} disabled={retryActions.disabled}>
-                {retryActions.newSeedLabel}
-              </button>
-            ) : null}
-            {retryActions?.onDefault ? (
-              <button type="button" className="btn-ghost text-xs" onClick={retryActions.onDefault} disabled={retryActions.disabled}>
-                {retryActions.defaultLabel}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {onToggleFavorite ? (
-          <div className="flex items-center justify-between border-t border-border pt-2">
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              onClick={onToggleFavorite}
-            >
-              {isFavorited ? t("works.unfavorite") : t("works.favorite")}
-            </button>
-            <button
-              type="button"
-              className="btn-danger text-xs"
-              onClick={onDelete}
-              disabled={deleteDisabled}
-            >
-              {t("works.delete")}
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-end border-t border-border pt-2">
-            <button
-              type="button"
-              className="btn-danger text-xs"
-              onClick={onDelete}
-              disabled={deleteDisabled}
-            >
-              {t("works.delete")}
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
-        <div className="mb-2.5 flex items-start justify-between gap-2">
-          <div className="space-y-1">
-            <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("works.assetDetailTitle")}</h3>
-            <p className="m-0 text-xs text-[var(--c-text-secondary)]">{t("works.detailDescription")}</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--c-text-secondary)]">
-          <InfoCell label={t("works.provider")} value={task.provider} />
-          <InfoCell label={t("works.model")} value={task.model} />
-          <InfoCell label={t("works.resolution")} value={task.resolution ?? t("common.na")} />
-          <InfoCell label={t("works.created")} value={updatedAtLabel} />
-        </div>
-        <details className="mt-3 border-t border-border pt-3">
-          <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
-            {t("works.technicalDetails")}
+        <details className="group relative shrink-0 [&_summary::-webkit-details-marker]:hidden">
+          <summary className="flex h-9 w-9 list-none items-center justify-center rounded-full border border-border bg-surface-raised text-[var(--c-text-secondary)] shadow-[var(--shadow-xs)] transition-[background-color,border-color,color] duration-200 hover:border-[var(--c-border-strong)] hover:bg-[var(--c-surface-hover)] hover:text-[var(--c-text)]">
+            <DotsThree size={18} weight="regular" />
           </summary>
-          <div className="mt-2 space-y-1 text-[11px] text-[var(--c-text-secondary)]">
-            <p className="m-0 break-all font-mono text-[10px] tabular-nums text-[var(--c-text-tertiary)]">
-              {t("works.taskId")}: {task.task_id}
-            </p>
-            {task.provider_job_id ? (
-              <p className="m-0 break-all">
-                {t("works.upstreamJob")}: {task.provider_job_id}
-              </p>
-            ) : null}
-            {task.provider_status ? (
-              <p className="m-0 break-all">
-                {t("works.upstreamStatus")}: {task.provider_status}
-              </p>
-            ) : null}
+          <div className="absolute right-0 top-11 z-10 min-w-[160px] rounded-2xl border border-border bg-surface-raised p-1.5 shadow-[var(--shadow-lg)]">
+            <button
+              type="button"
+              className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-medium text-error-text transition-colors hover:bg-error-bg"
+              onClick={onDelete}
+              disabled={deleteDisabled}
+            >
+              {t("works.delete")}
+            </button>
           </div>
         </details>
       </div>
 
-      <details className="shrink-0 rounded-xl border border-border bg-surface-raised p-3.5">
-        <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
-          {t("works.moreActions")}
-        </summary>
-        <div className="mt-2 flex flex-col gap-2">
+      {shareError ? (
+        <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-error-bg px-3 py-2 text-[11px] text-error-text">
+          {shareError}
+        </p>
+      ) : null}
+
+      <section className="space-y-2">
+        <p className="m-0 text-label">{t("works.promptLabel")}</p>
+        <p
+          className="m-0 truncate text-sm font-medium leading-6 text-[var(--c-text)]"
+          title={task.prompt || t("works.emptyPrompt")}
+        >
+          {task.prompt || t("works.emptyPrompt")}
+        </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <InlineStat label={t("works.model")} value={task.model} />
+          <InlineDivider />
+          <InlineStat label={t("create.quickRatio")} value={formatMeta.ratio ?? t("common.na")} />
+          <InlineDivider />
+          <InlineStat label={t("works.resolution")} value={formatMeta.resolution ?? t("common.na")} />
+          <InlineDivider />
           <button
             type="button"
-            className="text-left text-xs text-[var(--c-text-secondary)] underline decoration-dotted underline-offset-2 hover:text-[var(--c-text)]"
-            onClick={onCopyRequestJson}
+            className="inline-flex items-center gap-1 rounded-full px-1.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:text-[var(--c-text)]"
+            onClick={() => setIsDetailsOpen((current) => !current)}
           >
-            {t("works.copyRequestJson")}
+            <Info size={14} weight="regular" />
+            {t("works.detailsInline")}
           </button>
+        </div>
+      </section>
+
+      {isDetailsOpen ? (
+        <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">
+          <div className="grid grid-cols-2 gap-3 text-[11px] text-[var(--c-text-secondary)]">
+            <InfoCell label={t("works.provider")} value={task.provider} />
+            <InfoCell label={t("works.statusLabel")} value={statusLabel} />
+            <InfoCell label={t("works.created")} value={updatedAtLabel} />
+            <InfoCell label={t("works.taskId")} value={task.task_id} mono />
+            {task.provider_job_id ? <InfoCell label={t("works.upstreamJob")} value={task.provider_job_id} /> : null}
+            {task.provider_status ? <InfoCell label={t("works.upstreamStatus")} value={task.provider_status} /> : null}
+          </div>
+          {task.negative_prompt ? (
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="m-0 text-label">{t("works.negativePrompt")}</p>
+              <p className="m-0 mt-1 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
+                {task.negative_prompt}
+              </p>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={onCopyRequestJson}
+            >
+              {t("works.copyRequestJson")}
+            </button>
+          </div>
           <details
+            className="mt-3 rounded-2xl border border-border bg-canvas/70 px-3 py-2"
             open={isRawResultOpen}
             onToggle={(event) => {
               onRawResultOpenChange(event.currentTarget.open);
             }}
           >
-            <summary className="cursor-pointer text-xs text-[var(--c-text-secondary)]">
+            <summary className="cursor-pointer text-xs font-semibold text-[var(--c-text-secondary)]">
               {t("works.rawResult")}
             </summary>
             {isRawResultOpen ? (
@@ -349,7 +267,7 @@ export function MediaDetailSidebar(props: Props) {
                 </p>
               ) : (
                 <pre
-                  className="mt-2 max-h-44 overflow-auto rounded-lg border border-border bg-canvas p-2 text-[10px] text-[var(--c-text-secondary)]"
+                  className="mt-2 max-h-44 overflow-auto rounded-xl border border-border bg-canvas p-2 text-[10px] text-[var(--c-text-secondary)]"
                   data-overlay-scroll="allow"
                 >
                   {rawResultPayload}
@@ -357,23 +275,109 @@ export function MediaDetailSidebar(props: Props) {
               )
             ) : null}
           </details>
-        </div>
-      </details>
+        </section>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+        <button
+          type="button"
+          className="btn-primary text-xs"
+          onClick={onReuse}
+        >
+          {t("works.editAgain")}
+        </button>
+        {renderRetryButtons(retryActions, t)}
+      </div>
 
       {errorText ? (
-        <p className="m-0 shrink-0 rounded-lg border border-[#F1D7CF] bg-error-bg px-2.5 py-2 text-xs text-error-text">
-          {errorText}
+        <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-error-bg px-3 py-2 text-xs text-error-text">
+          <span className="inline-flex items-center gap-1.5">
+            <WarningCircle size={14} weight="regular" />
+            {errorText}
+          </span>
         </p>
       ) : null}
     </div>
   );
 }
 
-function InfoCell({ label, value }: { label: string; value: string }) {
+function renderRetryButtons(
+  retryActions: SidebarRetryActions | undefined,
+  t: TranslateFn,
+) {
+  if (!retryActions) {
+    return null;
+  }
+
+  if (retryActions.onDefault) {
+    return (
+      <button
+        type="button"
+        className="btn-secondary text-xs"
+        onClick={retryActions.onDefault}
+        disabled={retryActions.disabled}
+      >
+        {t("works.generateAgain")}
+      </button>
+    );
+  }
+
   return (
-    <div>
+    <>
+      {retryActions.onSameSeed ? (
+        <button
+          type="button"
+          className="btn-secondary text-xs"
+          onClick={retryActions.onSameSeed}
+          disabled={retryActions.disabled}
+        >
+          {t("works.generateAgainSameSeed")}
+        </button>
+      ) : null}
+      {retryActions.onNewSeed ? (
+        <button
+          type="button"
+          className="btn-secondary text-xs"
+          onClick={retryActions.onNewSeed}
+          disabled={retryActions.disabled}
+        >
+          {t("works.generateAgainNewSeed")}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function InlineStat({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span className="text-[var(--c-text-tertiary)]">{label}</span>
+      <span className="font-medium text-[var(--c-text)]">{value}</span>
+    </span>
+  );
+}
+
+function InlineDivider() {
+  return <span className="text-[var(--c-border-strong)]">|</span>;
+}
+
+function InfoCell({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
       <p className="m-0 text-label">{label}</p>
-      <p className="m-0 mt-0.5 truncate text-[11px] font-semibold text-[var(--c-text)]">{value}</p>
+      <p
+        className={`m-0 mt-1 break-words font-medium text-[var(--c-text)] ${mono ? "font-mono text-[10px] tabular-nums" : ""}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

@@ -313,6 +313,12 @@ const ZH_CN: Record<string, string> = {
 
   "works.negativePrompt": "负向提示词",
   "works.favorited": "已收藏",
+  "works.statusLabel": "状态",
+  "works.detailsInline": "详细信息",
+  "works.editAgain": "重新编辑",
+  "works.generateAgain": "再次生成",
+  "works.generateAgainSameSeed": "再次生成（同种子）",
+  "works.generateAgainNewSeed": "再次生成（新种子）",
   "common.loading": "加载中...",
 };
 
@@ -629,6 +635,12 @@ const EN: Record<string, string> = {
 
   "works.negativePrompt": "Negative Prompt",
   "works.favorited": "Favorited",
+  "works.statusLabel": "Status",
+  "works.detailsInline": "Details",
+  "works.editAgain": "Edit Again",
+  "works.generateAgain": "Generate Again",
+  "works.generateAgainSameSeed": "Generate Again (Same Seed)",
+  "works.generateAgainNewSeed": "Generate Again (New Seed)",
   "common.loading": "Loading...",
 };
 

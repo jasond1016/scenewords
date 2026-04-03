@@ -10,7 +10,6 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowSquareOut,
   CaretLeft,
   CaretRight,
   CloudArrowUp,
@@ -44,9 +43,6 @@ import type {
 } from "../types";
 import {
   durationOptionsFromField,
-  errorMessage,
-  extractImageUrls,
-  extractVideoUrl,
   fieldKey,
   fieldStorageKey,
   findField,
@@ -58,7 +54,6 @@ import {
   saveSession,
   valueToStoredString,
 } from "../utils";
-import { useVideoPosterUrl } from "../useVideoPoster";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { SkeletonForm } from "../components/Skeletons";
 import { TaskPreviewCard } from "../components/TaskPreviewCard";
@@ -327,24 +322,6 @@ export function CreatePage(props: Props) {
         .slice(0, 8),
     [tasks],
   );
-  const trackedTask = useMemo(
-    () =>
-      lastSubmittedTaskId
-        ? tasks.find((task) => task.task_id === lastSubmittedTaskId) ?? null
-        : null,
-    [lastSubmittedTaskId, tasks],
-  );
-  const trackedPreview = useMemo(() => {
-    if (!trackedTask || trackedTask.status !== "succeeded") {
-      return null;
-    }
-    if (trackedTask.asset_type === "video") {
-      const url = extractVideoUrl(trackedTask);
-      return url ? { kind: "video" as const, url } : null;
-    }
-    const urls = extractImageUrls(trackedTask);
-    return urls[0] ? { kind: "image" as const, url: urls[0] } : null;
-  }, [trackedTask]);
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
     [providers],
@@ -1592,32 +1569,6 @@ export function CreatePage(props: Props) {
   };
   const showRecentStatusBadge = (task: VideoTaskDetail): boolean =>
     task.status === "queued" || task.status === "running" || task.status === "canceled";
-  const estimatedWaitLabel = (task: VideoTaskDetail | null): string | null => {
-    if (!task || (task.status !== "queued" && task.status !== "running")) {
-      return null;
-    }
-    const model = task.model.toLowerCase();
-    const provider = task.provider.toLowerCase();
-    let minSec = 30;
-    let maxSec = 120;
-    if (model.includes("veo")) {
-      minSec = 30;
-      maxSec = 180;
-    } else if (model.includes("sora")) {
-      minSec = 60;
-      maxSec = 300;
-    } else if (provider.includes("comfy")) {
-      minSec = 60;
-      maxSec = 600;
-    } else if (provider.includes("image") || model.includes("image") || model.includes("gemini")) {
-      minSec = 10;
-      maxSec = 90;
-    }
-    const fmt = (s: number) => s >= 60 ? `${Math.round(s / 60)}min` : `${s}s`;
-    return locale === "zh-CN"
-      ? `预计 ${fmt(minSec)} – ${fmt(maxSec)}`
-      : `est. ${fmt(minSec)} – ${fmt(maxSec)}`;
-  };
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-32">
@@ -1645,93 +1596,6 @@ export function CreatePage(props: Props) {
       {/* ── Canvas Area (above composer) ─────────────── */}
       <div className="create-canvas">
         <div className="flex w-full min-w-0 flex-col gap-6 sm:gap-8">
-
-          {/* Tracked Task */}
-          {lastSubmittedTaskId && trackedTask ? (
-            <div className="tracked-card card-flat space-y-3">
-              {/* Status header */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className={`tag ${
-                    statusTone(trackedTask) === "ok"
-                      ? "tag-success"
-                      : statusTone(trackedTask) === "danger"
-                        ? "tag-error"
-                        : statusTone(trackedTask) === "warn"
-                          ? "tag-warning"
-                          : "tag-neutral"
-                  }`}>
-                    {statusLabel(trackedTask)}
-                  </span>
-                  <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-tertiary)]">
-                    {lastSubmittedTaskId.slice(0, 8)}
-                  </span>
-                </div>
-                <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
-                  {t("create.feedbackContinue")}
-                </button>
-              </div>
-
-              {/* Running pulse */}
-              {(trackedTask.status === "queued" || trackedTask.status === "running") ? (
-                <div className="flex items-center gap-3 rounded-xl bg-warning-bg px-4 py-3">
-                  <div className="status-dot status-dot-pulse bg-warning-text" />
-                  <div className="flex flex-1 items-center justify-between gap-2">
-                    <p className="m-0 text-xs text-warning-text">
-                      {trackedTask.status === "queued"
-                        ? (trackedTask.queue_position != null && trackedTask.queue_position > 0
-                            ? t("create.feedbackQueuedWithPosition", { position: trackedTask.queue_position })
-                            : t("create.feedbackQueued"))
-                        : t("create.feedbackRunning")}
-                    </p>
-                    {estimatedWaitLabel(trackedTask) ? (
-                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-warning-text/70">
-                        {estimatedWaitLabel(trackedTask)}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Succeeded preview */}
-              {trackedTask.status === "succeeded" && trackedPreview ? (
-                <button
-                  type="button"
-                  className="block w-full overflow-hidden rounded-2xl border border-border bg-canvas p-0 text-left transition-all duration-200 hover:border-[var(--c-border-focus)] hover:shadow-[var(--shadow-md)]"
-                  onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}
-                >
-                  {trackedPreview.kind === "video" ? (
-                    <VideoPosterPreview
-                      src={trackedPreview.url}
-                      className="aspect-video w-full"
-                      imageClassName="block h-full w-full object-cover"
-                    />
-                  ) : (
-                    <img src={trackedPreview.url} alt="" className="block aspect-video w-full object-cover" />
-                  )}
-                </button>
-              ) : null}
-
-              {trackedTask.status === "succeeded" ? (
-                <div className="flex items-center gap-2">
-                  <button type="button" className="btn-primary text-xs" onClick={() => navigate(`/works?taskId=${lastSubmittedTaskId}`)}>
-                    <ArrowSquareOut size={13} />
-                    {t("create.feedbackViewResult")}
-                  </button>
-                  <button type="button" className="btn-ghost text-xs" onClick={() => setLastSubmittedTaskId(null)}>
-                    {t("create.feedbackContinue")}
-                  </button>
-                </div>
-              ) : null}
-
-              {trackedTask.status === "failed" && trackedTask.error ? (
-                <p className="m-0 rounded-xl bg-error-bg px-3 py-2 text-xs text-error-text">
-                  {errorMessage(trackedTask)}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
           <section className="card flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <span className="text-label">{t("create.recentTasks")}</span>
@@ -2261,37 +2125,6 @@ function InlineThumb({
       <button type="button" className="composer-thumb-remove" onClick={onRemove}>
         <X size={10} weight="bold" />
       </button>
-    </div>
-  );
-}
-
-function VideoPosterPreview({
-  src,
-  className,
-  imageClassName,
-}: {
-  src: string;
-  className: string;
-  imageClassName: string;
-}) {
-  const { t } = useI18n();
-  const posterUrl = useVideoPosterUrl(src);
-
-  return (
-    <div className={`relative overflow-hidden ${className}`}>
-      {posterUrl ? (
-        <img src={posterUrl} alt="" className={imageClassName} loading="lazy" />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-surface-raised text-[var(--c-text-tertiary)]">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-[11px] font-medium shadow-[var(--shadow-xs)]">
-            <VideoCamera size={14} weight="fill" />
-            <span>{t("create.generateVideo")}</span>
-          </div>
-        </div>
-      )}
-      <div className="pointer-events-none absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white shadow-[var(--shadow-sm)]">
-        <VideoCamera size={14} weight="fill" />
-      </div>
     </div>
   );
 }

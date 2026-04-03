@@ -407,7 +407,11 @@ def create_app() -> FastAPI:
         )
         if retry_payload.prompt is not None:
             source_request.prompt = retry_payload.prompt
-        if retry_payload.retry_mode == "new_seed":
+        if not _provider_supports_seed_retry(
+            source_request.provider, app.state.provider_configs
+        ):
+            source_request.seed = None
+        elif retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
         return await _enqueue_video_task(source_request)
 
@@ -558,7 +562,11 @@ def create_app() -> FastAPI:
         )
         if retry_payload.prompt is not None:
             source_request.prompt = retry_payload.prompt
-        if retry_payload.retry_mode == "new_seed":
+        if not _provider_supports_seed_retry(
+            source_request.provider, app.state.provider_configs
+        ):
+            source_request.seed = None
+        elif retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
         return await _enqueue_image_task(source_request)
 
@@ -735,6 +743,15 @@ def create_app() -> FastAPI:
         )
 
     return app
+
+
+def _provider_supports_seed_retry(
+    provider_id: str, provider_configs: dict[str, ProviderConfig]
+) -> bool:
+    provider_config = provider_configs.get(provider_id)
+    if not provider_config:
+        return True
+    return not provider_config.type.startswith("tuzi")
 
 
 def require_auth(request: Request) -> None:

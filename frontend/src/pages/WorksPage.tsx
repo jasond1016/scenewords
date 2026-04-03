@@ -13,7 +13,7 @@ import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n, type TranslateFn } from "../i18n";
 import {
   buildLightboxItems,
-  inferTaskPortrait,
+  inferTaskOrientation,
   type LightboxKind,
 } from "../lightbox";
 import {
@@ -35,10 +35,10 @@ import {
 import {
   buildMediaSidebarActions,
   formatOverlayTaskStatus,
+  providerSupportsSeedRetry,
 } from "../overlayTaskPresentation";
 import { useAppSettingsStore } from "../state";
 import {
-  useCompactOverlayInfo,
   useEscapeToClose,
   useOverlayScrollLock,
 } from "../useMediaOverlay";
@@ -70,8 +70,8 @@ export function WorksPage(props: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [hint, setHint] = useState("");
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
+  const [isMediaExpanded, setIsMediaExpanded] = useState(false);
   const isLightboxOpen = lightboxState !== null;
-  const { isInfoHidden, setIsInfoHidden } = useCompactOverlayInfo(isLightboxOpen);
   const taskById = useMemo(
     () => new Map(tasks.map((task) => [task.task_id, task])),
     [tasks],
@@ -164,7 +164,9 @@ export function WorksPage(props: Props) {
   const currentLightboxTask = lightboxItem
     ? taskById.get(lightboxItem.taskId) ?? null
     : null;
-  const currentLightboxIsPortrait = currentLightboxTask ? inferTaskPortrait(currentLightboxTask) : false;
+  const currentLightboxOrientation = currentLightboxTask
+    ? inferTaskOrientation(currentLightboxTask)
+    : "landscape";
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
 
   const taskDetailQuery = useQuery({
@@ -199,6 +201,10 @@ export function WorksPage(props: Props) {
     setIsRawResultOpen(false);
   }, [currentLightboxTask?.task_id]);
 
+  useEffect(() => {
+    setIsMediaExpanded(false);
+  }, [currentLightboxTask?.task_id]);
+
   useOverlayScrollLock(isLightboxOpen);
 
   useEffect(() => {
@@ -213,7 +219,8 @@ export function WorksPage(props: Props) {
     }
   }, [lightboxIndex, lightboxItems]);
 
-  useEscapeToClose(lightboxIndex != null, () => setLightboxState(null));
+  useEscapeToClose(lightboxIndex != null && !isMediaExpanded, () => setLightboxState(null));
+  useEscapeToClose(isMediaExpanded, () => setIsMediaExpanded(false));
 
   const openImageLightbox = (taskId: string, imageUrl?: string) => {
     const index = imageLightboxItems.findIndex(
@@ -303,6 +310,7 @@ export function WorksPage(props: Props) {
         retryDisabled: retryMutation.isPending,
         showBothRetryActions: settings.showBothRetryActions,
         retryModeDefault: settings.retryModeDefault,
+        supportsSeedRetry: providerSupportsSeedRetry(currentLightboxTask.provider),
         onDeleteConfirmed: () => {
           deleteMutation.mutate({
             taskId: currentLightboxTask.task_id,
@@ -441,67 +449,103 @@ export function WorksPage(props: Props) {
       {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
 
       {lightboxItem && currentLightboxTask ? (
-        <MediaOverlayFrame
-          title={t("works.workPreview")}
-          currentIndex={lightboxIndex}
-          totalItems={lightboxItems.length}
-          isInfoHidden={isInfoHidden}
-          onToggleInfo={() => setIsInfoHidden((current) => !current)}
-          onClose={() => setLightboxState(null)}
-          showInfoLabel={t("works.showInfo")}
-          hideInfoLabel={t("works.hideInfo")}
-          closeLabel={t("common.close")}
-          media={
-            <AppLightboxStage
-              items={lightboxItems}
-              index={lightboxIndex ?? 0}
-              taskById={taskById}
-              onIndexChange={(nextIndex) =>
-                setLightboxState((current) =>
-                  current ? { ...current, index: nextIndex } : null,
-                )
-              }
-            />
-          }
-          mediaHint={
-            currentLightboxIsPortrait
-              ? t("works.portraitHint")
-              : t("works.landscapeHint")
-          }
-          sidebar={
-            <MediaDetailSidebar
-              task={currentLightboxTask}
-              statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
-              updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-              downloadUrl={lightboxItem.url}
-              onReuse={() => {
-                settings.setPendingReuseDraft(toDraft(currentLightboxTask));
-                navigate("/create");
-              }}
-              onDelete={sidebarActions?.onDelete ?? (() => undefined)}
-              deleteDisabled={sidebarActions?.deleteDisabled}
-              cancelAction={sidebarActions?.cancelAction}
-              retryActions={sidebarActions?.retryActions}
-              onCopyRequestJson={() => {
-                const payload = buildTaskRequestPayload(currentLightboxTask);
-                const text = JSON.stringify(payload, null, 2);
-                void copyText(text).then(
-                  () => setHint(t("works.copyJsonSuccess")),
-                  () => setHint(t("works.copyJsonFailed")),
-                );
-              }}
-              isRawResultOpen={isRawResultOpen}
-              onRawResultOpenChange={setIsRawResultOpen}
-              rawResultPending={taskDetailQuery.isPending}
-              rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
-              rawResultPayload={rawResultPayload}
-              errorText={errorMessage(currentLightboxTask, {
-                mapErrorCode,
-                fallbackMessage: t("error.defaultFailure"),
-              })}
-            />
-          }
-        />
+        <>
+          <MediaOverlayFrame
+            title={t("works.workPreview")}
+            currentIndex={lightboxIndex}
+            totalItems={lightboxItems.length}
+            onClose={() => setLightboxState(null)}
+            onExpandMedia={() => setIsMediaExpanded(true)}
+            closeLabel={t("common.close")}
+            media={
+              <AppLightboxStage
+                items={lightboxItems}
+                index={lightboxIndex ?? 0}
+                taskById={taskById}
+                onIndexChange={(nextIndex) =>
+                  setLightboxState((current) =>
+                    current ? { ...current, index: nextIndex } : null,
+                  )
+                }
+              />
+            }
+            mediaHint={
+              currentLightboxOrientation === "portrait"
+                ? t("works.portraitHint")
+                : currentLightboxOrientation === "square"
+                  ? t("works.squareHint")
+                  : t("works.landscapeHint")
+            }
+            sidebar={
+              <MediaDetailSidebar
+                task={currentLightboxTask}
+                statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
+                updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
+                downloadUrl={lightboxItem.url}
+                onReuse={() => {
+                  settings.setPendingReuseDraft(toDraft(currentLightboxTask));
+                  navigate("/create");
+                }}
+                onDelete={sidebarActions?.onDelete ?? (() => undefined)}
+                deleteDisabled={sidebarActions?.deleteDisabled}
+                cancelAction={sidebarActions?.cancelAction}
+                retryActions={sidebarActions?.retryActions}
+                onCopyRequestJson={() => {
+                  const payload = buildTaskRequestPayload(currentLightboxTask);
+                  const text = JSON.stringify(payload, null, 2);
+                  void copyText(text).then(
+                    () => setHint(t("works.copyJsonSuccess")),
+                    () => setHint(t("works.copyJsonFailed")),
+                  );
+                }}
+                isRawResultOpen={isRawResultOpen}
+                onRawResultOpenChange={setIsRawResultOpen}
+                rawResultPending={taskDetailQuery.isPending}
+                rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
+                rawResultPayload={rawResultPayload}
+                errorText={errorMessage(currentLightboxTask, {
+                  mapErrorCode,
+                  fallbackMessage: t("error.defaultFailure"),
+                })}
+              />
+            }
+          />
+          {isMediaExpanded ? (
+            <div
+              className="fixed inset-0 z-[60] bg-[rgba(9,9,11,0.8)] p-4 backdrop-blur-[4px]"
+              role="dialog"
+              aria-modal="true"
+              onClick={() => setIsMediaExpanded(false)}
+            >
+              <div
+                className="relative mx-auto flex h-full max-w-[min(96vw,1460px)] items-center justify-center"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(24,24,27,0.82)] text-white shadow-[var(--shadow-lg)] transition-colors hover:bg-[rgba(39,39,42,0.92)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                  onClick={() => setIsMediaExpanded(false)}
+                  aria-label={t("common.close")}
+                  title={t("common.close")}
+                >
+                  ×
+                </button>
+                <div className="h-full w-full overflow-hidden rounded-[28px] bg-[rgba(10,10,14,0.9)] p-3 shadow-[var(--shadow-overlay)] md:p-4">
+                  <AppLightboxStage
+                    items={lightboxItems}
+                    index={lightboxIndex ?? 0}
+                    taskById={taskById}
+                    onIndexChange={(nextIndex) =>
+                      setLightboxState((current) =>
+                        current ? { ...current, index: nextIndex } : null,
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -578,7 +622,7 @@ function useWindowWidth() {
 }
 
 function estimateCardWeight(task: VideoTaskDetail): number {
-  const portrait = inferTaskPortrait(task);
+  const portrait = inferTaskOrientation(task) === "portrait";
   if (task.asset_type === "video") {
     return portrait ? 1.55 : 1.1;
   }
