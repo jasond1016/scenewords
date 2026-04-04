@@ -200,11 +200,10 @@ def _tuzi_veo_resolution_field(default_value: str = "1280x720") -> ProviderOpera
         input_type="select",
         required=True,
         default=default_value,
+        help_text="4K 输出由所选模型决定；提交给 Tuzi 的 size 仅使用 1280x720 或 720x1280。",
         options=[
-            _option("1280x720", "720P 横屏"),
-            _option("720x1280", "720P 竖屏"),
-            _option("3840x2160", "4K 横屏"),
-            _option("2160x3840", "4K 竖屏"),
+            _option("1280x720", "横屏"),
+            _option("720x1280", "竖屏"),
         ],
     )
 

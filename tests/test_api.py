@@ -327,6 +327,77 @@ def test_list_image_tasks_only_returns_image_asset_type(client_factory) -> None:
     assert payload[0]["asset_type"] == "image"
 
 
+def test_retry_video_task_keeps_seed_for_supported_provider(
+    client_factory,
+) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="demo_provider",
+            model="demo-model",
+            operation="generate",
+            prompt="test prompt",
+            request_payload={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "test prompt",
+                "seed": 12345,
+                "provider_options": {},
+            },
+        )
+
+        response = client.post(
+            f"/v1/video/tasks/{task_id}/retry",
+            json={"retry_mode": "same_seed"},
+        )
+        new_task = client.app.state.store.get_task(response.json()["task_id"])
+
+    assert response.status_code == 200
+    assert new_task["request"]["seed"] == 12345
+
+
+def test_retry_image_task_clears_seed_for_tuzi_provider(
+    client_factory,
+) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="tuzi_image_demo",
+            model="gemini-3-pro-image-preview",
+            operation="generate",
+            prompt="test image prompt",
+            request_payload={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "prompt": "test image prompt",
+                "seed": 67890,
+                "provider_options": {},
+            },
+            asset_type="image",
+        )
+
+        response = client.post(
+            f"/v1/image/tasks/{task_id}/retry",
+            json={"retry_mode": "same_seed"},
+        )
+        new_task = client.app.state.store.get_task(response.json()["task_id"])
+
+    assert response.status_code == 200
+    assert new_task["request"]["seed"] is None
+
+
 def test_delete_image_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_image_task(client)

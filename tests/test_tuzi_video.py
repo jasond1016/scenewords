@@ -136,6 +136,72 @@ def test_build_generation_form_preserves_full_portrait_content_with_padding(tmp_
     assert meta[0]["padded"] is True
 
 
+def test_build_generation_form_maps_4k_landscape_request_to_tuzi_submit_size(tmp_path) -> None:
+    source_path = tmp_path / "landscape.jpg"
+    Image.new("RGB", (4032, 3024), color=(120, 90, 60)).save(source_path, format="JPEG", quality=95)
+    request = VideoGenerationRequest(
+        provider="veo31",
+        model="veo3.1-4k",
+        operation="generate",
+        prompt="test",
+        duration_sec=8,
+        resolution="3840x2160",
+        provider_options={
+            "__resolved_start_frame_file_id": [
+                {
+                    "file_id": "file_1",
+                    "path": str(source_path),
+                    "original_name": "landscape.jpg",
+                    "mime_type": "image/jpeg",
+                    "size_bytes": source_path.stat().st_size,
+                }
+            ]
+        },
+    )
+
+    form, _meta = _build_generation_form(request, "generate", upload_profile="normal")
+
+    size_part = next(part for part in form if part[0] == "size")
+    assert size_part == ("size", (None, "1280x720"))
+
+    image_part = next(part for part in form if part[0] == "input_reference" and isinstance(part[1], tuple))
+    with Image.open(io.BytesIO(image_part[1][1])) as image:
+        assert image.size == (1280, 720)
+
+
+def test_build_generation_form_maps_4k_portrait_request_to_tuzi_submit_size(tmp_path) -> None:
+    source_path = tmp_path / "portrait.jpg"
+    Image.new("RGB", (3024, 4032), color=(90, 120, 60)).save(source_path, format="JPEG", quality=95)
+    request = VideoGenerationRequest(
+        provider="veo31",
+        model="veo3.1-4k",
+        operation="generate",
+        prompt="test",
+        duration_sec=8,
+        resolution="2160x3840",
+        provider_options={
+            "__resolved_start_frame_file_id": [
+                {
+                    "file_id": "file_1",
+                    "path": str(source_path),
+                    "original_name": "portrait.jpg",
+                    "mime_type": "image/jpeg",
+                    "size_bytes": source_path.stat().st_size,
+                }
+            ]
+        },
+    )
+
+    form, _meta = _build_generation_form(request, "generate", upload_profile="normal")
+
+    size_part = next(part for part in form if part[0] == "size")
+    assert size_part == ("size", (None, "720x1280"))
+
+    image_part = next(part for part in form if part[0] == "input_reference" and isinstance(part[1], tuple))
+    with Image.open(io.BytesIO(image_part[1][1])) as image:
+        assert image.size == (720, 1280)
+
+
 def test_should_retry_upload_failure_only_once_for_normal_profile() -> None:
     error = ProviderError(
         code="provider_job_failed",

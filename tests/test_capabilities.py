@@ -119,6 +119,24 @@ def test_tuzi_video_operations_expose_orientation_mode_field() -> None:
     ]
 
 
+def test_tuzi_veo_resolution_field_only_exposes_submit_enum_values() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_veo",
+        model_name="veo3.1-4k",
+    )
+
+    operations = build_model_operations(provider, "veo3.1-4k")
+    generate = next(item for item in operations if item.id == "generate")
+    resolution_field = next(field for field in generate.fields if field.key == "resolution")
+
+    assert [option.value for option in resolution_field.options] == [
+        "1280x720",
+        "720x1280",
+    ]
+    assert resolution_field.help_text is not None
+    assert "4K" in resolution_field.help_text
+
+
 def test_tuzi_image_operations_include_generate_and_edit_for_sync_model() -> None:
     provider = _build_provider_config(
         provider_type="tuzi_image",

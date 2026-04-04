@@ -46,6 +46,11 @@ from app.schemas import (
 )
 from app.worker import TaskWorker, build_provider_clients
 
+if os.name == "nt" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    # The default Proactor loop on Windows can emit noisy ConnectionResetError
+    # callbacks when browsers or upstream services close sockets aggressively.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 try:
     from PIL import Image
 except Exception:  # pragma: no cover - optional dependency at import time
@@ -751,7 +756,7 @@ def _provider_supports_seed_retry(
     provider_config = provider_configs.get(provider_id)
     if not provider_config:
         return True
-    return not provider_config.type.startswith("tuzi")
+    return not provider_config.provider_type.startswith("tuzi")
 
 
 def require_auth(request: Request) -> None:

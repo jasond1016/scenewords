@@ -111,4 +111,6 @@ if [[ "$RELOAD" == "true" ]]; then
 fi
 
 cd "$REPO_ROOT"
+export VIDEO_GATEWAY_SHUTDOWN_DIAGNOSTICS="true"
+export VIDEO_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_SEC="5"
 exec uv "${UVICORN_ARGS[@]}"

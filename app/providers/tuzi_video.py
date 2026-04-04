@@ -530,7 +530,9 @@ def _build_generation_form(
         raise ProviderError(code="invalid_prompt", message="prompt is required")
 
     duration_sec = request.duration_sec if isinstance(request.duration_sec, int) else 10
-    target_width, target_height = _parse_resolution_dimensions(request.resolution)
+    submit_size, target_width, target_height = _resolve_tuzi_video_submit_resolution(
+        request.resolution
+    )
     target_ratio = (
         float(target_width) / float(target_height)
         if target_width and target_height and target_height > 0
@@ -540,7 +542,7 @@ def _build_generation_form(
         "model": model_name,
         "prompt": prompt,
         "seconds": duration_sec,
-        "size": _resolution_to_tuzi_size(request.resolution),
+        "size": submit_size,
     }
 
     watermark = request.provider_options.get("watermark")
@@ -825,22 +827,27 @@ def _to_form_value(value: Any) -> str | None:
     return str(value)
 
 
-def _resolution_to_tuzi_size(raw_resolution: str | None) -> str:
+def _resolve_tuzi_video_submit_resolution(
+    raw_resolution: str | None,
+) -> tuple[str, int, int]:
     normalized = str(raw_resolution or "").strip().lower()
-    if normalized in {"360p", "540p", "720p", "1080p"}:
-        return normalized
+    if normalized in {"720x1280", "2160x3840"}:
+        return "720x1280", 720, 1280
+    if normalized in {"1280x720", "3840x2160"}:
+        return "1280x720", 1280, 720
     if "x" not in normalized:
-        return "720p"
+        return "1280x720", 1280, 720
     width_part, _, height_part = normalized.partition("x")
     try:
         width = int(width_part.strip())
         height = int(height_part.strip())
     except (TypeError, ValueError):
-        return "720p"
+        return "1280x720", 1280, 720
     if width <= 0 or height <= 0:
-        return "720p"
-    # Keep explicit WxH to preserve orientation (landscape vs portrait).
-    return f"{width}x{height}"
+        return "1280x720", 1280, 720
+    if height > width:
+        return "720x1280", 720, 1280
+    return "1280x720", 1280, 720
 
 
 def _parse_resolution_dimensions(raw_resolution: str | None) -> tuple[int | None, int | None]:

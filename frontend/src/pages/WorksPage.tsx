@@ -63,6 +63,7 @@ export function WorksPage(props: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const handledTaskDeepLinkRef = useRef<string>("");
+  const inProgressSectionRef = useRef<HTMLElement | null>(null);
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -288,6 +289,12 @@ export function WorksPage(props: Props) {
     onSuccess: async (response) => {
       setHint(formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+      setIsMediaExpanded(false);
+      setLightboxState(null);
+      inProgressSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     },
     onError: (error: Error) => {
       setHint(formatRetryErrorMessage(error, t));
@@ -406,7 +413,7 @@ export function WorksPage(props: Props) {
       </section>
 
       {!!inProgressTasks.length && (
-        <section className="card-flat space-y-4">
+        <section ref={inProgressSectionRef} className="card-flat space-y-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-1">
               <span className="text-label">{t("works.statsInProgress", { count: inProgressTasks.length })}</span>
