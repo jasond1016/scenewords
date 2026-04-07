@@ -19,7 +19,7 @@ interface Props {
   task: VideoTaskDetail;
   onClick: () => void;
   timestampLabel: string;
-  providerLabel: string;
+  modelLabel: string;
   className: string;
   selected?: boolean;
   aspectClassName?: string;
@@ -36,7 +36,7 @@ export function TaskPreviewCard(props: Props) {
     task,
     onClick,
     timestampLabel,
-    providerLabel,
+    modelLabel,
     className,
     selected = false,
     aspectClassName,
@@ -62,7 +62,7 @@ export function TaskPreviewCard(props: Props) {
       <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1 text-left">
         <p className={promptClassName}>{task.prompt?.trim() || "—"}</p>
         <div className={metaClassName}>
-          <span className="truncate">{providerLabel}</span>
+          <span className="truncate">{modelLabel}</span>
           <span className="shrink-0">{timestampLabel}</span>
         </div>
       </div>

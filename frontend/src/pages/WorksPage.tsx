@@ -695,7 +695,7 @@ function MasonryGrid({
                 className="media-card p-2"
                 selected={task.task_id === selectedTaskId}
                 timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                providerLabel={task.provider || task.model}
+                modelLabel={task.model || task.provider}
                 onClick={() => {
                   setSelectedTaskId(task.task_id);
                   if (task.asset_type === "video") {

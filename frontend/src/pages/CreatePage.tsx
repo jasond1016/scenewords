@@ -1612,7 +1612,7 @@ export function CreatePage(props: Props) {
                       key={task.task_id}
                       task={task}
                       className="media-card p-2"
-                      providerLabel={task.provider || task.model}
+                      modelLabel={task.model || task.provider}
                       timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                       statusBadge={
                         showRecentStatusBadge(task)
