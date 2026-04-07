@@ -253,6 +253,7 @@ const ZH_CN: Record<string, string> = {
   "error.upstream_error": "上游服务异常",
   "error.bad_request": "请求参数不合法",
   "error.worker_interrupted": "网关重启导致任务中断，请重试",
+  "error.providerRetryRecommended": "供应商服务暂时异常，请重试。",
 
   "create.referenceAssets": "素材输入",
   "create.referenceAssetsHint": "支持复用与上传",
@@ -575,6 +576,7 @@ const EN: Record<string, string> = {
   "error.upstream_error": "Upstream service error",
   "error.bad_request": "Invalid request parameters",
   "error.worker_interrupted": "Task interrupted by gateway restart. Please retry.",
+  "error.providerRetryRecommended": "The provider had a temporary issue. Please retry.",
 
   "create.referenceAssets": "Reference Assets",
   "create.referenceAssetsHint": "Upload or reuse",

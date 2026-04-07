@@ -308,10 +308,18 @@ export function errorMessage(
   options?: {
     mapErrorCode?: (code: string) => string | null;
     fallbackMessage?: string;
+    providerRetryRecommendedMessage?: string;
   },
 ): string | null {
   if (!task.error) {
     return null;
+  }
+  const providerRetryRecommendedMessage =
+    typeof options?.providerRetryRecommendedMessage === "string"
+      ? options.providerRetryRecommendedMessage.trim()
+      : "";
+  if (providerRetryRecommendedMessage && hasRetryRecommendedProviderError(task.error)) {
+    return providerRetryRecommendedMessage;
   }
   const rawCode = task.error.code;
   const code = typeof rawCode === "string" ? rawCode.trim() : "";
@@ -327,6 +335,20 @@ export function errorMessage(
     return message;
   }
   return options?.fallbackMessage ?? "Generation failed. Please try again later.";
+}
+
+function hasRetryRecommendedProviderError(error: Record<string, unknown>): boolean {
+  const providerFailureMessage =
+    typeof (error.raw_error as { error?: { message?: unknown } } | null)?.error?.message === "string"
+      ? (error.raw_error as { error: { message: string } }).error.message.trim().toLowerCase()
+      : "";
+  if (providerFailureMessage.includes("recaptcha evaluation failed")) {
+    return true;
+  }
+
+  const requestFailureMessage =
+    typeof error.raw_error === "string" ? error.raw_error.trim().toLowerCase() : "";
+  return requestFailureMessage.includes("all connection attempts failed");
 }
 
 function mapErrorCode(code: string): string | null {

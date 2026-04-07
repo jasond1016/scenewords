@@ -119,7 +119,9 @@ export function WorkDetailOverlay(props: Props) {
         currentLightboxTask.asset_type,
       );
     },
-    enabled: isRawResultOpen && Boolean(currentLightboxTask),
+    enabled:
+      Boolean(currentLightboxTask) &&
+      (isRawResultOpen || currentLightboxTask?.status === "failed"),
     staleTime: 30_000,
   });
   const rawResultTask = taskDetailQuery.data ?? currentLightboxTask;
@@ -273,10 +275,15 @@ export function WorkDetailOverlay(props: Props) {
             rawResultPending={taskDetailQuery.isPending}
             rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
             rawResultPayload={rawResultPayload}
-            errorText={errorMessage(currentLightboxTask, {
-              mapErrorCode,
-              fallbackMessage: t("error.defaultFailure"),
-            })}
+            errorText={
+              rawResultTask
+                ? errorMessage(rawResultTask, {
+                    mapErrorCode,
+                    fallbackMessage: t("error.defaultFailure"),
+                    providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
+                  })
+                : null
+            }
           />
         }
       />
