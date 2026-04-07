@@ -1,8 +1,5 @@
 import type {
   AssetType,
-  PricingCatalogResponse,
-  PricingEstimateRequest,
-  PricingEstimateResponse,
   ProviderCatalogResponse,
   RetryMode,
   UploadedFileResponse,
@@ -155,25 +152,6 @@ export function cancelVideoTask(
     cancelPath(taskId, assetType),
     {
       method: "POST",
-    },
-    token,
-  );
-}
-
-export function fetchPricing(token: string): Promise<PricingCatalogResponse> {
-  return request<PricingCatalogResponse>("/v1/pricing", {}, token);
-}
-
-export function estimatePricing(
-  payload: PricingEstimateRequest,
-  token: string,
-): Promise<PricingEstimateResponse> {
-  return request<PricingEstimateResponse>(
-    "/v1/pricing/estimate",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
     },
     token,
   );

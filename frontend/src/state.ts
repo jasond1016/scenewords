@@ -35,11 +35,7 @@ export interface AppSettingsState {
   restoreLastSession: boolean;
   retryModeDefault: RetryMode;
   showBothRetryActions: boolean;
-  costMode: "provider_api" | "local_config";
   currency: string;
-  showEstimatedCostPreSubmit: boolean;
-  showActualCostPostDone: boolean;
-  pricingVersion: string;
   savePromptHistory: boolean;
   historyRetentionDays: number;
   providerDefaults: Record<string, ProviderGenerationDefaults>;
@@ -61,11 +57,7 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   restoreLastSession: true,
   retryModeDefault: "same_seed",
   showBothRetryActions: true,
-  costMode: "local_config",
   currency: "USD",
-  showEstimatedCostPreSubmit: true,
-  showActualCostPostDone: true,
-  pricingVersion: "2026-02-07",
   savePromptHistory: true,
   historyRetentionDays: 90,
   providerDefaults: {},
@@ -74,7 +66,7 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   pendingReuseDraft: null,
 };
 
-const SETTINGS_STORAGE_VERSION = 2;
+const SETTINGS_STORAGE_VERSION = 3;
 
 function stripLegacyNotificationSettings(
   state: Record<string, unknown>,
@@ -84,6 +76,10 @@ function stripLegacyNotificationSettings(
   delete rest.notifyOnFailure;
   delete rest.notifySound;
   delete rest.notifyBadge;
+  delete rest.costMode;
+  delete rest.showEstimatedCostPreSubmit;
+  delete rest.showActualCostPostDone;
+  delete rest.pricingVersion;
   return rest;
 }
 
@@ -120,11 +116,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         restoreLastSession: state.restoreLastSession,
         retryModeDefault: state.retryModeDefault,
         showBothRetryActions: state.showBothRetryActions,
-        costMode: state.costMode,
         currency: state.currency,
-        showEstimatedCostPreSubmit: state.showEstimatedCostPreSubmit,
-        showActualCostPostDone: state.showActualCostPostDone,
-        pricingVersion: state.pricingVersion,
         savePromptHistory: state.savePromptHistory,
         historyRetentionDays: state.historyRetentionDays,
         providerDefaults: state.providerDefaults,

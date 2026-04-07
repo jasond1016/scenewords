@@ -32,8 +32,6 @@ from app.providers.base import Provider
 from app.schemas import (
     PricingCatalogResponse,
     PricingEntryResponse,
-    PricingEstimateRequest,
-    PricingEstimateResponse,
     ProviderCatalogResponse,
     ProviderInfo,
     ProviderModelInfo,
@@ -500,28 +498,6 @@ def create_app() -> FastAPI:
             currency=pricing_catalog.currency,
             pricing_version=pricing_catalog.pricing_version,
             entries=entries,
-        )
-
-    @app.post("/v1/pricing/estimate", response_model=PricingEstimateResponse)
-    async def estimate_pricing(
-        payload: PricingEstimateRequest,
-        _: None = Depends(require_auth),
-    ) -> PricingEstimateResponse:
-        pricing_catalog: PricingCatalog = app.state.pricing_catalog
-        estimated_cost, currency, cost_source = pricing_catalog.estimate(
-            provider=payload.provider,
-            model=payload.model,
-            duration_sec=payload.duration_sec,
-            resolution=payload.resolution,
-            quality=payload.quality,
-        )
-        return PricingEstimateResponse(
-            provider=payload.provider,
-            model=payload.model,
-            estimated_cost=estimated_cost,
-            currency=currency,
-            cost_source=cost_source,  # type: ignore[arg-type]
-            pricing_version=pricing_catalog.pricing_version,
         )
 
     @app.get("/v1/video/tasks/{task_id}/result")

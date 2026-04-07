@@ -131,26 +131,6 @@ def test_index_serves_html_when_index_exists(client_factory) -> None:
     assert "text/html" in response.headers["content-type"]
 
 
-def test_pricing_estimate_returns_local_config_cost(client_factory) -> None:
-    with client_factory() as client:
-        response = client.post(
-            "/v1/pricing/estimate",
-            json={
-                "provider": "demo_provider",
-                "model": "demo-model",
-                "duration_sec": 4,
-                "resolution": "1280x720",
-                "quality": "standard",
-            },
-        )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["estimated_cost"] == 1.25
-    assert payload["currency"] == "USD"
-    assert payload["cost_source"] == "local_config"
-    assert payload["pricing_version"] == "test-version"
-
-
 def test_upload_file_rejects_non_image(client_factory) -> None:
     with client_factory() as client:
         response = client.post(

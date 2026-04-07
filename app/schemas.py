@@ -123,23 +123,6 @@ class RetryTaskRequest(BaseModel):
     prompt: str | None = None
 
 
-class PricingEstimateRequest(BaseModel):
-    provider: str
-    model: str
-    duration_sec: int | None = None
-    resolution: str | None = None
-    quality: str | None = None
-
-
-class PricingEstimateResponse(BaseModel):
-    provider: str
-    model: str
-    estimated_cost: float | None = None
-    currency: str | None = None
-    cost_source: Literal["provider_api", "local_config", "unknown"] = "unknown"
-    pricing_version: str | None = None
-
-
 class PricingEntryResponse(BaseModel):
     provider: str
     model: str

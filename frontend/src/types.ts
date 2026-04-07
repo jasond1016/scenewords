@@ -123,30 +123,6 @@ export interface PricingEntry {
   effective_from: string | null;
 }
 
-export interface PricingCatalogResponse {
-  mode: "provider_api" | "local_config";
-  currency: string;
-  pricing_version: string | null;
-  entries: PricingEntry[];
-}
-
-export interface PricingEstimateRequest {
-  provider: string;
-  model: string;
-  duration_sec?: number | null;
-  resolution?: string | null;
-  quality?: string | null;
-}
-
-export interface PricingEstimateResponse {
-  provider: string;
-  model: string;
-  estimated_cost: number | null;
-  currency: string | null;
-  cost_source: "provider_api" | "local_config" | "unknown";
-  pricing_version: string | null;
-}
-
 export interface UploadedFileResponse {
   file_id: string;
   original_name: string;

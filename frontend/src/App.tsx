@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Images, GearSix, CircleNotch } from "@phosphor-icons/react";
-import { fetchCatalog, fetchPricing, fetchTasks } from "./api";
+import { fetchCatalog, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
 import type { VideoTaskDetail } from "./types";
@@ -37,10 +37,6 @@ export default function App() {
   const catalogQuery = useQuery({
     queryKey: ["catalog", settings.gatewayToken],
     queryFn: () => fetchCatalog(settings.gatewayToken),
-  });
-  const pricingQuery = useQuery({
-    queryKey: ["pricing", settings.gatewayToken],
-    queryFn: () => fetchPricing(settings.gatewayToken),
   });
   const inProgressCount = useMemo(
     () =>
@@ -173,7 +169,6 @@ export default function App() {
             path="/settings"
             element={
               <SettingsPage
-                pricingVersion={pricingQuery.data?.pricing_version ?? null}
                 providers={catalogQuery.data?.providers ?? []}
               />
             }

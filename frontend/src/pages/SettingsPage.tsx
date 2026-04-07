@@ -7,7 +7,6 @@ import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
 
 interface Props {
-  pricingVersion: string | null;
   providers: ProviderInfo[];
 }
 
@@ -41,13 +40,6 @@ export function SettingsPage(props: Props) {
       ),
     [props.providers],
   );
-
-  useEffect(() => {
-    if (!props.pricingVersion || props.pricingVersion === settings.pricingVersion) {
-      return;
-    }
-    settings.setSettings({ pricingVersion: props.pricingVersion });
-  }, [props.pricingVersion, settings.pricingVersion, settings.setSettings]);
 
   useEffect(() => {
     if (!settings.defaultImageProvider) {
@@ -108,11 +100,7 @@ export function SettingsPage(props: Props) {
       restoreLastSession: true,
       retryModeDefault: "same_seed",
       showBothRetryActions: true,
-      costMode: "local_config",
       currency: "USD",
-      showEstimatedCostPreSubmit: true,
-      showActualCostPostDone: true,
-      pricingVersion: props.pricingVersion ?? settings.pricingVersion,
       savePromptHistory: true,
       historyRetentionDays: 90,
       providerDefaults: {},
@@ -230,7 +218,7 @@ export function SettingsPage(props: Props) {
 
           <details className="card">
             <summary className="cursor-pointer text-sm font-semibold text-[var(--c-text-secondary)]">
-              {isZh ? "高级偏好（重试与成本）" : "Advanced Preferences (Retry & Cost)"}
+              {isZh ? "高级偏好（重试）" : "Advanced Preferences (Retry)"}
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <SettingField label={t("settings.retryDefault")}>
@@ -250,29 +238,6 @@ export function SettingsPage(props: Props) {
                 <input
                   value={settings.currency}
                   onChange={(event) => settings.setSettings({ currency: event.target.value })}
-                  className="w-full input-base"
-                />
-              </SettingField>
-
-              <SettingField label={t("settings.costMode")}>
-                <select
-                  value={settings.costMode}
-                  onChange={(event) =>
-                    settings.setSettings({
-                      costMode: event.target.value as "provider_api" | "local_config",
-                    })
-                  }
-                  className="w-full input-base"
-                >
-                  <option value="provider_api">{t("settings.costModeProviderApi")}</option>
-                  <option value="local_config">{t("settings.costModeLocalConfig")}</option>
-                </select>
-              </SettingField>
-
-              <SettingField label={t("settings.pricingVersion")}>
-                <input
-                  value={settings.pricingVersion}
-                  onChange={(event) => settings.setSettings({ pricingVersion: event.target.value })}
                   className="w-full input-base"
                 />
               </SettingField>
