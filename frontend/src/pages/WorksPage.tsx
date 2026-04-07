@@ -169,6 +169,7 @@ export function WorksPage(props: Props) {
     ? inferTaskOrientation(currentLightboxTask)
     : "landscape";
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
+  const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
 
   const taskDetailQuery = useQuery({
     queryKey: [
@@ -206,6 +207,10 @@ export function WorksPage(props: Props) {
 
   useEffect(() => {
     setIsMediaExpanded(false);
+  }, [currentLightboxTask?.task_id]);
+
+  useEffect(() => {
+    setQueuedRetryTaskId(null);
   }, [currentLightboxTask?.task_id]);
 
   useOverlayScrollLock(isLightboxOpen);
@@ -288,26 +293,16 @@ export function WorksPage(props: Props) {
 
   const retryMutation = useMutation<VideoTaskResponse, Error, RetryTaskPayload>({
     mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
+    onSuccess: async (response, payload) => {
+      setQueuedRetryTaskId(payload.task.task_id);
       setHint(formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
-      setIsMediaExpanded(false);
-      setLightboxState(null);
-      inProgressSectionRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
     },
     onError: (error: Error) => {
       setHint(formatRetryErrorMessage(error, t));
     },
   });
 
-  const mapErrorCode = (code: string): string | null => {
-    const key = `error.${code}`;
-    const translated = t(key);
-    return translated === key ? null : translated;
-  };
   const worksCount = completedTasks.length;
   const imageCount = completedTasks.filter((task) => task.asset_type === "image").length;
   const videoCount = completedTasks.filter((task) => task.asset_type === "video").length;
@@ -342,6 +337,14 @@ export function WorksPage(props: Props) {
           }),
       })
     : null;
+  const retryActions =
+    currentLightboxTask && queuedRetryTaskId === currentLightboxTask.task_id
+      ? {
+          disabled: true,
+          defaultLabel: t("works.retryQueuedSticky"),
+          onDefault: () => undefined,
+        }
+      : sidebarActions?.retryActions;
 
   if (loading) {
     return (
@@ -419,9 +422,6 @@ export function WorksPage(props: Props) {
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-1">
               <span className="text-label">{t("works.statsInProgress", { count: inProgressTasks.length })}</span>
-              <p className="m-0 text-sm leading-relaxed text-[var(--c-text-secondary)]">
-                {t("works.queueBanner", { count: inProgressTasks.length })}
-              </p>
             </div>
           </div>
 
@@ -498,7 +498,7 @@ export function WorksPage(props: Props) {
                 onDelete={sidebarActions?.onDelete ?? (() => undefined)}
                 deleteDisabled={sidebarActions?.deleteDisabled}
                 cancelAction={sidebarActions?.cancelAction}
-                retryActions={sidebarActions?.retryActions}
+                retryActions={retryActions}
                 onCopyRequestJson={() => {
                   const payload = buildTaskRequestPayload(currentLightboxTask);
                   const text = JSON.stringify(payload, null, 2);
@@ -515,7 +515,6 @@ export function WorksPage(props: Props) {
                 errorText={
                   rawResultTask
                     ? errorMessage(rawResultTask, {
-                        mapErrorCode,
                         fallbackMessage: t("error.defaultFailure"),
                         providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
                       })
@@ -591,7 +590,7 @@ function InProgressStrip({
             className="flex w-[280px] flex-col gap-3 rounded-2xl border border-border bg-surface px-4 py-4 shadow-[var(--shadow-xs)]"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="tag tag-warning">{formatOverlayTaskStatus(task, t)}</span>
+              <span className="tag tag-warning">{t("works.inProgressCardStatus")}</span>
               <span className="text-[10px] text-[var(--c-text-tertiary)]">
                 {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
               </span>
@@ -606,7 +605,7 @@ function InProgressStrip({
             <div className="pt-1">
               <button
                 type="button"
-                className="btn-ghost text-xs"
+                className="btn-danger text-xs"
                 onClick={() => onCancel(task)}
                 disabled={cancelDisabled}
               >

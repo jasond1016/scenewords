@@ -161,7 +161,7 @@ export function MediaDetailSidebar(props: Props) {
           {cancelAction ? (
             <button
               type="button"
-              className="btn-secondary text-xs"
+              className="btn-danger text-xs"
               onClick={cancelAction.onCancel}
               disabled={cancelAction.disabled}
             >
@@ -293,7 +293,7 @@ export function MediaDetailSidebar(props: Props) {
         <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-error-bg px-3 py-2 text-xs text-error-text">
           <span className="inline-flex items-center gap-1.5">
             <WarningCircle size={14} weight="regular" />
-            {errorText}
+            <span className="whitespace-pre-line">{errorText}</span>
           </span>
         </p>
       ) : null}
@@ -317,7 +317,7 @@ function renderRetryButtons(
         onClick={retryActions.onDefault}
         disabled={retryActions.disabled}
       >
-        {t("works.generateAgain")}
+        {retryActions.defaultLabel ?? t("works.generateAgain")}
       </button>
     );
   }
@@ -331,7 +331,7 @@ function renderRetryButtons(
           onClick={retryActions.onSameSeed}
           disabled={retryActions.disabled}
         >
-          {t("works.generateAgainSameSeed")}
+          {retryActions.sameSeedLabel ?? t("works.generateAgainSameSeed")}
         </button>
       ) : null}
       {retryActions.onNewSeed ? (
@@ -341,7 +341,7 @@ function renderRetryButtons(
           onClick={retryActions.onNewSeed}
           disabled={retryActions.disabled}
         >
-          {t("works.generateAgainNewSeed")}
+          {retryActions.newSeedLabel ?? t("works.generateAgainNewSeed")}
         </button>
       ) : null}
     </>

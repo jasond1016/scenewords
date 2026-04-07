@@ -101,6 +101,7 @@ export function WorkDetailOverlay(props: Props) {
     ? inferTaskOrientation(currentLightboxTask)
     : "landscape";
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
+  const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
 
   const taskDetailQuery = useQuery({
     queryKey: [
@@ -140,6 +141,10 @@ export function WorkDetailOverlay(props: Props) {
     setIsMediaExpanded(false);
   }, [currentLightboxTask?.task_id]);
 
+  useEffect(() => {
+    setQueuedRetryTaskId(null);
+  }, [currentLightboxTask?.task_id]);
+
   useOverlayScrollLock(isLightboxOpen);
 
   useEffect(() => {
@@ -170,7 +175,8 @@ export function WorkDetailOverlay(props: Props) {
 
   const retryMutation = useMutation<VideoTaskResponse, Error, RetryTaskPayload>({
     mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
+    onSuccess: async (response, payload) => {
+      setQueuedRetryTaskId(payload.task.task_id);
       onHint?.(formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
     },
@@ -178,12 +184,6 @@ export function WorkDetailOverlay(props: Props) {
       onHint?.(formatRetryErrorMessage(error, t));
     },
   });
-
-  const mapErrorCode = (code: string): string | null => {
-    const key = `error.${code}`;
-    const translated = t(key);
-    return translated === key ? null : translated;
-  };
 
   if (!lightboxItem || !currentLightboxTask) {
     return null;
@@ -218,6 +218,14 @@ export function WorkDetailOverlay(props: Props) {
         mode,
       }),
   });
+  const retryActions =
+    queuedRetryTaskId === currentLightboxTask.task_id
+      ? {
+          disabled: true,
+          defaultLabel: t("works.retryQueuedSticky"),
+          onDefault: () => undefined,
+        }
+      : sidebarActions.retryActions;
 
   return (
     <>
@@ -261,7 +269,7 @@ export function WorkDetailOverlay(props: Props) {
             onDelete={sidebarActions.onDelete}
             deleteDisabled={sidebarActions.deleteDisabled}
             cancelAction={sidebarActions.cancelAction}
-            retryActions={sidebarActions.retryActions}
+            retryActions={retryActions}
             onCopyRequestJson={() => {
               const payload = buildTaskRequestPayload(currentLightboxTask);
               const text = JSON.stringify(payload, null, 2);
@@ -272,16 +280,15 @@ export function WorkDetailOverlay(props: Props) {
             }}
             isRawResultOpen={isRawResultOpen}
             onRawResultOpenChange={setIsRawResultOpen}
-            rawResultPending={taskDetailQuery.isPending}
-            rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
-            rawResultPayload={rawResultPayload}
-            errorText={
-              rawResultTask
-                ? errorMessage(rawResultTask, {
-                    mapErrorCode,
-                    fallbackMessage: t("error.defaultFailure"),
-                    providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
-                  })
+              rawResultPending={taskDetailQuery.isPending}
+              rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
+              rawResultPayload={rawResultPayload}
+              errorText={
+                rawResultTask
+                  ? errorMessage(rawResultTask, {
+                      fallbackMessage: t("error.defaultFailure"),
+                      providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
+                    })
                 : null
             }
           />

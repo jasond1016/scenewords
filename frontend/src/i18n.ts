@@ -119,7 +119,8 @@ const ZH_CN: Record<string, string> = {
   "works.loading": "正在加载作品...",
   "works.title": "作品",
   "works.subtitle": "查看已生成结果，快速复用关键设定并再创作。",
-  "works.queueBanner": "生成中 {count} 个（点击展开）",
+  "works.queueBanner": "生成中 {count} 个",
+  "works.inProgressCardStatus": "生成中",
   "works.queueMix": "图片 {imageCount} / 视频 {videoCount}",
   "works.cancelInProgress": "取消生成",
   "works.cancelConfirm": "确认取消生成任务 {taskId}？",
@@ -320,6 +321,7 @@ const ZH_CN: Record<string, string> = {
   "works.generateAgain": "再次生成",
   "works.generateAgainSameSeed": "再次生成（同种子）",
   "works.generateAgainNewSeed": "再次生成（新种子）",
+  "works.retryQueuedSticky": "已加入队列",
   "common.loading": "加载中...",
 };
 
@@ -441,7 +443,8 @@ const EN: Record<string, string> = {
   "works.loading": "Loading works...",
   "works.title": "Works",
   "works.subtitle": "Browse generated results and quickly reuse key settings for the next version.",
-  "works.queueBanner": "{count} generating (click to expand)",
+  "works.queueBanner": "{count} generating",
+  "works.inProgressCardStatus": "Generating",
   "works.queueMix": "Images {imageCount} / Videos {videoCount}",
   "works.cancelInProgress": "Cancel",
   "works.cancelConfirm": "Cancel generation for task {taskId}?",
@@ -643,6 +646,7 @@ const EN: Record<string, string> = {
   "works.generateAgain": "Generate Again",
   "works.generateAgainSameSeed": "Generate Again (Same Seed)",
   "works.generateAgainNewSeed": "Generate Again (New Seed)",
+  "works.retryQueuedSticky": "Queued",
   "common.loading": "Loading...",
 };
 

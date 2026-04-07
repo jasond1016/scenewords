@@ -306,7 +306,6 @@ export function formatTime(value: string, locale = "en-US"): string {
 export function errorMessage(
   task: VideoTaskDetail,
   options?: {
-    mapErrorCode?: (code: string) => string | null;
     fallbackMessage?: string;
     providerRetryRecommendedMessage?: string;
   },
@@ -321,18 +320,9 @@ export function errorMessage(
   if (providerRetryRecommendedMessage && hasRetryRecommendedProviderError(task.error)) {
     return providerRetryRecommendedMessage;
   }
-  const rawCode = task.error.code;
-  const code = typeof rawCode === "string" ? rawCode.trim() : "";
-  const mapped = options?.mapErrorCode?.(code) ?? mapErrorCode(code);
-  const message = typeof task.error.message === "string" ? task.error.message.trim() : "";
-  if (mapped && message) {
-    return `${mapped} (${message})`;
-  }
-  if (mapped) {
-    return mapped;
-  }
-  if (message) {
-    return message;
+  const providerErrorMessage = readProviderErrorMessage(task.error);
+  if (providerErrorMessage) {
+    return providerErrorMessage;
   }
   return options?.fallbackMessage ?? "Generation failed. Please try again later.";
 }
@@ -351,24 +341,12 @@ function hasRetryRecommendedProviderError(error: Record<string, unknown>): boole
   return requestFailureMessage.includes("all connection attempts failed");
 }
 
-function mapErrorCode(code: string): string | null {
-  if (!code) {
-    return null;
-  }
-  const mappings: Record<string, string> = {
-    unknown_provider: "Provider not found or disabled",
-    provider_not_initialized: "Provider is not initialized",
-    timeout: "Request timeout",
-    invalid_response: "Invalid upstream response",
-    unauthorized: "Unauthorized. Check API key",
-    quota_exceeded: "Quota exceeded",
-    rate_limited: "Rate limited. Please retry later",
-    internal_error: "Gateway internal error",
-    upstream_error: "Upstream service error",
-    bad_request: "Invalid request parameters",
-    worker_interrupted: "Task interrupted by gateway restart. Please retry.",
-  };
-  return mappings[code] ?? null;
+function readProviderErrorMessage(error: Record<string, unknown>): string {
+  const message =
+    typeof (error.raw_error as { error?: { message?: unknown } } | null)?.error?.message === "string"
+      ? (error.raw_error as { error: { message: string } }).error.message.trim()
+      : "";
+  return message;
 }
 
 function sortUniqueNumbers(values: number[]): number[] {
