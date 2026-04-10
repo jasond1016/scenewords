@@ -1,7 +1,7 @@
 param(
   [string]$LanIp,
   [int]$Port = 8443,
-  [string]$Host = "0.0.0.0",
+  [string]$BindHost = "0.0.0.0",
   [string]$CertFile = "certs/scenewords-ip.pem",
   [string]$KeyFile = "certs/scenewords-ip-key.pem",
   [switch]$Reload
@@ -41,7 +41,7 @@ if ($LanIp) {
   Write-Host "SceneWords HTTPS URL: https://$LanIp`:$Port" -ForegroundColor Cyan
 }
 else {
-  Write-Host "SceneWords HTTPS listening on $Host`:$Port" -ForegroundColor Cyan
+  Write-Host "SceneWords HTTPS listening on $BindHost`:$Port" -ForegroundColor Cyan
   Write-Host "If you want a copyable iPad URL, pass -LanIp <your-lan-ip>." -ForegroundColor DarkGray
 }
 
@@ -54,7 +54,7 @@ $uvicornArgs = @(
   "app.main:create_app",
   "--factory",
   "--host",
-  $Host,
+  $BindHost,
   "--port",
   $Port.ToString(),
   "--ssl-certfile",
