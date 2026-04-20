@@ -10,3 +10,4 @@ app/static/
 
 ui_design
 .cloudflared/config.yml
+scripts/import_provider_transactions.py
