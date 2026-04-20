@@ -126,11 +126,13 @@ class RetryTaskRequest(BaseModel):
 class PricingEntryResponse(BaseModel):
     provider: str
     model: str
+    operation: str | None = None
     quality: str | None = None
     resolution: str | None = None
     duration_sec: int | None = None
     fixed_cost: float | None = None
     cost_per_second: float | None = None
+    discount_rate: float | None = None
     currency: str = "USD"
     effective_from: str | None = None
 
@@ -140,3 +142,11 @@ class PricingCatalogResponse(BaseModel):
     currency: str = "USD"
     pricing_version: str | None = None
     entries: list[PricingEntryResponse] = Field(default_factory=list)
+
+
+class TaskCostSummaryResponse(BaseModel):
+    charged_cost_total: float = 0.0
+    charged_task_count: int = 0
+    pending_estimated_cost_total: float = 0.0
+    pending_estimated_task_count: int = 0
+    currency: str = "USD"

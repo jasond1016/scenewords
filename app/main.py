@@ -37,6 +37,7 @@ from app.schemas import (
     ProviderModelInfo,
     ProviderModelOperationInfo,
     RetryTaskRequest,
+    TaskCostSummaryResponse,
     UploadedFileResponse,
     VideoGenerationRequest,
     VideoTaskDetail,
@@ -332,6 +333,7 @@ def create_app() -> FastAPI:
         return pricing_catalog.estimate(
             provider=payload.provider,
             model=payload.model,
+            operation=payload.operation,
             duration_sec=payload.duration_sec,
             resolution=payload.resolution,
             quality=quality_text,
@@ -483,11 +485,13 @@ def create_app() -> FastAPI:
             PricingEntryResponse(
                 provider=entry.provider,
                 model=entry.model,
+                operation=entry.operation,
                 quality=entry.quality,
                 resolution=entry.resolution,
                 duration_sec=entry.duration_sec,
                 fixed_cost=entry.fixed_cost,
                 cost_per_second=entry.cost_per_second,
+                discount_rate=entry.discount_rate,
                 currency=entry.currency,
                 effective_from=entry.effective_from,
             )
@@ -498,6 +502,20 @@ def create_app() -> FastAPI:
             currency=pricing_catalog.currency,
             pricing_version=pricing_catalog.pricing_version,
             entries=entries,
+        )
+
+    @app.get("/v1/tasks/summary", response_model=TaskCostSummaryResponse)
+    async def get_task_cost_summary(
+        _: None = Depends(require_auth),
+    ) -> TaskCostSummaryResponse:
+        summary = app.state.store.summarize_task_costs()
+        pricing_catalog: PricingCatalog = app.state.pricing_catalog
+        return TaskCostSummaryResponse(
+            charged_cost_total=summary["charged_cost_total"],
+            charged_task_count=summary["charged_task_count"],
+            pending_estimated_cost_total=summary["pending_estimated_cost_total"],
+            pending_estimated_task_count=summary["pending_estimated_task_count"],
+            currency=pricing_catalog.currency,
         )
 
     @app.get("/v1/video/tasks/{task_id}/result")

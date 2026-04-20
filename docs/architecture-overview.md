@@ -107,7 +107,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 | `GET` | `/v1/assets/{task_id}/{filename}` | 获取归档的生成结果文件 |
 | `GET` | `/v1/models` | 获取所有 Provider / 模型 / 操作的能力目录 |
 | `GET` | `/v1/pricing` | 获取完整价格表 |
-| `POST` | `/v1/pricing/estimate` | 单次价格估算 |
+| `GET` | `/v1/tasks/summary` | 获取任务费用汇总（已结算 / 进行中预估） |
 | `GET` | `/health` | 健康检查 |
 
 ---
@@ -206,7 +206,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 
 | 模块 | 说明 |
 |------|------|
-| `state.ts` | Zustand store（持久化 key: `scenewords_gateway_settings_v1`）。持久化网关 Token、上次选择的 Provider/Model、语言偏好、主题偏好（`theme: "light" | "dark" | "system"`）、费用显示偏好、Provider 默认参数等。另有非持久化字段 `pendingReuseDraft` 用于跨页面复用草稿 |
+| `state.ts` | Zustand store（持久化 key: `scenewords_gateway_settings_v1`）。持久化网关 Token、上次选择的 Provider/Model、语言偏好、主题偏好（`theme: "light" | "dark" | "system"`）、Provider 默认参数等。另有非持久化字段 `pendingReuseDraft` 用于跨页面复用草稿 |
 | `api.ts` | 封装所有后端 API 调用（fetchTasks, fetchCatalog, createTask, uploadFile 等） |
 | `types.ts` | TypeScript 类型定义（VideoTaskDetail, ProviderCatalog 等） |
 | `i18n.ts` | 国际化支持（zh-CN / en 双语，~180 个翻译 key） |
@@ -242,7 +242,7 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 6. **Cloudflare Tunnel** — 支持通过 Cloudflare Tunnel + Access 白名单安全暴露给家人
 7. **方向自动适配** — 上传参考图后可自动检测横竖屏并调整输出分辨率
 8. **能力驱动表单** — 后端 `capabilities.py` 定义每个 Provider/Model/Operation 的字段能力，前端据此动态渲染表单
-9. **费用估算** — 本地价格表提供提交前的费用预估，结果中提取实际费用
+9. **费用估算与结算** — 本地价格表提供提交前费用预估；成功任务优先使用 provider 返回费用，否则回落到本地预估。失败/取消任务不计费
 10. **iPad 优先** — 前端针对 iPad Safari 触摸交互设计
 11. **Studio Glass 设计系统** — CSS 变量 token 体系（`--c-*` / `--shadow-*` / `--radius-*`），Tailwind v4 `@theme` 桥接，亮/暗双主题
 12. **Composer Bar UX** — Seedance 风格的 prompt-first 布局，底部固定输入栏，参数区可选展开

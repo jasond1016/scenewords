@@ -146,12 +146,12 @@ class TaskWorker:
                 result=result,
                 provider=provider,
             )
-            actual_cost = _extract_actual_cost(result)
+            actual_cost, cost_source = _extract_settled_cost(task, result)
             self.store.set_result(
                 task_id=task_id,
                 result=result,
                 actual_cost=actual_cost,
-                cost_source="provider_api" if actual_cost is not None else None,
+                cost_source=cost_source,
             )
         except ProviderError as error:
             self.store.set_error(
@@ -202,6 +202,26 @@ def _extract_actual_cost(result: dict[str, object]) -> float | None:
         if isinstance(nested, (int, float)):
             return float(nested)
     return None
+
+
+def _extract_settled_cost(
+    task: dict[str, Any],
+    result: dict[str, object],
+) -> tuple[float | None, str | None]:
+    provider_cost = _extract_actual_cost(result)
+    if provider_cost is not None:
+        return provider_cost, "provider_api"
+
+    estimated_cost = task.get("estimated_cost")
+    if isinstance(estimated_cost, (int, float)):
+        return float(estimated_cost), _normalize_cost_source(task.get("cost_source"))
+    return None, None
+
+
+def _normalize_cost_source(value: Any) -> str:
+    if value in {"provider_api", "local_config", "unknown"}:
+        return str(value)
+    return "unknown"
 
 
 def _as_optional_text(value: Any) -> str | None:

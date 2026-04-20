@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useI18n, type TranslateFn } from "../i18n";
 import { deriveTaskFormatMeta } from "../overlayTaskPresentation";
 import type { VideoTaskDetail } from "../types";
+import { formatCostAmount, resolveTaskCostState } from "../utils";
 
 export interface SidebarRetryActions {
   disabled: boolean;
@@ -57,11 +58,21 @@ export function MediaDetailSidebar(props: Props) {
     rawResultPayload,
     errorText,
   } = props;
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [isSharing, setIsSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const formatMeta = deriveTaskFormatMeta(task);
+  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
+  const costState = resolveTaskCostState(task);
+  const costValue =
+    costState.kind === "charged" && typeof costState.amount === "number"
+      ? formatCostAmount(costState.amount, costState.currency, normalizedLocale)
+      : costState.kind === "estimated" && typeof costState.amount === "number"
+        ? `${formatCostAmount(costState.amount, costState.currency, normalizedLocale)} ${t("works.estimatedSuffix")}`
+        : costState.kind === "not_charged"
+          ? t("works.notCharged")
+          : t("common.na");
   const buildSharedFileName = (contentType?: string): string => {
     const base = `${task.provider || "scenewords"}_${task.task_id.slice(0, 8)}`;
     const normalizedType = contentType?.toLowerCase() ?? "";
@@ -207,6 +218,8 @@ export function MediaDetailSidebar(props: Props) {
           <InlineStat label={t("create.quickRatio")} value={formatMeta.ratio ?? t("common.na")} />
           <InlineDivider />
           <InlineStat label={t("works.resolution")} value={formatMeta.resolution ?? t("common.na")} />
+          <InlineDivider />
+          <InlineStat label={t("works.cost")} value={costValue} />
           <InlineDivider />
           <button
             type="button"

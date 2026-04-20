@@ -17,8 +17,8 @@ SceneWords 是一个面向 iPad 的媒体生成网关：通过统一 API 在本�
   - `GET /v1/image/tasks`
   - `GET /v1/image/tasks/{task_id}`
   - `GET /v1/image/tasks/{task_id}/result`
+  - `GET /v1/tasks/summary`
   - `GET /v1/pricing`
-  - `POST /v1/pricing/estimate`
   - `GET /v1/models`
   - 模型能力描述（`operations` 与字段定义）
 - 前端支持按 `Provider / Model / Operation` 动态切换参数（仅显示接口支持项）
@@ -34,13 +34,13 @@ app/
   main.py                 # FastAPI 入口
   worker.py               # 后台任务队列
   db.py                   # SQLite 任务存储
-  pricing.py              # 本地价格表与估算逻辑
+pricing.py              # 本地价格表与估算逻辑
   config.py               # 配置加载
   providers/              # Provider 适配器
   static/                 # 前端构建产物
 frontend/                 # React + TypeScript + Vite 前端源码
 config/providers.json     # Provider 与模型配置
-config/pricing.json       # 本地价格配置（无 provider 计费接口时）
+config/pricing.json       # 本地价格配置（支持 provider/model/operation 维度）
 ```
 
 ## 快速启动

@@ -10,6 +10,8 @@ import type { VideoTaskDetail } from "../types";
 import {
   extractImageUrls,
   extractVideoUrl,
+  formatCostAmount,
+  resolveTaskCostState,
 } from "../utils";
 import { useVideoPosterUrl } from "../useVideoPoster";
 
@@ -32,6 +34,7 @@ interface Props {
 }
 
 export function TaskPreviewCard(props: Props) {
+  const { locale, t } = useI18n();
   const {
     task,
     onClick,
@@ -46,6 +49,22 @@ export function TaskPreviewCard(props: Props) {
   } = props;
 
   const selectedClassName = selected ? " media-card-selected" : "";
+  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
+  const costState = resolveTaskCostState(task);
+  const costLabel =
+    costState.kind === "charged" && typeof costState.amount === "number"
+      ? formatCostAmount(costState.amount, costState.currency, normalizedLocale)
+      : costState.kind === "estimated" && typeof costState.amount === "number"
+        ? `${formatCostAmount(costState.amount, costState.currency, normalizedLocale)} ${t("works.estimatedSuffix")}`
+        : costState.kind === "not_charged"
+          ? t("works.notCharged")
+          : null;
+  const costToneClass =
+    costState.kind === "charged"
+      ? "text-[var(--c-text)]"
+      : costState.kind === "estimated"
+        ? "text-[var(--c-text-secondary)]"
+        : "text-[var(--c-text-tertiary)]";
 
   return (
     <button
@@ -65,6 +84,12 @@ export function TaskPreviewCard(props: Props) {
           <span className="truncate">{modelLabel}</span>
           <span className="shrink-0">{timestampLabel}</span>
         </div>
+        {costLabel ? (
+          <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]">
+            <span>{t("works.cost")}</span>
+            <span className={`shrink-0 font-medium ${costToneClass}`}>{costLabel}</span>
+          </div>
+        ) : null}
       </div>
     </button>
   );

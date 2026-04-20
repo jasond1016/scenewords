@@ -114,13 +114,23 @@ export interface RetryTaskRequest {
 export interface PricingEntry {
   provider: string;
   model: string;
+  operation: string | null;
   quality: string | null;
   resolution: string | null;
   duration_sec: number | null;
   fixed_cost: number | null;
   cost_per_second: number | null;
+  discount_rate: number | null;
   currency: string;
   effective_from: string | null;
+}
+
+export interface TaskCostSummary {
+  charged_cost_total: number;
+  charged_task_count: number;
+  pending_estimated_cost_total: number;
+  pending_estimated_task_count: number;
+  currency: string;
 }
 
 export interface UploadedFileResponse {

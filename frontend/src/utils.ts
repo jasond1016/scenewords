@@ -303,6 +303,101 @@ export function formatTime(value: string, locale = "en-US"): string {
   return parsed.toLocaleString(locale);
 }
 
+export type TaskCostStateKind = "charged" | "estimated" | "not_charged" | "unavailable";
+
+export interface TaskCostState {
+  kind: TaskCostStateKind;
+  amount: number | null;
+  currency: string | null;
+}
+
+export function resolveTaskCostState(task: VideoTaskDetail): TaskCostState {
+  const currency = typeof task.currency === "string" && task.currency.trim()
+    ? task.currency.trim()
+    : null;
+
+  if (typeof task.actual_cost === "number" && Number.isFinite(task.actual_cost)) {
+    return {
+      kind: "charged",
+      amount: task.actual_cost,
+      currency,
+    };
+  }
+
+  if (
+    typeof task.estimated_cost === "number" &&
+    Number.isFinite(task.estimated_cost) &&
+    (task.status === "queued" || task.status === "running" || task.status === "succeeded")
+  ) {
+    return {
+      kind: "estimated",
+      amount: task.estimated_cost,
+      currency,
+    };
+  }
+
+  if (task.status === "failed" || task.status === "canceled") {
+    return {
+      kind: "not_charged",
+      amount: null,
+      currency,
+    };
+  }
+
+  return {
+    kind: "unavailable",
+    amount: null,
+    currency,
+  };
+}
+
+export function formatCostAmount(
+  amount: number,
+  currency: string | null,
+  locale = "en-US",
+): string {
+  const absolute = Math.abs(amount);
+  const maximumFractionDigits = absolute >= 100 ? 2 : absolute >= 1 ? 3 : 4;
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(amount);
+  const normalizedCurrency = currency?.trim() ?? "";
+  return normalizedCurrency ? `${formatted} ${normalizedCurrency}` : formatted;
+}
+
+export function summarizeTaskCosts(tasks: VideoTaskDetail[]): {
+  chargedCostTotal: number;
+  chargedTaskCount: number;
+  pendingEstimatedCostTotal: number;
+  pendingEstimatedTaskCount: number;
+} {
+  return tasks.reduce(
+    (summary, task) => {
+      const costState = resolveTaskCostState(task);
+      if (costState.kind === "charged" && typeof costState.amount === "number") {
+        summary.chargedCostTotal += costState.amount;
+        summary.chargedTaskCount += 1;
+      }
+      if (
+        costState.kind === "estimated" &&
+        typeof costState.amount === "number" &&
+        (task.status === "queued" || task.status === "running")
+      ) {
+        summary.pendingEstimatedCostTotal += costState.amount;
+        summary.pendingEstimatedTaskCount += 1;
+      }
+      return summary;
+    },
+    {
+      chargedCostTotal: 0,
+      chargedTaskCount: 0,
+      pendingEstimatedCostTotal: 0,
+      pendingEstimatedTaskCount: 0,
+    },
+  );
+}
+
 export function errorMessage(
   task: VideoTaskDetail,
   options?: {

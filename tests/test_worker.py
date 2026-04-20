@@ -108,7 +108,14 @@ def _build_provider_config() -> ProviderConfig:
     )
 
 
-def _seed_task(store: TaskStore, *, asset_type: str = "video") -> str:
+def _seed_task(
+    store: TaskStore,
+    *,
+    asset_type: str = "video",
+    estimated_cost: float | None = None,
+    currency: str | None = None,
+    cost_source: str | None = None,
+) -> str:
     task_id = str(uuid4())
     store.create_task(
         task_id=task_id,
@@ -124,6 +131,9 @@ def _seed_task(store: TaskStore, *, asset_type: str = "video") -> str:
             "provider_options": {},
         },
         asset_type=asset_type,
+        estimated_cost=estimated_cost,
+        currency=currency,
+        cost_source=cost_source,
     )
     return task_id
 
@@ -135,7 +145,9 @@ def test_cancel_running_task_unblocks_next_queued_task(tmp_path: Path) -> None:
         provider_config = _build_provider_config()
         started = asyncio.Event()
         release = asyncio.Event()
-        http_client = httpx.AsyncClient()
+        http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404, request=request))
+        )
         provider = _BlockingProvider(
             app_config=app_config,
             http_client=http_client,
@@ -232,6 +244,89 @@ def test_archives_image_results_with_stable_local_urls(tmp_path: Path) -> None:
                 filename = local_url.rsplit("/", 1)[-1]
                 archived_path = app_config.output_dir / "assets" / task_id / filename
                 assert archived_path.exists()
+        finally:
+            await worker.stop()
+            await http_client.aclose()
+
+    asyncio.run(_run())
+
+
+def test_success_without_provider_cost_uses_estimated_cost_as_actual(tmp_path: Path) -> None:
+    async def _run() -> None:
+        store = TaskStore(tmp_path / "tasks.db")
+        app_config = _build_app_config(tmp_path)
+        provider_config = _build_provider_config()
+        http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404, request=request))
+        )
+        provider = _StaticResultProvider(
+            app_config=app_config,
+            http_client=http_client,
+            result_payload={"video_url": "https://example.com/video.mp4"},
+        )
+        worker = TaskWorker(
+            store=store,
+            provider_configs={"demo_provider": provider_config},
+            providers={"demo_provider": provider},
+            worker_count=1,
+        )
+
+        task_id = _seed_task(
+            store,
+            estimated_cost=1.25,
+            currency="USD",
+            cost_source="local_config",
+        )
+        await worker.start()
+        try:
+            await worker.submit(task_id)
+            await _wait_for_status(store, task_id=task_id, expected="succeeded")
+            task = store.get_task(task_id)
+            assert task["actual_cost"] == 1.25
+            assert task["cost_source"] == "local_config"
+        finally:
+            await worker.stop()
+            await http_client.aclose()
+
+    asyncio.run(_run())
+
+
+def test_provider_reported_cost_overrides_estimated_cost(tmp_path: Path) -> None:
+    async def _run() -> None:
+        store = TaskStore(tmp_path / "tasks.db")
+        app_config = _build_app_config(tmp_path)
+        provider_config = _build_provider_config()
+        http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404, request=request))
+        )
+        provider = _StaticResultProvider(
+            app_config=app_config,
+            http_client=http_client,
+            result_payload={
+                "video_url": "https://example.com/video.mp4",
+                "billing": {"amount": 2.5},
+            },
+        )
+        worker = TaskWorker(
+            store=store,
+            provider_configs={"demo_provider": provider_config},
+            providers={"demo_provider": provider},
+            worker_count=1,
+        )
+
+        task_id = _seed_task(
+            store,
+            estimated_cost=1.25,
+            currency="USD",
+            cost_source="local_config",
+        )
+        await worker.start()
+        try:
+            await worker.submit(task_id)
+            await _wait_for_status(store, task_id=task_id, expected="succeeded")
+            task = store.get_task(task_id)
+            assert task["actual_cost"] == 2.5
+            assert task["cost_source"] == "provider_api"
         finally:
             await worker.stop()
             await http_client.aclose()

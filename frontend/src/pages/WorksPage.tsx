@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   MagnifyingGlass,
 } from "@phosphor-icons/react";
-import { fetchTaskDetail } from "../api";
+import { fetchTaskCostSummary, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
@@ -45,7 +45,10 @@ import {
 import type { VideoTaskDetail, VideoTaskResponse } from "../types";
 import {
   errorMessage,
+  formatCostAmount,
   formatTime,
+  resolveTaskCostState,
+  summarizeTaskCosts,
 } from "../utils";
 
 interface Props {
@@ -82,6 +85,12 @@ export function WorksPage(props: Props) {
     () => tasks.filter((task) => task.status === "queued" || task.status === "running"),
     [tasks],
   );
+  const taskCostSummaryQuery = useQuery({
+    queryKey: ["task-cost-summary", settings.gatewayToken],
+    queryFn: () => fetchTaskCostSummary(settings.gatewayToken),
+    staleTime: 30_000,
+    refetchInterval: inProgressTasks.length > 0 ? 4_000 : 20_000,
+  });
   const completedTasks = useMemo(
     () =>
       tasks
@@ -109,10 +118,10 @@ export function WorksPage(props: Props) {
     [completedTasks],
   );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const assetList = useMemo(() => {
-    let nextList = completedTasks;
+  const filteredTasks = useMemo(() => {
+    let nextList = tasks;
     if (browseFilter !== "all") {
-      nextList = completedTasks.filter((task) => task.asset_type === browseFilter);
+      nextList = nextList.filter((task) => task.asset_type === browseFilter);
     }
 
     if (providerFilter !== "all") {
@@ -132,7 +141,16 @@ export function WorksPage(props: Props) {
         .toLowerCase();
       return searchable.includes(normalizedSearchQuery);
     });
-  }, [browseFilter, completedTasks, normalizedSearchQuery, providerFilter]);
+  }, [browseFilter, normalizedSearchQuery, providerFilter, tasks]);
+  const assetList = useMemo(
+    () => filteredTasks.filter((task) => task.status !== "queued" && task.status !== "running"),
+    [filteredTasks],
+  );
+  const visibleCostSummary = useMemo(
+    () => summarizeTaskCosts(filteredTasks),
+    [filteredTasks],
+  );
+  const summaryCurrency = taskCostSummaryQuery.data?.currency || settings.currency;
 
   useEffect(() => {
     if (!assetList.length) {
@@ -285,6 +303,7 @@ export function WorksPage(props: Props) {
       setHint(formatTaskActionSuccessMessage(payload, t));
       setSelectedTaskId((current) => (current === payload.taskId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+      await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
     },
     onError: (error: Error, payload) => {
       setHint(formatTaskActionErrorMessage(payload, error, t));
@@ -297,6 +316,7 @@ export function WorksPage(props: Props) {
       setQueuedRetryTaskId(payload.task.task_id);
       setHint(formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+      await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
     },
     onError: (error: Error) => {
       setHint(formatRetryErrorMessage(error, t));
@@ -415,6 +435,34 @@ export function WorksPage(props: Props) {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <CostSummaryTile
+          label={t("works.totalCharged")}
+          value={formatSummaryCost(
+            taskCostSummaryQuery.data?.charged_cost_total ?? 0,
+            summaryCurrency,
+            locale,
+          )}
+        />
+        <CostSummaryTile
+          label={t("works.visibleCharged")}
+          value={formatSummaryCost(
+            visibleCostSummary.chargedCostTotal,
+            summaryCurrency,
+            locale,
+          )}
+        />
+        <CostSummaryTile
+          label={t("works.pendingEstimated")}
+          value={formatSummaryCost(
+            visibleCostSummary.pendingEstimatedCostTotal,
+            summaryCurrency,
+            locale,
+            t("works.estimatedSuffix"),
+          )}
+        />
       </section>
 
       {!!inProgressTasks.length && (
@@ -601,6 +649,9 @@ function InProgressStrip({
             <div className="space-y-1 text-[11px] text-[var(--c-text-secondary)]">
               <p className="m-0 truncate">{task.provider || task.model}</p>
               <p className="m-0">{formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}</p>
+              <p className="m-0">
+                {renderTaskCostLabel(task, t, locale)}
+              </p>
             </div>
             <div className="pt-1">
               <button
@@ -617,6 +668,53 @@ function InProgressStrip({
       </div>
     </div>
   );
+}
+
+function CostSummaryTile({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <article className="card-flat flex min-h-[108px] flex-col justify-between gap-3">
+      <span className="text-label">{label}</span>
+      <strong className="text-2xl font-semibold tracking-tight text-[var(--c-text)]">
+        {value}
+      </strong>
+    </article>
+  );
+}
+
+function formatSummaryCost(
+  amount: number,
+  currency: string | null,
+  locale: string,
+  suffix?: string,
+): string {
+  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
+  const base = formatCostAmount(amount, currency, normalizedLocale);
+  return suffix ? `${base} ${suffix}` : base;
+}
+
+function renderTaskCostLabel(
+  task: VideoTaskDetail,
+  t: TranslateFn,
+  locale: string,
+): string {
+  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
+  const costState = resolveTaskCostState(task);
+  if (costState.kind === "charged" && typeof costState.amount === "number") {
+    return `${t("works.cost")}: ${formatCostAmount(costState.amount, costState.currency, normalizedLocale)}`;
+  }
+  if (costState.kind === "estimated" && typeof costState.amount === "number") {
+    return `${t("works.cost")}: ${formatCostAmount(costState.amount, costState.currency, normalizedLocale)} ${t("works.estimatedSuffix")}`;
+  }
+  if (costState.kind === "not_charged") {
+    return `${t("works.cost")}: ${t("works.notCharged")}`;
+  }
+  return `${t("works.cost")}: ${t("common.na")}`;
 }
 
 function useWindowWidth() {

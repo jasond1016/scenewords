@@ -260,6 +260,68 @@ class TaskStore:
                 ).fetchall()
         return [_row_to_dict(row) for row in rows]
 
+    def summarize_task_costs(self) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN status = 'succeeded' AND actual_cost IS NOT NULL
+                                THEN actual_cost
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS charged_cost_total,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN status = 'succeeded' AND actual_cost IS NOT NULL
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS charged_task_count,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN status IN ('queued', 'running') AND estimated_cost IS NOT NULL
+                                THEN estimated_cost
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS pending_estimated_cost_total,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN status IN ('queued', 'running') AND estimated_cost IS NOT NULL
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS pending_estimated_task_count
+                FROM tasks
+                """
+            ).fetchone()
+        if row is None:
+            return {
+                "charged_cost_total": 0.0,
+                "charged_task_count": 0,
+                "pending_estimated_cost_total": 0.0,
+                "pending_estimated_task_count": 0,
+            }
+        return {
+            "charged_cost_total": _as_float(row["charged_cost_total"]) or 0.0,
+            "charged_task_count": int(row["charged_task_count"] or 0),
+            "pending_estimated_cost_total": _as_float(row["pending_estimated_cost_total"]) or 0.0,
+            "pending_estimated_task_count": int(row["pending_estimated_task_count"] or 0),
+        }
+
     def create_file(
         self,
         file_id: str,

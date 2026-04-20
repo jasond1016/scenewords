@@ -2,6 +2,7 @@ import type {
   AssetType,
   ProviderCatalogResponse,
   RetryMode,
+  TaskCostSummary,
   UploadedFileResponse,
   VideoGenerationRequest,
   VideoTaskDetail,
@@ -127,6 +128,10 @@ export function fetchTaskDetail(
 ): Promise<VideoTaskDetail> {
   const root = assetType === "image" ? "/v1/image/tasks" : "/v1/video/tasks";
   return request<VideoTaskDetail>(`${root}/${encodeURIComponent(taskId)}`, {}, token);
+}
+
+export function fetchTaskCostSummary(token: string): Promise<TaskCostSummary> {
+  return request<TaskCostSummary>("/v1/tasks/summary", {}, token);
 }
 
 export function deleteVideoTask(

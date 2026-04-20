@@ -71,10 +71,9 @@ def _write_test_configs(
                     {
                         "provider": "demo_provider",
                         "model": "demo-model",
-                        "quality": "standard",
-                        "resolution": "1280x720",
-                        "duration_sec": 4,
+                        "operation": "generate",
                         "fixed_cost": 1.25,
+                        "discount_rate": 0.8,
                         "currency": "USD",
                     }
                 ],
@@ -194,6 +193,30 @@ def test_list_video_tasks_summary_view_strips_raw_payloads(client_factory) -> No
     assert "raw_response" in (full_task["result"] or {})
 
 
+def test_create_video_task_persists_estimated_cost(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        response = client.post(
+            "/v1/video/generations",
+            json={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "test prompt",
+                "provider_options": {},
+            },
+        )
+        task = client.app.state.store.get_task(response.json()["task_id"])
+
+    assert response.status_code == 200
+    assert task["estimated_cost"] == 1.0
+    assert task["actual_cost"] is None
+    assert task["cost_source"] == "local_config"
+
+
 def test_list_video_tasks_summary_view_strips_raw_error_details(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_task(client)
@@ -214,6 +237,89 @@ def test_list_video_tasks_summary_view_strips_raw_error_details(client_factory) 
         "message": "failed to generate",
     }
     assert full_task["error"]["raw_error"] == {"provider": {"trace": "verbose"}}
+
+
+def test_task_cost_summary_excludes_failed_tasks(client_factory) -> None:
+    with client_factory() as client:
+        charged_task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=charged_task_id,
+            provider="demo_provider",
+            model="demo-model",
+            operation="generate",
+            prompt="charged task",
+            request_payload={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "charged task",
+                "provider_options": {},
+            },
+            estimated_cost=1.25,
+            currency="USD",
+            cost_source="local_config",
+        )
+        client.app.state.store.set_result(
+            task_id=charged_task_id,
+            result={"video_url": "https://example.com/video.mp4"},
+            actual_cost=1.5,
+            cost_source="provider_api",
+        )
+
+        failed_task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=failed_task_id,
+            provider="demo_provider",
+            model="demo-model",
+            operation="generate",
+            prompt="failed task",
+            request_payload={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "failed task",
+                "provider_options": {},
+            },
+            estimated_cost=0.8,
+            currency="USD",
+            cost_source="local_config",
+        )
+        client.app.state.store.set_error(
+            task_id=failed_task_id,
+            code="upstream_error",
+            message="generation failed",
+            raw_error={},
+        )
+
+        pending_task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=pending_task_id,
+            provider="demo_provider",
+            model="demo-model",
+            operation="generate",
+            prompt="pending task",
+            request_payload={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "pending task",
+                "provider_options": {},
+            },
+            estimated_cost=0.6,
+            currency="USD",
+            cost_source="local_config",
+        )
+
+        response = client.get("/v1/tasks/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "charged_cost_total": 1.5,
+        "charged_task_count": 1,
+        "pending_estimated_cost_total": 0.6,
+        "pending_estimated_task_count": 1,
+        "currency": "USD",
+    }
 
 
 def _seed_task(client: TestClient) -> str:
