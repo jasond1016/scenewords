@@ -5,7 +5,7 @@ import {
   extractVideoUrl,
 } from "./utils";
 
-export type LightboxKind = "image" | "video" | "failed";
+export type LightboxKind = "image" | "video" | "failed" | "expired";
 
 export interface LightboxMediaItem {
   key: string;
@@ -21,13 +21,21 @@ export interface FailedSlide {
   height: number;
 }
 
+export interface ExpiredSlide {
+  type: "expired";
+  taskId: string;
+  width: number;
+  height: number;
+}
+
 declare module "yet-another-react-lightbox" {
   interface SlideTypes {
     failed: FailedSlide;
+    expired: ExpiredSlide;
   }
 }
 
-export type AppLightboxSlide = Slide | FailedSlide;
+export type AppLightboxSlide = Slide | FailedSlide | ExpiredSlide;
 export type MediaOrientation = "landscape" | "portrait" | "square";
 
 const LANDSCAPE_FALLBACK_DIMENSIONS = { width: 1600, height: 900 };
@@ -54,6 +62,15 @@ export function buildLightboxItems(
         continue;
       }
       const urls = extractImageUrls(task);
+      if (!urls.length) {
+        items.push({
+          key: `${task.task_id}_expired`,
+          taskId: task.task_id,
+          url: "",
+          kind: "expired",
+        });
+        continue;
+      }
       urls.forEach((url, index) => {
         items.push({
           key: `${task.task_id}_img_${index}_${url}`,
@@ -79,6 +96,12 @@ export function buildLightboxItems(
     }
     const url = extractVideoUrl(task);
     if (!url) {
+      items.push({
+        key: `${task.task_id}_expired`,
+        taskId: task.task_id,
+        url: "",
+        kind: "expired",
+      });
       continue;
     }
     items.push({
@@ -121,6 +144,15 @@ export function mapLightboxItemsToSlides(
     if (item.kind === "failed") {
       return {
         type: "failed",
+        taskId: item.taskId,
+        width: dimensions.width,
+        height: dimensions.height,
+      };
+    }
+
+    if (item.kind === "expired") {
+      return {
+        type: "expired",
         taskId: item.taskId,
         width: dimensions.width,
         height: dimensions.height,

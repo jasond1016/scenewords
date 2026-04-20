@@ -121,6 +121,7 @@ function TaskPreviewMedia({
   const mediaWrapClass =
     aspectClassName ?? (inferTaskPortrait(task) ? "aspect-[3/4]" : "aspect-video");
   const isVideoTask = task.asset_type === "video";
+  const hasMediaSource = Boolean(thumb || videoUrl);
 
   useEffect(() => {
     if (!isVideoTask) {
@@ -129,14 +130,19 @@ function TaskPreviewMedia({
     setIsVideoReady(Boolean(resolvedPosterUrl));
   }, [isVideoTask, resolvedPosterUrl, videoUrl]);
 
-  const showFailureState =
-    task.status === "failed" || (hasError && task.status !== "queued" && task.status !== "running");
+  const showFailureState = task.status === "failed";
+  const showExpiredState =
+    task.status === "succeeded" && (hasError || !hasMediaSource);
 
-  if (showFailureState || (!thumb && !videoUrl)) {
+  if (showFailureState || showExpiredState || !hasMediaSource) {
     return (
       <div
         className={`relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border ${
-          showFailureState ? "bg-error-bg text-error-text" : "bg-canvas text-[var(--c-text-tertiary)]"
+          showFailureState
+            ? "bg-error-bg text-error-text"
+            : showExpiredState
+              ? "bg-warning-bg text-warning-text"
+              : "bg-canvas text-[var(--c-text-tertiary)]"
         }`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -146,6 +152,11 @@ function TaskPreviewMedia({
             <>
               <WarningCircle size={22} weight="regular" />
               <span className="font-medium">{t("works.generationFailed")}</span>
+            </>
+          ) : showExpiredState ? (
+            <>
+              <WarningCircle size={22} weight="regular" />
+              <span className="font-medium">{t("works.resourceExpired")}</span>
             </>
           ) : (
             <span className="font-medium">

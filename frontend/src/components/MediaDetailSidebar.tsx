@@ -203,6 +203,11 @@ export function MediaDetailSidebar(props: Props) {
           {shareError}
         </p>
       ) : null}
+      {task.status === "succeeded" && !downloadUrl ? (
+        <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-warning-bg px-3 py-2 text-[11px] text-warning-text">
+          {t("works.resourceExpiredHint")}
+        </p>
+      ) : null}
 
       <section className="space-y-2">
         <p className="m-0 text-label">{t("works.promptLabel")}</p>

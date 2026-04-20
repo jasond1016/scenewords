@@ -8,6 +8,7 @@ import { useI18n } from "../i18n";
 import {
   mapLightboxItemsToSlides,
   type AppLightboxSlide,
+  type ExpiredSlide,
   type FailedSlide,
   type LightboxMediaItem,
 } from "../lightbox";
@@ -84,7 +85,15 @@ export function AppLightboxStage(props: Props) {
           scrollToZoom: true,
         }}
         render={{
-          slide: ({ slide }) => (isFailedSlide(slide) ? <FailedSlideCard label={t("works.generationFailed")} /> : undefined),
+          slide: ({ slide }) => {
+            if (isFailedSlide(slide)) {
+              return <PlaceholderSlideCard label={t("works.generationFailed")} />;
+            }
+            if (isExpiredSlide(slide)) {
+              return <PlaceholderSlideCard label={t("works.resourceExpired")} />;
+            }
+            return undefined;
+          },
           buttonPrev: () => null,
           buttonNext: () => null,
           buttonClose: () => null,
@@ -117,7 +126,11 @@ function isFailedSlide(slide: AppLightboxSlide): slide is FailedSlide {
   return slide.type === "failed";
 }
 
-function FailedSlideCard(props: { label: string }) {
+function isExpiredSlide(slide: AppLightboxSlide): slide is ExpiredSlide {
+  return slide.type === "expired";
+}
+
+function PlaceholderSlideCard(props: { label: string }) {
   return (
     <div className="app-lightbox-stage__failed flex h-full w-full flex-col items-center justify-center gap-3 text-[var(--c-text-secondary)]">
       <WarningCircle size={48} weight="thin" />
