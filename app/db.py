@@ -219,7 +219,13 @@ class TaskStore:
             )
             self._connection.commit()
 
-    def list_tasks(self, limit: int = 20, asset_type: str | None = None) -> list[dict[str, Any]]:
+    def list_tasks(
+        self,
+        limit: int = 20,
+        asset_type: str | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        safe_offset = max(offset, 0)
         with self._lock:
             if asset_type:
                 rows = self._connection.execute(
@@ -228,13 +234,14 @@ class TaskStore:
                     WHERE COALESCE(asset_type, 'video') = ?
                     ORDER BY created_at DESC
                     LIMIT ?
+                    OFFSET ?
                     """,
-                    (asset_type, limit),
+                    (asset_type, limit, safe_offset),
                 ).fetchall()
             else:
                 rows = self._connection.execute(
-                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?",
-                    (limit,),
+                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    (limit, safe_offset),
                 ).fetchall()
         return [_row_to_dict(row) for row in rows]
 

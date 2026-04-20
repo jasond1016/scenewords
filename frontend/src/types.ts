@@ -133,6 +133,11 @@ export interface TaskCostSummary {
   currency: string;
 }
 
+export interface TaskPageResult {
+  tasks: VideoTaskDetail[];
+  has_more: boolean;
+}
+
 export interface UploadedFileResponse {
   file_id: string;
   original_name: string;

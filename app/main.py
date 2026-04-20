@@ -457,12 +457,18 @@ def create_app() -> FastAPI:
     @app.get("/v1/video/tasks", response_model=list[VideoTaskDetail])
     async def list_video_tasks(
         limit: int = 20,
+        offset: int = 0,
         view: Literal["full", "summary"] = TASK_LIST_VIEW_FULL,
         _: None = Depends(require_auth),
     ) -> list[VideoTaskDetail]:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
-        tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="video")
+        bounded_offset = max(offset, 0)
+        tasks = app.state.store.list_tasks(
+            limit=bounded_limit,
+            asset_type="video",
+            offset=bounded_offset,
+        )
         queue_map = _build_queue_position_map(asset_type="video")
         return [_to_task_detail(task, queue_map=queue_map, view=view) for task in tasks]
 
@@ -606,12 +612,18 @@ def create_app() -> FastAPI:
     @app.get("/v1/image/tasks", response_model=list[VideoTaskDetail])
     async def list_image_tasks(
         limit: int = 20,
+        offset: int = 0,
         view: Literal["full", "summary"] = TASK_LIST_VIEW_FULL,
         _: None = Depends(require_auth),
     ) -> list[VideoTaskDetail]:
         max_limit = app.state.config.max_recent_tasks
         bounded_limit = min(max(limit, 1), max_limit)
-        tasks = app.state.store.list_tasks(limit=bounded_limit, asset_type="image")
+        bounded_offset = max(offset, 0)
+        tasks = app.state.store.list_tasks(
+            limit=bounded_limit,
+            asset_type="image",
+            offset=bounded_offset,
+        )
         queue_map = _build_queue_position_map(asset_type="image")
         return [_to_task_detail(task, queue_map=queue_map, view=view) for task in tasks]
 

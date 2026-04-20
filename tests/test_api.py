@@ -162,6 +162,20 @@ def test_list_video_tasks_default_empty(client_factory) -> None:
     assert response.json() == []
 
 
+def test_list_video_tasks_supports_offset(client_factory) -> None:
+    with client_factory() as client:
+        oldest = _seed_task(client)
+        middle = _seed_task(client)
+        newest = _seed_task(client)
+        response = client.get("/v1/video/tasks?limit=1&offset=1")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["task_id"] == middle
+    assert payload[0]["task_id"] != newest
+    assert payload[0]["task_id"] != oldest
+
+
 def test_list_video_tasks_summary_view_strips_raw_payloads(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_task(client)
@@ -411,6 +425,20 @@ def test_list_image_tasks_only_returns_image_asset_type(client_factory) -> None:
     assert len(payload) == 1
     assert payload[0]["task_id"] == image_task_id
     assert payload[0]["asset_type"] == "image"
+
+
+def test_list_image_tasks_supports_offset(client_factory) -> None:
+    with client_factory() as client:
+        oldest = _seed_image_task(client)
+        middle = _seed_image_task(client)
+        newest = _seed_image_task(client)
+        response = client.get("/v1/image/tasks?limit=1&offset=1")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["task_id"] == middle
+    assert payload[0]["task_id"] != newest
+    assert payload[0]["task_id"] != oldest
 
 
 def test_retry_video_task_keeps_seed_for_supported_provider(

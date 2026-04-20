@@ -12,6 +12,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
 const IDLE_TASK_POLL_INTERVAL_MS = 20000;
+const TASK_PAGE_SIZE = 50;
 const LOGO_MARK_SRC = `${import.meta.env.BASE_URL}logo-mark-header.png`;
 
 export default function App() {
@@ -22,7 +23,7 @@ export default function App() {
   );
   const tasksQuery = useQuery({
     queryKey: ["tasks", settings.gatewayToken],
-    queryFn: () => fetchTasks(60, settings.gatewayToken, "summary"),
+    queryFn: () => fetchTasks(TASK_PAGE_SIZE, settings.gatewayToken, "summary"),
     refetchInterval: (query) => {
       if (visibility !== "visible") {
         return false;

@@ -2,6 +2,7 @@ import type {
   AssetType,
   ProviderCatalogResponse,
   RetryMode,
+  TaskPageResult,
   TaskCostSummary,
   UploadedFileResponse,
   VideoGenerationRequest,
@@ -97,8 +98,21 @@ export function fetchTasks(
   limit: number,
   token: string,
   view: TasksView = "summary",
+  offset = 0,
 ): Promise<VideoTaskDetail[]> {
-  const query = `limit=${encodeURIComponent(String(limit))}&view=${encodeURIComponent(view)}`;
+  return fetchTaskPage(limit, token, view, offset).then((page) => page.tasks);
+}
+
+export function fetchTaskPage(
+  limit: number,
+  token: string,
+  view: TasksView = "summary",
+  offset = 0,
+): Promise<TaskPageResult> {
+  const query =
+    `limit=${encodeURIComponent(String(limit))}` +
+    `&offset=${encodeURIComponent(String(offset))}` +
+    `&view=${encodeURIComponent(view)}`;
   return Promise.all([
     request<VideoTaskDetail[]>(
       `/v1/video/tasks?${query}`,
@@ -110,15 +124,19 @@ export function fetchTasks(
       {},
       token,
     ),
-  ]).then(([videoTasks, imageTasks]) =>
-    [...videoTasks, ...imageTasks].sort((left, right) => {
+  ]).then(([videoTasks, imageTasks]) => {
+    const tasks = [...videoTasks, ...imageTasks].sort((left, right) => {
       const leftTs = Date.parse(left.created_at);
       const rightTs = Date.parse(right.created_at);
       const safeLeft = Number.isFinite(leftTs) ? leftTs : 0;
       const safeRight = Number.isFinite(rightTs) ? rightTs : 0;
       return safeRight - safeLeft;
-    }),
-  );
+    });
+    return {
+      tasks,
+      has_more: videoTasks.length >= limit || imageTasks.length >= limit,
+    };
+  });
 }
 
 export function fetchTaskDetail(

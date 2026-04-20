@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   MagnifyingGlass,
 } from "@phosphor-icons/react";
-import { fetchTaskCostSummary, fetchTaskDetail } from "../api";
+import { fetchTaskCostSummary, fetchTaskDetail, fetchTaskPage } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
@@ -57,6 +57,7 @@ interface Props {
 }
 
 type BrowseFilter = "all" | "image" | "video";
+const TASK_PAGE_SIZE = 50;
 
 export function WorksPage(props: Props) {
   const { tasks, loading } = props;
@@ -75,15 +76,31 @@ export function WorksPage(props: Props) {
   const [hint, setHint] = useState("");
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
   const [isMediaExpanded, setIsMediaExpanded] = useState(false);
+  const [extraTasks, setExtraTasks] = useState<VideoTaskDetail[]>([]);
+  const [nextOffset, setNextOffset] = useState(TASK_PAGE_SIZE);
+  const [hasMorePages, setHasMorePages] = useState(() => inferHasMorePages(tasks));
   const isLightboxOpen = lightboxState !== null;
+  const allTasks = useMemo(() => mergeTaskLists(tasks, extraTasks), [extraTasks, tasks]);
   const taskById = useMemo(
-    () => new Map(tasks.map((task) => [task.task_id, task])),
-    [tasks],
+    () => new Map(allTasks.map((task) => [task.task_id, task])),
+    [allTasks],
   );
 
+  useEffect(() => {
+    setExtraTasks([]);
+    setNextOffset(TASK_PAGE_SIZE);
+    setHasMorePages(inferHasMorePages(tasks));
+  }, [settings.gatewayToken]);
+
+  useEffect(() => {
+    if (nextOffset === TASK_PAGE_SIZE) {
+      setHasMorePages(inferHasMorePages(tasks));
+    }
+  }, [nextOffset, tasks]);
+
   const inProgressTasks = useMemo(
-    () => tasks.filter((task) => task.status === "queued" || task.status === "running"),
-    [tasks],
+    () => allTasks.filter((task) => task.status === "queued" || task.status === "running"),
+    [allTasks],
   );
   const taskCostSummaryQuery = useQuery({
     queryKey: ["task-cost-summary", settings.gatewayToken],
@@ -93,10 +110,10 @@ export function WorksPage(props: Props) {
   });
   const completedTasks = useMemo(
     () =>
-      tasks
+      allTasks
         .filter((task) => task.status !== "queued" && task.status !== "running")
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)),
-    [tasks],
+    [allTasks],
   );
   const inProgressBreakdown = useMemo(
     () => ({
@@ -119,7 +136,7 @@ export function WorksPage(props: Props) {
   );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredTasks = useMemo(() => {
-    let nextList = tasks;
+    let nextList = allTasks;
     if (browseFilter !== "all") {
       nextList = nextList.filter((task) => task.asset_type === browseFilter);
     }
@@ -141,7 +158,7 @@ export function WorksPage(props: Props) {
         .toLowerCase();
       return searchable.includes(normalizedSearchQuery);
     });
-  }, [browseFilter, normalizedSearchQuery, providerFilter, tasks]);
+  }, [allTasks, browseFilter, normalizedSearchQuery, providerFilter]);
   const assetList = useMemo(
     () => filteredTasks.filter((task) => task.status !== "queued" && task.status !== "running"),
     [filteredTasks],
@@ -302,6 +319,7 @@ export function WorksPage(props: Props) {
     onSuccess: async (_data, payload) => {
       setHint(formatTaskActionSuccessMessage(payload, t));
       setSelectedTaskId((current) => (current === payload.taskId ? null : current));
+      setExtraTasks((current) => current.filter((task) => task.task_id !== payload.taskId));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
     },
@@ -320,6 +338,17 @@ export function WorksPage(props: Props) {
     },
     onError: (error: Error) => {
       setHint(formatRetryErrorMessage(error, t));
+    },
+  });
+  const loadMoreMutation = useMutation({
+    mutationFn: () => fetchTaskPage(TASK_PAGE_SIZE, settings.gatewayToken, "summary", nextOffset),
+    onSuccess: (page) => {
+      setExtraTasks((current) => mergeTaskLists(current, page.tasks));
+      setNextOffset((current) => current + TASK_PAGE_SIZE);
+      setHasMorePages(page.has_more);
+    },
+    onError: (error: Error) => {
+      setHint(t("works.loadMoreFailed", { message: error.message }));
     },
   });
 
@@ -490,7 +519,7 @@ export function WorksPage(props: Props) {
       )}
 
       <section className="card">
-        <div>
+        <div className="space-y-5">
           <MasonryGrid
             items={assetList}
             selectedTaskId={selectedTaskId}
@@ -500,6 +529,18 @@ export function WorksPage(props: Props) {
             formatTime={formatTime}
             locale={locale}
           />
+          {hasMorePages ? (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                className="btn-secondary text-sm"
+                onClick={() => loadMoreMutation.mutate()}
+                disabled={loadMoreMutation.isPending}
+              >
+                {loadMoreMutation.isPending ? t("works.loadingMore") : t("works.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -715,6 +756,25 @@ function renderTaskCostLabel(
     return `${t("works.cost")}: ${t("works.notCharged")}`;
   }
   return `${t("works.cost")}: ${t("common.na")}`;
+}
+
+function mergeTaskLists(
+  baseTasks: VideoTaskDetail[],
+  nextTasks: VideoTaskDetail[],
+): VideoTaskDetail[] {
+  const byId = new Map<string, VideoTaskDetail>();
+  for (const task of [...baseTasks, ...nextTasks]) {
+    byId.set(task.task_id, task);
+  }
+  return Array.from(byId.values()).sort(
+    (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+  );
+}
+
+function inferHasMorePages(tasks: VideoTaskDetail[]): boolean {
+  const imageCount = tasks.filter((task) => task.asset_type === "image").length;
+  const videoCount = tasks.filter((task) => task.asset_type === "video").length;
+  return imageCount >= TASK_PAGE_SIZE || videoCount >= TASK_PAGE_SIZE;
 }
 
 function useWindowWidth() {
