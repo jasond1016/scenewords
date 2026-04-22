@@ -68,7 +68,7 @@ export function TaskPreviewCard(props: Props) {
   return (
     <button
       type="button"
-      className={`${className}${selectedClassName}`}
+      className={`block w-full text-left ${className}${selectedClassName}`}
       onClick={onClick}
     >
       <TaskPreviewMedia

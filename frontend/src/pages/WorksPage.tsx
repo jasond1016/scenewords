@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -13,6 +13,7 @@ import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n, type TranslateFn } from "../i18n";
 import {
   buildLightboxItems,
+  inferTaskPortrait,
   inferTaskOrientation,
   type LightboxKind,
 } from "../lightbox";
@@ -42,6 +43,7 @@ import {
   useEscapeToClose,
   useOverlayScrollLock,
 } from "../useMediaOverlay";
+import { useScrollEntry } from "../useScrollEntry";
 import type { VideoTaskDetail, VideoTaskResponse } from "../types";
 import {
   errorMessage,
@@ -847,11 +849,12 @@ function MasonryGrid({
         <div key={columnIndex} className="flex flex-1 flex-col gap-4">
           {columnItems.map((task) => {
             return (
-              <TaskPreviewCard
+              <DeferredTaskPreviewCard
                 key={task.task_id}
                 task={task}
                 className="media-card p-2"
                 selected={task.task_id === selectedTaskId}
+                forceRender={task.task_id === selectedTaskId}
                 timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 modelLabel={task.model || task.provider}
                 onClick={() => {
@@ -867,6 +870,68 @@ function MasonryGrid({
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+function DeferredTaskPreviewCard(
+  props: ComponentProps<typeof TaskPreviewCard> & {
+    forceRender?: boolean;
+  },
+) {
+  const { task, forceRender = false } = props;
+  const [entryRef, visible] = useScrollEntry<HTMLDivElement>({
+    rootMargin: "1200px 0px",
+    threshold: 0.01,
+  });
+  const shouldRender = forceRender || visible;
+  const aspectClassName = inferTaskPortrait(task) ? "aspect-[3/4]" : "aspect-video";
+
+  return (
+    <div
+      ref={entryRef as RefObject<HTMLDivElement>}
+      className="w-full"
+    >
+      {shouldRender ? (
+        <TaskPreviewCard {...props} />
+      ) : (
+        <DeferredTaskPreviewCardPlaceholder
+          task={task}
+          className={props.className}
+          aspectClassName={aspectClassName}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeferredTaskPreviewCardPlaceholder({
+  task,
+  className,
+  aspectClassName,
+}: {
+  task: VideoTaskDetail;
+  className: string;
+  aspectClassName: string;
+}) {
+  const mediaToneClass =
+    task.asset_type === "video"
+      ? "bg-gradient-to-br from-[var(--c-surface)] via-[var(--c-surface-elevated)] to-[var(--c-canvas)]"
+      : "bg-surface";
+
+  return (
+    <div className={className} aria-hidden="true">
+      <div className={`relative ${aspectClassName} w-full overflow-hidden rounded-xl border border-border ${mediaToneClass}`}>
+        <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      </div>
+      <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
+        <div className="h-3.5 w-[88%] rounded-full bg-[var(--c-surface)]" />
+        <div className="h-3.5 w-[72%] rounded-full bg-[var(--c-surface)]" />
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <div className="h-2.5 w-20 rounded-full bg-[var(--c-surface)]" />
+          <div className="h-2.5 w-14 rounded-full bg-[var(--c-surface)]" />
+        </div>
+      </div>
     </div>
   );
 }
