@@ -23,6 +23,8 @@ interface Props {
   modelLabel: string;
   className: string;
   selected?: boolean;
+  mediaLoading?: "lazy" | "eager";
+  mediaFetchPriority?: "auto" | "high" | "low";
   aspectClassName?: string;
   promptClassName?: string;
   metaClassName?: string;
@@ -41,6 +43,8 @@ export function TaskPreviewCard(props: Props) {
     modelLabel,
     className,
     selected = false,
+    mediaLoading = "lazy",
+    mediaFetchPriority = "auto",
     aspectClassName,
     promptClassName = "m-0 line-clamp-3 text-xs font-semibold leading-relaxed text-[var(--c-text)]",
     metaClassName = "flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]",
@@ -73,6 +77,8 @@ export function TaskPreviewCard(props: Props) {
     >
       <TaskPreviewMedia
         task={task}
+        mediaLoading={mediaLoading}
+        mediaFetchPriority={mediaFetchPriority}
         aspectClassName={aspectClassName}
         statusBadge={statusBadge}
       />
@@ -96,10 +102,14 @@ export function TaskPreviewCard(props: Props) {
 
 function TaskPreviewMedia({
   task,
+  mediaLoading,
+  mediaFetchPriority,
   aspectClassName,
   statusBadge,
 }: {
   task: VideoTaskDetail;
+  mediaLoading: "lazy" | "eager";
+  mediaFetchPriority: "auto" | "high" | "low";
   aspectClassName?: string;
   statusBadge?: {
     label: string;
@@ -167,7 +177,9 @@ function TaskPreviewMedia({
             src={resolvedPosterUrl}
             alt=""
             className="absolute inset-0 h-full w-full object-cover"
-            loading="lazy"
+            loading={mediaLoading}
+            decoding="async"
+            fetchPriority={mediaFetchPriority}
             onError={() => setHasError(true)}
           />
         ) : null}
@@ -195,7 +207,9 @@ function TaskPreviewMedia({
         className="h-full w-full object-cover"
         src={thumb}
         alt={task.task_id}
-        loading="lazy"
+        loading={mediaLoading}
+        decoding="async"
+        fetchPriority={mediaFetchPriority}
         onError={() => setHasError(true)}
       />
       {statusBadge ? (

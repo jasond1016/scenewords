@@ -838,6 +838,10 @@ function MasonryGrid({
     });
     return cols;
   }, [columnCount, items]);
+  const eagerTaskIds = useMemo(
+    () => new Set(items.slice(0, Math.max(columnCount * 2, 6)).map((task) => task.task_id)),
+    [columnCount, items],
+  );
 
   if (!items.length) {
     return <EmptyStateWorks locale={locale} />;
@@ -854,7 +858,9 @@ function MasonryGrid({
                 task={task}
                 className="media-card p-2"
                 selected={task.task_id === selectedTaskId}
-                forceRender={task.task_id === selectedTaskId}
+                forceRender={task.task_id === selectedTaskId || eagerTaskIds.has(task.task_id)}
+                mediaLoading={eagerTaskIds.has(task.task_id) ? "eager" : "lazy"}
+                mediaFetchPriority={eagerTaskIds.has(task.task_id) ? "high" : "auto"}
                 timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 modelLabel={task.model || task.provider}
                 onClick={() => {
@@ -881,7 +887,7 @@ function DeferredTaskPreviewCard(
 ) {
   const { task, forceRender = false } = props;
   const [entryRef, visible] = useScrollEntry<HTMLDivElement>({
-    rootMargin: "1200px 0px",
+    rootMargin: "800px 0px",
     threshold: 0.01,
   });
   const shouldRender = forceRender || visible;
