@@ -80,3 +80,29 @@ def test_apply_orientation_mode_auto_keeps_resolution_when_no_reference() -> Non
     app_main._apply_orientation_mode_to_resolution(request)
 
     assert request.resolution == "1280x720"
+
+
+def test_suppress_asyncio_connection_reset_for_windows_proactor_noise(monkeypatch) -> None:
+    monkeypatch.setattr(app_main.os, "name", "nt", raising=False)
+    error = ConnectionResetError(10054, "connection reset")
+    error.winerror = 10054  # type: ignore[attr-defined]
+
+    context = {
+        "message": "Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)",
+        "exception": error,
+    }
+
+    assert app_main._should_suppress_asyncio_connection_reset(context) is True
+
+
+def test_keep_other_asyncio_connection_resets_visible(monkeypatch) -> None:
+    monkeypatch.setattr(app_main.os, "name", "nt", raising=False)
+    error = ConnectionResetError(10054, "connection reset")
+    error.winerror = 10054  # type: ignore[attr-defined]
+
+    context = {
+        "message": "Exception in callback some_other_transport(None)",
+        "exception": error,
+    }
+
+    assert app_main._should_suppress_asyncio_connection_reset(context) is False

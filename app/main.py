@@ -58,6 +58,7 @@ except Exception:  # pragma: no cover - optional dependency at import time
 STATIC_DIR = Path(__file__).parent / "static"
 FRONTEND_BUILD_HINT = "Frontend assets not found. Run: pnpm --dir frontend build"
 LOGGER = logging.getLogger("scenewords.shutdown")
+ASYNCIO_LOGGER = logging.getLogger("scenewords.asyncio")
 ALLOWED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _install_asyncio_exception_handler()
         app_config = load_app_config()
         app.state.inflight_requests: dict[int, dict[str, Any]] = {}
         app.state.inflight_request_seq = 0
@@ -1231,6 +1233,44 @@ def _log_pending_asyncio_tasks(*, context: str, limit: int = 20) -> None:
             location,
             task.cancelled(),
         )
+
+
+def _should_suppress_asyncio_connection_reset(context: dict[str, Any]) -> bool:
+    if os.name != "nt":
+        return False
+
+    exception = context.get("exception")
+    if not isinstance(exception, ConnectionResetError):
+        return False
+    if getattr(exception, "winerror", None) != 10054:
+        return False
+
+    message = str(context.get("message") or "")
+    handle = context.get("handle")
+    handle_text = "" if handle is None else repr(handle)
+    combined = f"{message} {handle_text}"
+    return "_ProactorBasePipeTransport._call_connection_lost" in combined
+
+
+def _install_asyncio_exception_handler() -> None:
+    loop = asyncio.get_running_loop()
+    if getattr(loop, "_scenewords_exception_handler_installed", False):
+        return
+
+    previous_handler = loop.get_exception_handler()
+
+    def _handler(current_loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        if _should_suppress_asyncio_connection_reset(context):
+            ASYNCIO_LOGGER.debug("Suppressed noisy Windows connection reset: %s", context)
+            return
+
+        if previous_handler is not None:
+            previous_handler(current_loop, context)
+            return
+        current_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
+    setattr(loop, "_scenewords_exception_handler_installed", True)
 
 
 app = create_app()
