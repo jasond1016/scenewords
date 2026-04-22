@@ -1,7 +1,7 @@
 {
   "mode": "local_config",
   "currency": "RMB",
-  "pricing_version": "2026-04-18",
+  "pricing_version": "2026-04-22",
   "entries": [
     {
       "provider": "nano_banana2",
@@ -26,6 +26,22 @@
       "discount_rate": 0.7,
       "currency": "RMB",
       "effective_from": "2026-04-18"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2-vip",
+      "fixed_cost": 0.084,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-04-22"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2",
+      "fixed_cost": 0.042,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-04-22"
     },
     {
       "provider": "nano_banana2",

@@ -183,3 +183,15 @@ def test_tuzi_image_async_model_exposes_async_generate_fields_only() -> None:
     assert "timeout_sec" in field_keys
     assert "poll_interval_sec" in field_keys
     assert "response_format" not in field_keys
+
+
+def test_tuzi_image_gpt_image_2_exposes_sync_generate_and_edit_fields() -> None:
+    provider = _build_provider_config(
+        provider_type="tuzi_image",
+        model_name="gpt-image-2",
+    )
+
+    operations = build_model_operations(provider, "gpt-image-2")
+    operation_ids = [item.id for item in operations]
+
+    assert operation_ids == ["generate", "edit"]

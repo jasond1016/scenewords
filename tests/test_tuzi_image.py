@@ -53,6 +53,26 @@ def test_build_generate_payload_infers_quality_from_model_when_missing() -> None
     assert payload["quality"] == "4k"
 
 
+@pytest.mark.parametrize("model_name", ["gpt-image-2", "gpt-image-2-vip"])
+def test_build_generate_payload_does_not_infer_quality_for_gpt_image_models(
+    model_name: str,
+) -> None:
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model=model_name,
+        operation="generate",
+        prompt="test prompt",
+        resolution="1:1",
+        provider_options={"response_format": "url"},
+    )
+
+    payload = _build_generate_payload(request=request)
+
+    assert payload["model"] == model_name
+    assert payload["size"] == "1x1"
+    assert "quality" not in payload
+
+
 def test_build_edit_form_accepts_uploaded_image_and_optional_mask(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
     source.write_bytes(b"fake-image")
