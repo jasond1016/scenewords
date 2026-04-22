@@ -4,6 +4,7 @@ param(
   [string]$BindHost = "0.0.0.0",
   [string]$CertFile = "certs/scenewords-ip.pem",
   [string]$KeyFile = "certs/scenewords-ip-key.pem",
+  [int]$GracefulShutdownSec = 5,
   [switch]$Reload
 )
 
@@ -47,6 +48,7 @@ else {
 
 Write-Host "Using certificate: $resolvedCertFile" -ForegroundColor DarkGray
 Write-Host "Using private key: $resolvedKeyFile" -ForegroundColor DarkGray
+Write-Host "Graceful shutdown timeout: $GracefulShutdownSec s" -ForegroundColor DarkGray
 
 $uvicornArgs = @(
   "run",
@@ -57,6 +59,8 @@ $uvicornArgs = @(
   $BindHost,
   "--port",
   $Port.ToString(),
+  "--timeout-graceful-shutdown",
+  $GracefulShutdownSec.ToString(),
   "--ssl-certfile",
   $resolvedCertFile,
   "--ssl-keyfile",
@@ -69,6 +73,8 @@ if ($Reload) {
 
 Push-Location $repoRoot
 try {
+  $env:VIDEO_GATEWAY_SHUTDOWN_DIAGNOSTICS = "true"
+  $env:VIDEO_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_SEC = [Math]::Max(1, $GracefulShutdownSec).ToString()
   & $uv $uvicornArgs
 }
 finally {

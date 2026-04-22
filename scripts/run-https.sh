@@ -6,6 +6,7 @@ PORT="8443"
 HOST="0.0.0.0"
 CERT_FILE="certs/scenewords-ip.pem"
 KEY_FILE="certs/scenewords-ip-key.pem"
+GRACEFUL_SHUTDOWN_SEC="5"
 RELOAD="false"
 
 while [[ $# -gt 0 ]]; do
@@ -30,6 +31,10 @@ while [[ $# -gt 0 ]]; do
       KEY_FILE="${2:?missing value for --key-file}"
       shift 2
       ;;
+    --graceful-shutdown-sec)
+      GRACEFUL_SHUTDOWN_SEC="${2:?missing value for --graceful-shutdown-sec}"
+      shift 2
+      ;;
     --reload)
       RELOAD="true"
       shift
@@ -45,6 +50,8 @@ Options:
   --host <host>          Bind host. Default: 0.0.0.0
   --cert-file <path>     Server certificate path. Default: certs/scenewords-ip.pem
   --key-file <path>      Server private key path. Default: certs/scenewords-ip-key.pem
+  --graceful-shutdown-sec <sec>
+                         Max seconds to wait for graceful shutdown. Default: 5
   --reload               Enable uvicorn reload mode.
   -h, --help             Show this help.
 EOF
@@ -94,6 +101,7 @@ fi
 
 echo "Using certificate: $RESOLVED_CERT_FILE"
 echo "Using private key: $RESOLVED_KEY_FILE"
+echo "Graceful shutdown timeout: $GRACEFUL_SHUTDOWN_SEC s"
 
 UVICORN_ARGS=(
   run
@@ -102,6 +110,7 @@ UVICORN_ARGS=(
   --factory
   --host "$HOST"
   --port "$PORT"
+  --timeout-graceful-shutdown "$GRACEFUL_SHUTDOWN_SEC"
   --ssl-certfile "$UV_CERT_FILE"
   --ssl-keyfile "$UV_KEY_FILE"
 )
@@ -112,5 +121,5 @@ fi
 
 cd "$REPO_ROOT"
 export VIDEO_GATEWAY_SHUTDOWN_DIAGNOSTICS="true"
-export VIDEO_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_SEC="5"
+export VIDEO_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_SEC="$GRACEFUL_SHUTDOWN_SEC"
 exec uv "${UVICORN_ARGS[@]}"
