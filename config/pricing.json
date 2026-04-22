@@ -30,7 +30,7 @@
     {
       "provider": "nano_banana2",
       "model": "gpt-image-2-vip",
-      "fixed_cost": 0.084,
+      "fixed_cost": 0.12,
       "discount_rate": 0.7,
       "currency": "RMB",
       "effective_from": "2026-04-22"
@@ -38,7 +38,7 @@
     {
       "provider": "nano_banana2",
       "model": "gpt-image-2",
-      "fixed_cost": 0.042,
+      "fixed_cost": 0.06,
       "discount_rate": 0.7,
       "currency": "RMB",
       "effective_from": "2026-04-22"
