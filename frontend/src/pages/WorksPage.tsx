@@ -70,6 +70,7 @@ export function WorksPage(props: Props) {
   const navigate = useNavigate();
   const handledTaskDeepLinkRef = useRef<string>("");
   const inProgressSectionRef = useRef<HTMLElement | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -354,6 +355,28 @@ export function WorksPage(props: Props) {
     },
   });
 
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel || !hasMorePages || loadMoreMutation.isPending) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !loadMoreMutation.isPending) {
+          loadMoreMutation.mutate();
+        }
+      },
+      {
+        rootMargin: "1200px 0px",
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMorePages, loadMoreMutation, nextOffset]);
+
   const worksCount = completedTasks.length;
   const imageCount = completedTasks.filter((task) => task.asset_type === "image").length;
   const videoCount = completedTasks.filter((task) => task.asset_type === "video").length;
@@ -533,14 +556,16 @@ export function WorksPage(props: Props) {
           />
           {hasMorePages ? (
             <div className="flex justify-center">
-              <button
-                type="button"
-                className="btn-secondary text-sm"
-                onClick={() => loadMoreMutation.mutate()}
-                disabled={loadMoreMutation.isPending}
-              >
-                {loadMoreMutation.isPending ? t("works.loadingMore") : t("works.loadMore")}
-              </button>
+              <div ref={loadMoreSentinelRef} className="flex justify-center">
+                <button
+                  type="button"
+                  className="btn-secondary text-sm"
+                  onClick={() => loadMoreMutation.mutate()}
+                  disabled={loadMoreMutation.isPending}
+                >
+                  {loadMoreMutation.isPending ? t("works.loadingMore") : t("works.loadMore")}
+                </button>
+              </div>
             </div>
           ) : null}
         </div>
