@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ImageSquare,
   VideoCamera,
@@ -13,7 +13,6 @@ import {
   formatCostAmount,
   resolveTaskCostState,
 } from "../utils";
-import { useVideoPosterUrl } from "../useVideoPoster";
 
 type StatusTone = "warn" | "ok" | "danger" | "muted";
 
@@ -109,30 +108,19 @@ function TaskPreviewMedia({
 }) {
   const { t } = useI18n();
   const [hasError, setHasError] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
   const thumb = extractImageUrls(task)[0] ?? null;
   const videoUrl = task.asset_type === "video" ? extractVideoUrl(task) : null;
   const videoPoster = task.asset_type === "video" ? extractVideoPoster(task) ?? thumb : null;
-  const generatedPosterUrl = useVideoPosterUrl(!videoPoster && videoUrl ? videoUrl : null);
-  const resolvedPosterUrl = videoPoster ?? generatedPosterUrl ?? thumb ?? null;
-  const [isVideoReady, setIsVideoReady] = useState<boolean>(() =>
-    task.asset_type === "video" ? Boolean(resolvedPosterUrl) : true,
-  );
+  const resolvedPosterUrl = videoPoster ?? thumb ?? null;
   const mediaWrapClass =
     aspectClassName ?? (inferTaskPortrait(task) ? "aspect-[3/4]" : "aspect-video");
   const isVideoTask = task.asset_type === "video";
   const hasMediaSource = Boolean(thumb || videoUrl);
-
-  useEffect(() => {
-    if (!isVideoTask) {
-      return;
-    }
-    setIsVideoReady(Boolean(resolvedPosterUrl));
-  }, [isVideoTask, resolvedPosterUrl, videoUrl]);
+  const showVideoPlaceholder = isVideoTask && (!resolvedPosterUrl || hasError);
 
   const showFailureState = task.status === "failed";
   const showExpiredState =
-    task.status === "succeeded" && (hasError || !hasMediaSource);
+    task.status === "succeeded" && (!isVideoTask && (hasError || !hasMediaSource));
 
   if (showFailureState || showExpiredState || !hasMediaSource) {
     return (
@@ -142,10 +130,8 @@ function TaskPreviewMedia({
             ? "bg-error-bg text-error-text"
             : showExpiredState
               ? "bg-warning-bg text-warning-text"
-              : "bg-canvas text-[var(--c-text-tertiary)]"
+            : "bg-canvas text-[var(--c-text-tertiary)]"
         }`}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
       >
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs">
           {showFailureState ? (
@@ -175,43 +161,22 @@ function TaskPreviewMedia({
 
   if (isVideoTask) {
     return (
-      <div
-        className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        <video
-          className="h-full w-full object-cover"
-          src={videoUrl ?? undefined}
-          poster={resolvedPosterUrl ?? undefined}
-          muted
-          playsInline
-          preload={isHovered ? "metadata" : "none"}
-          autoPlay={isHovered}
-          loop
-          onLoadedData={() => setIsVideoReady(true)}
-          onCanPlay={() => setIsVideoReady(true)}
-          onError={() => setHasError(true)}
-        />
-        <div
-          className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${
-            isVideoReady ? "opacity-0" : "opacity-100"
-          }`}
-        >
-          {resolvedPosterUrl ? (
-            <img
-              src={resolvedPosterUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <>
-              <div className="absolute inset-0 bg-gradient-to-br from-[#F4F4F5] via-[#E4E4E7] to-[#D4D4D8]" />
-              <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-            </>
-          )}
-        </div>
+      <div className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}>
+        {resolvedPosterUrl && !hasError ? (
+          <img
+            src={resolvedPosterUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            loading="lazy"
+            onError={() => setHasError(true)}
+          />
+        ) : null}
+        {showVideoPlaceholder ? (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#F4F4F5] via-[#E4E4E7] to-[#D4D4D8]" />
+            <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          </>
+        ) : null}
         {statusBadge ? (
           <div className="absolute left-3 top-3">
             <span className={`tag ${toneToTagClass(statusBadge.tone)}`}>{statusBadge.label}</span>
@@ -225,11 +190,7 @@ function TaskPreviewMedia({
   }
 
   return (
-    <div
-      className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div className={`group relative ${mediaWrapClass} w-full overflow-hidden rounded-xl border border-border bg-canvas`}>
       <img
         className="h-full w-full object-cover"
         src={thumb}
