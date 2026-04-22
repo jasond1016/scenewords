@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Lightbox from "yet-another-react-lightbox";
 import Inline from "yet-another-react-lightbox/plugins/inline";
 import Video from "yet-another-react-lightbox/plugins/video";
@@ -70,13 +70,6 @@ export function AppLightboxStage(props: Props) {
           closeOnPullUp: false,
         }}
         toolbar={{ buttons: [] }}
-        video={{
-          autoPlay: true,
-          controls: true,
-          loop: true,
-          playsInline: true,
-          preload: "metadata",
-        }}
         zoom={{
           maxZoomPixelRatio: 4,
           zoomInMultiplier: 2,
@@ -85,12 +78,15 @@ export function AppLightboxStage(props: Props) {
           scrollToZoom: true,
         }}
         render={{
-          slide: ({ slide }) => {
+          slide: ({ slide, offset }) => {
             if (isFailedSlide(slide)) {
               return <PlaceholderSlideCard label={t("works.generationFailed")} />;
             }
             if (isExpiredSlide(slide)) {
               return <PlaceholderSlideCard label={t("works.resourceExpired")} />;
+            }
+            if (isVideoSlide(slide)) {
+              return <ManagedVideoSlide slide={slide} isActive={offset === 0} />;
             }
             return undefined;
           },
@@ -130,11 +126,97 @@ function isExpiredSlide(slide: AppLightboxSlide): slide is ExpiredSlide {
   return slide.type === "expired";
 }
 
-function PlaceholderSlideCard(props: { label: string }) {
+function isVideoSlide(slide: AppLightboxSlide): slide is Extract<AppLightboxSlide, { type: "video" }> {
+  return slide.type === "video";
+}
+
+function ManagedVideoSlide(props: {
+  slide: Extract<AppLightboxSlide, { type: "video" }>;
+  isActive: boolean;
+}) {
+  const { slide, isActive } = props;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node) {
+      return;
+    }
+    if (isActive) {
+      void node.play().catch(() => undefined);
+      return;
+    }
+    releaseVideoNode(node);
+  }, [isActive, slide.sources]);
+
+  useEffect(() => {
+    return () => {
+      releaseVideoNode(videoRef.current);
+    };
+  }, []);
+
+  if (!isActive) {
+    return <VideoPosterFrame poster={slide.poster} />;
+  }
+
+  const source = slide.sources[0];
+  if (!source) {
+    return <VideoPosterFrame poster={slide.poster} />;
+  }
+
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <video
+        ref={videoRef}
+        key={source.src}
+        className="h-full max-h-full w-full max-w-full object-contain"
+        controls
+        loop
+        playsInline
+        preload="metadata"
+        poster={slide.poster}
+      >
+        <source src={source.src} type={source.type} />
+      </video>
+    </div>
+  );
+}
+
+function VideoPosterFrame(props: { poster?: string }) {
+  if (props.poster) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <img
+          src={props.poster}
+          alt=""
+          className="h-full max-h-full w-full max-w-full object-contain"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+
+  return <PlaceholderSlideCard />;
+}
+
+function releaseVideoNode(node: HTMLVideoElement | null) {
+  if (!node) {
+    return;
+  }
+  node.pause();
+  node.removeAttribute("src");
+  const sourceNodes = node.querySelectorAll("source");
+  sourceNodes.forEach((sourceNode) => {
+    sourceNode.removeAttribute("src");
+  });
+  node.load();
+}
+
+function PlaceholderSlideCard(props: { label?: string }) {
   return (
     <div className="app-lightbox-stage__failed flex h-full w-full flex-col items-center justify-center gap-3 text-[var(--c-text-secondary)]">
       <WarningCircle size={48} weight="thin" />
-      <p className="m-0 text-sm font-medium">{props.label}</p>
+      {props.label ? <p className="m-0 text-sm font-medium">{props.label}</p> : null}
     </div>
   );
 }
