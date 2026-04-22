@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Mapping
 import mimetypes
 from pathlib import Path
+import shutil
 from typing import Any
 from urllib.parse import urlparse
 
@@ -269,6 +270,11 @@ async def _archive_result_assets(
         )
         if local_video_url:
             archived["local_video_url"] = local_video_url
+            archive_dir = provider.app_config.output_dir / "assets" / task_id
+            local_video_path = archive_dir / local_video_url.rsplit("/", 1)[-1]
+            poster_path = await _create_local_video_poster(local_video_path)
+            if poster_path is not None:
+                archived["local_poster_url"] = f"/v1/assets/{task_id}/{poster_path.name}"
     return archived
 
 
@@ -314,6 +320,40 @@ async def _download_media_to_local(
     except OSError:
         return None
     return f"/v1/assets/{task_id}/{filename}"
+
+
+async def _create_local_video_poster(video_path: Path) -> Path | None:
+    if not video_path.exists() or not video_path.is_file():
+        return None
+
+    ffmpeg_executable = shutil.which("ffmpeg")
+    if not ffmpeg_executable:
+        return None
+
+    poster_path = video_path.with_name("poster_1.jpg")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            ffmpeg_executable,
+            "-y",
+            "-ss",
+            "0.5",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(poster_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return_code = await process.wait()
+    except Exception:
+        return None
+
+    if return_code != 0 or not poster_path.exists() or not poster_path.is_file():
+        return None
+    return poster_path
 
 
 def _is_http_url(value: str) -> bool:

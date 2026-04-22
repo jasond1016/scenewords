@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
+import app.worker as worker_module
 
 from app.config import AppConfig, ProviderConfig, ProviderModelConfig
 from app.db import TaskStore
@@ -284,6 +285,62 @@ def test_success_without_provider_cost_uses_estimated_cost_as_actual(tmp_path: P
             task = store.get_task(task_id)
             assert task["actual_cost"] == 1.25
             assert task["cost_source"] == "local_config"
+        finally:
+            await worker.stop()
+            await http_client.aclose()
+
+    asyncio.run(_run())
+
+
+def test_archives_video_results_with_local_poster_url(tmp_path: Path, monkeypatch) -> None:
+    async def _fake_create_local_video_poster(video_path: Path) -> Path | None:
+        poster_path = video_path.with_name("poster_1.jpg")
+        poster_path.write_bytes(b"fake-poster")
+        return poster_path
+
+    monkeypatch.setattr(worker_module, "_create_local_video_poster", _fake_create_local_video_poster)
+
+    async def _run() -> None:
+        store = TaskStore(tmp_path / "tasks.db")
+        app_config = _build_app_config(tmp_path)
+        provider_config = _build_provider_config()
+
+        video_bytes = b"\x00\x00\x00\x20ftypisomfake-video"
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == "https://archive.test/video.mp4":
+                return httpx.Response(
+                    200,
+                    content=video_bytes,
+                    headers={"content-type": "video/mp4"},
+                )
+            return httpx.Response(404, json={"detail": "not found"})
+
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+        provider = _StaticResultProvider(
+            app_config=app_config,
+            http_client=http_client,
+            result_payload={"video_url": "https://archive.test/video.mp4"},
+        )
+        worker = TaskWorker(
+            store=store,
+            provider_configs={"demo_provider": provider_config},
+            providers={"demo_provider": provider},
+            worker_count=1,
+        )
+
+        task_id = _seed_task(store)
+        await worker.start()
+        try:
+            await worker.submit(task_id)
+            await _wait_for_status(store, task_id=task_id, expected="succeeded")
+            task = store.get_task(task_id)
+            result = task["result"]
+            assert isinstance(result, dict)
+            assert result["local_video_url"] == f"/v1/assets/{task_id}/video_1.mp4"
+            assert result["local_poster_url"] == f"/v1/assets/{task_id}/poster_1.jpg"
+            assert (app_config.output_dir / "assets" / task_id / "video_1.mp4").exists()
+            assert (app_config.output_dir / "assets" / task_id / "poster_1.jpg").exists()
         finally:
             await worker.stop()
             await http_client.aclose()

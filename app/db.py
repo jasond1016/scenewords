@@ -177,6 +177,28 @@ class TaskStore:
             )
             self._connection.commit()
 
+    def update_result_payload(self, task_id: str, result: dict[str, Any]) -> None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT task_id FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            self._connection.execute(
+                """
+                UPDATE tasks
+                SET result_json = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
+                (
+                    json.dumps(result, ensure_ascii=False),
+                    _now_iso(),
+                    task_id,
+                ),
+            )
+            self._connection.commit()
+
     def set_error(self, task_id: str, code: str, message: str, raw_error: Any) -> None:
         error_payload = {"code": code, "message": message, "raw_error": raw_error}
         with self._lock:
@@ -263,6 +285,28 @@ class TaskStore:
                     SELECT * FROM tasks
                     WHERE status IN ('queued', 'running')
                     ORDER BY created_at ASC
+                    """
+                ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+    def list_succeeded_tasks(self, asset_type: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            if asset_type:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE status = 'succeeded'
+                      AND COALESCE(asset_type, 'video') = ?
+                    ORDER BY created_at DESC
+                    """,
+                    (asset_type,),
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE status = 'succeeded'
+                    ORDER BY created_at DESC
                     """
                 ).fetchall()
         return [_row_to_dict(row) for row in rows]
