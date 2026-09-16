@@ -1056,7 +1056,6 @@ export function CreatePage(props: Props) {
     ) {
       Object.assign(hydrated, session.values);
     }
-    applySettingDefaults(hydrated, selectedOperation, settings, providerId);
 
     const pending = settings.pendingReuseDraft;
     let pendingImageSourceFileIds: string[] = [];
@@ -1096,6 +1095,23 @@ export function CreatePage(props: Props) {
           previousResolution;
       }
     }
+    for (const field of selectedOperation.fields) {
+      if (field.input_type !== "select" || !field.options.length) {
+        continue;
+      }
+      const key = fieldKey(field);
+      const value = hydrated[key];
+      if (!value || field.options.some((option) => option.value === value)) {
+        continue;
+      }
+      const defaultValue = field.default == null ? "" : valueToStoredString(field.default);
+      if (defaultValue && field.options.some((option) => option.value === defaultValue)) {
+        hydrated[key] = defaultValue;
+      } else {
+        delete hydrated[key];
+      }
+    }
+    applySettingDefaults(hydrated, selectedOperation, settings, providerId);
 
     setValues(hydrated);
     setFiles({});

@@ -85,11 +85,22 @@ def apply_operation_defaults_and_validate(
     request.operation = operation.id
     for field in operation.fields:
         value = _read_field(request=request, field=field)
-        if _is_empty_value(value) and field.default is not None:
+        value_was_empty = _is_empty_value(value)
+        if value_was_empty and field.default is not None:
             _write_field(request=request, field=field, value=field.default)
             value = field.default
         if field.required and _is_empty_value(value):
             raise CapabilityValidationError(f"Missing required field: {field.key}")
+        if (
+            not value_was_empty
+            and field.input_type == "select"
+            and field.options
+        ):
+            allowed_values = {option.value for option in field.options}
+            if str(value) not in allowed_values:
+                raise CapabilityValidationError(
+                    f"Unsupported value for {field.key}: {value}"
+                )
     return operation.id
 
 
