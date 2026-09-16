@@ -102,12 +102,14 @@ class TaskStore:
                     generation_id TEXT PRIMARY KEY,
                     scene_id TEXT NOT NULL,
                     asset_type TEXT NOT NULL,
+                    adopted_task_id TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(scene_id) REFERENCES scenes(scene_id) ON DELETE CASCADE
                 );
                 """
             )
             _ensure_task_columns(self._connection)
+            _ensure_generation_columns(self._connection)
             self._connection.commit()
 
     def create_task(
@@ -295,18 +297,26 @@ class TaskStore:
             ).fetchone()
         if row is None:
             raise KeyError(task_id)
-        return self._attach_scene_title(_row_to_dict(row))
+        return self._attach_generation_context(_row_to_dict(row))
 
-    def _attach_scene_title(self, task: dict[str, Any]) -> dict[str, Any]:
+    def _attach_generation_context(self, task: dict[str, Any]) -> dict[str, Any]:
         scene_id = task.get("scene_id")
         if not scene_id:
             task["scene_title"] = None
+            task["adopted_version_id"] = None
             return task
         with self._lock:
             row = self._connection.execute(
-                "SELECT title FROM scenes WHERE scene_id = ?", (scene_id,)
+                """
+                SELECT s.title, g.adopted_task_id
+                FROM scenes s
+                LEFT JOIN generations g ON g.generation_id = ?
+                WHERE s.scene_id = ?
+                """,
+                (task.get("generation_id"), scene_id),
             ).fetchone()
         task["scene_title"] = row["title"] if row is not None else None
+        task["adopted_version_id"] = row["adopted_task_id"] if row is not None else None
         return task
 
     def delete_task(self, task_id: str) -> None:
@@ -317,6 +327,10 @@ class TaskStore:
             ).fetchone()
             if row is None:
                 raise KeyError(task_id)
+            self._connection.execute(
+                "UPDATE generations SET adopted_task_id = NULL WHERE adopted_task_id = ?",
+                (task_id,),
+            )
             self._connection.execute(
                 "DELETE FROM tasks WHERE task_id = ?",
                 (task_id,),
@@ -347,7 +361,7 @@ class TaskStore:
                     "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
                     (limit, safe_offset),
                 ).fetchall()
-        return [self._attach_scene_title(_row_to_dict(row)) for row in rows]
+        return [self._attach_generation_context(_row_to_dict(row)) for row in rows]
 
     def list_active_tasks(self, asset_type: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
@@ -369,7 +383,7 @@ class TaskStore:
                     ORDER BY created_at ASC
                     """
                 ).fetchall()
-        return [self._attach_scene_title(_row_to_dict(row)) for row in rows]
+        return [self._attach_generation_context(_row_to_dict(row)) for row in rows]
 
     def list_succeeded_tasks(self, asset_type: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
@@ -391,7 +405,7 @@ class TaskStore:
                     ORDER BY created_at DESC
                     """
                 ).fetchall()
-        return [self._attach_scene_title(_row_to_dict(row)) for row in rows]
+        return [self._attach_generation_context(_row_to_dict(row)) for row in rows]
 
     def summarize_task_costs(self) -> dict[str, Any]:
         with self._lock:
@@ -591,6 +605,31 @@ class TaskStore:
         if row is None:
             raise KeyError(generation_id)
         return dict(row)
+
+    def adopt_generation_version(
+        self, *, generation_id: str, task_id: str
+    ) -> dict[str, Any]:
+        now_iso = _now_iso()
+        with self._lock:
+            task = self._connection.execute(
+                "SELECT generation_id, scene_id, status FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if task is None or task["generation_id"] != generation_id:
+                raise KeyError(task_id)
+            if task["status"] != "succeeded":
+                raise ValueError(task_id)
+            updated = self._connection.execute(
+                "UPDATE generations SET adopted_task_id = ? WHERE generation_id = ?",
+                (task_id, generation_id),
+            )
+            if updated.rowcount == 0:
+                raise KeyError(generation_id)
+            self._connection.execute(
+                "UPDATE scenes SET updated_at = ? WHERE scene_id = ?",
+                (now_iso, task["scene_id"]),
+            )
+            self._connection.commit()
+        return self.get_generation(generation_id)
 
     def create_subject(
         self,
@@ -892,3 +931,12 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
     connection.execute(
         "UPDATE tasks SET asset_type = 'video' WHERE asset_type IS NULL OR asset_type = ''"
     )
+
+
+def _ensure_generation_columns(connection: sqlite3.Connection) -> None:
+    existing = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(generations)").fetchall()
+    }
+    if "adopted_task_id" not in existing:
+        connection.execute("ALTER TABLE generations ADD COLUMN adopted_task_id TEXT")

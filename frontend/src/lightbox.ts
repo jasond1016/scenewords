@@ -12,6 +12,7 @@ export interface LightboxMediaItem {
   taskId: string;
   url: string;
   kind: LightboxKind;
+  imageIndex?: number;
 }
 
 export interface FailedSlide {
@@ -77,6 +78,7 @@ export function buildLightboxItems(
           taskId: task.task_id,
           url,
           kind: "image",
+          imageIndex: index,
         });
       });
       continue;

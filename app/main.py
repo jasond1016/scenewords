@@ -681,6 +681,72 @@ def create_app() -> FastAPI:
             )
         return {"task_id": task_id, "result": task["result"]}
 
+    def _archive_image_output_as_file(
+        task_id: str, image_index: int
+    ) -> UploadedFileResponse:
+        try:
+            task = app.state.store.get_task(task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type") != "image" or task.get("status") != "succeeded":
+            raise HTTPException(status_code=409, detail="Task has no completed image result")
+        result = task.get("result") or {}
+        image_urls = result.get("local_image_urls")
+        if not isinstance(image_urls, list) or image_index >= len(image_urls):
+            raise HTTPException(status_code=400, detail="Image result not found")
+        image_url = image_urls[image_index]
+        expected_prefix = f"/v1/assets/{task_id}/"
+        if not isinstance(image_url, str) or not image_url.startswith(expected_prefix):
+            raise HTTPException(status_code=400, detail="Image result is not archived locally")
+        filename = image_url.removeprefix(expected_prefix).split("?", 1)[0]
+        if Path(filename).name != filename:
+            raise HTTPException(status_code=400, detail="Invalid archived image path")
+        source_path = app.state.config.output_dir / "assets" / task_id / filename
+        if not source_path.is_file():
+            raise HTTPException(status_code=404, detail="Archived image not found")
+
+        mime_type, _ = mimetypes.guess_type(filename)
+        if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+            raise HTTPException(status_code=400, detail="Archived result is not a supported image")
+        try:
+            file_bytes = source_path.read_bytes()
+            file_id = str(uuid4())
+            extension = MIME_TO_EXTENSION[mime_type]
+            stored_name = f"{file_id}{extension}"
+            (app.state.config.upload_dir / stored_name).write_bytes(file_bytes)
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="Failed to persist generated image") from error
+        file_record = app.state.store.create_file(
+            file_id=file_id,
+            original_name=f"generated-{task_id[:8]}-{image_index}{extension}",
+            stored_name=stored_name,
+            mime_type=mime_type,
+            size_bytes=len(file_bytes),
+            sha256=hashlib.sha256(file_bytes).hexdigest(),
+        )
+        return UploadedFileResponse(
+            file_id=file_record["file_id"],
+            original_name=file_record["original_name"],
+            mime_type=file_record["mime_type"],
+            size_bytes=file_record["size_bytes"],
+            sha256=file_record["sha256"],
+            created_at=_as_datetime(file_record["created_at"]),
+            url=f"/v1/files/{file_record['file_id']}",
+        )
+
+    @app.post(
+        "/v1/image/tasks/{task_id}/outputs/{image_index}/file",
+        response_model=UploadedFileResponse,
+    )
+    async def import_image_task_output(
+        task_id: str,
+        image_index: int,
+        _: None = Depends(require_auth),
+    ) -> UploadedFileResponse:
+        if image_index < 0:
+            raise HTTPException(status_code=400, detail="Image result not found")
+        return _archive_image_output_as_file(task_id, image_index)
+
     @app.post("/v1/files", response_model=UploadedFileResponse)
     async def upload_file(
         file: UploadFile = File(...), _: None = Depends(require_auth)
@@ -865,47 +931,11 @@ def create_app() -> FastAPI:
             subject = app.state.store.get_subject(subject_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Subject not found") from error
-        try:
-            task = app.state.store.get_task(payload.task_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail="Task not found") from error
-        if task.get("asset_type") != "image" or task.get("status") != "succeeded":
-            raise HTTPException(status_code=409, detail="Task has no completed image result")
-        result = task.get("result") or {}
-        image_urls = result.get("local_image_urls")
-        if not isinstance(image_urls, list) or payload.image_index >= len(image_urls):
-            raise HTTPException(status_code=400, detail="Image result not found")
-        image_url = image_urls[payload.image_index]
-        expected_prefix = f"/v1/assets/{payload.task_id}/"
-        if not isinstance(image_url, str) or not image_url.startswith(expected_prefix):
-            raise HTTPException(status_code=400, detail="Image result is not archived locally")
-        filename = image_url.removeprefix(expected_prefix).split("?", 1)[0]
-        if Path(filename).name != filename:
-            raise HTTPException(status_code=400, detail="Invalid archived image path")
-        source_path = app.state.config.output_dir / "assets" / payload.task_id / filename
-        if not source_path.is_file():
-            raise HTTPException(status_code=404, detail="Archived image not found")
-
-        mime_type, _ = mimetypes.guess_type(filename)
-        if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
-            raise HTTPException(status_code=400, detail="Archived result is not a supported image")
-        file_bytes = source_path.read_bytes()
-        file_id = str(uuid4())
-        stored_name = f"{file_id}{MIME_TO_EXTENSION[mime_type]}"
-        target_path = app.state.config.upload_dir / stored_name
-        target_path.write_bytes(file_bytes)
-        app.state.store.create_file(
-            file_id=file_id,
-            original_name=f"generated-{payload.task_id[:8]}-{payload.image_index}{MIME_TO_EXTENSION[mime_type]}",
-            stored_name=stored_name,
-            mime_type=mime_type,
-            size_bytes=len(file_bytes),
-            sha256=hashlib.sha256(file_bytes).hexdigest(),
-        )
+        imported_file = _archive_image_output_as_file(payload.task_id, payload.image_index)
         updated = app.state.store.add_subject_reference(
             subject_id=subject_id,
             reference_id=str(uuid4()),
-            file_id=file_id,
+            file_id=imported_file.file_id,
             role=payload.role.strip() or "reference",
             is_primary=payload.is_primary or not subject["references"],
         )
@@ -939,6 +969,32 @@ def create_app() -> FastAPI:
             description=payload.description.strip(),
         )
         return _scene_response(scene)
+
+    @app.post("/v1/generations/{generation_id}/adopt/{task_id}")
+    async def adopt_generation_version(
+        generation_id: str,
+        task_id: str,
+        _: None = Depends(require_auth),
+    ) -> dict[str, str]:
+        try:
+            generation = app.state.store.adopt_generation_version(
+                generation_id=generation_id,
+                task_id=task_id,
+            )
+        except KeyError as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Version does not belong to this generation",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="Only a succeeded version can be adopted",
+            ) from error
+        return {
+            "generation_id": generation["generation_id"],
+            "adopted_version_id": generation["adopted_task_id"],
+        }
 
     @app.get("/v1/assets/{task_id}/{filename}")
     async def get_archived_asset(
@@ -998,6 +1054,14 @@ def _prepare_generation_lineage(
         store.get_scene(scene_id)
     except KeyError as error:
         raise HTTPException(status_code=400, detail="Unknown scene") from error
+    parent = None
+    if parent_task_id:
+        try:
+            parent = store.get_task(parent_task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=400, detail="Unknown parent version") from error
+        if parent.get("scene_id") != scene_id or parent.get("asset_type") != asset_type:
+            raise HTTPException(status_code=400, detail="Parent version belongs to another scene")
     if generation_id:
         try:
             generation = store.get_generation(generation_id)
@@ -1005,6 +1069,8 @@ def _prepare_generation_lineage(
             raise HTTPException(status_code=400, detail="Unknown generation") from error
         if generation["scene_id"] != scene_id or generation["asset_type"] != asset_type:
             raise HTTPException(status_code=400, detail="Generation does not belong to this scene")
+        if parent and parent.get("generation_id") != generation_id:
+            raise HTTPException(status_code=400, detail="Parent version belongs to another generation")
     else:
         generation_id = str(uuid4())
         store.create_generation(
@@ -1012,13 +1078,6 @@ def _prepare_generation_lineage(
             scene_id=scene_id,
             asset_type=asset_type,
         )
-    if parent_task_id:
-        try:
-            parent = store.get_task(parent_task_id)
-        except KeyError as error:
-            raise HTTPException(status_code=400, detail="Unknown parent version") from error
-        if parent.get("generation_id") != generation_id:
-            raise HTTPException(status_code=400, detail="Parent version belongs to another generation")
     payload.scene_id = scene_id
     payload.generation_id = generation_id
     payload.parent_version_id = parent_task_id
@@ -1318,6 +1377,7 @@ def _to_task_response(
         generation_id=task.get("generation_id"),
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
+        adopted_version_id=task.get("adopted_version_id"),
         queue_position=queue_position,
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
@@ -1360,6 +1420,7 @@ def _to_task_detail(
         generation_id=task.get("generation_id"),
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
+        adopted_version_id=task.get("adopted_version_id"),
         operation=task.get("operation") or request_payload.get("operation"),
         provider_job_id=task.get("provider_job_id"),
         provider_status=task.get("provider_status"),

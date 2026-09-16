@@ -43,6 +43,7 @@ class VideoTaskResponse(BaseModel):
     generation_id: str | None = None
     parent_version_id: str | None = None
     version_number: int | None = None
+    adopted_version_id: str | None = None
     queue_position: int | None = None
     created_at: datetime
     updated_at: datetime

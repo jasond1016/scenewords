@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   MagnifyingGlass,
 } from "@phosphor-icons/react";
-import { fetchTaskCostSummary, fetchTaskDetail, fetchTaskPage } from "../api";
+import { adoptGenerationVersion, fetchTaskCostSummary, fetchTaskDetail, fetchTaskPage } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
@@ -21,14 +21,15 @@ import {
   buildTaskRequestPayload,
   copyText,
   formatRawDebugPayload,
-  toDraft,
 } from "../overlayTaskUtils";
 import {
+  buildReuseDraft,
   formatRetryErrorMessage,
   formatRetryQueuedMessage,
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type RetryTaskPayload,
+  type ReuseTaskPayload,
   type TaskActionPayload,
   runRetryTask,
   runTaskAction,
@@ -206,6 +207,14 @@ export function WorksPage(props: Props) {
   const currentLightboxOrientation = currentLightboxTask
     ? inferTaskOrientation(currentLightboxTask)
     : "landscape";
+  const versionTasks = useMemo(
+    () => currentLightboxTask?.generation_id
+      ? allTasks
+          .filter((task) => task.generation_id === currentLightboxTask.generation_id)
+          .sort((left, right) => (left.version_number ?? 0) - (right.version_number ?? 0))
+      : [],
+    [allTasks, currentLightboxTask?.generation_id],
+  );
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
   const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
 
@@ -341,6 +350,27 @@ export function WorksPage(props: Props) {
     },
     onError: (error: Error) => {
       setHint(formatRetryErrorMessage(error, t));
+    },
+  });
+  const reuseMutation = useMutation({
+    mutationFn: (payload: ReuseTaskPayload) => buildReuseDraft(payload, settings.gatewayToken),
+    onSuccess: (draft) => {
+      settings.setPendingReuseDraft(draft);
+      navigate("/create");
+    },
+    onError: (error: Error) => {
+      setHint(locale === "zh-CN" ? `无法准备编辑：${error.message}` : `Could not prepare edit: ${error.message}`);
+    },
+  });
+  const adoptMutation = useMutation({
+    mutationFn: (payload: { generationId: string; taskId: string }) =>
+      adoptGenerationVersion(payload.generationId, payload.taskId, settings.gatewayToken),
+    onSuccess: async () => {
+      setHint(locale === "zh-CN" ? "已采用此版本。" : "Version adopted.");
+      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+    },
+    onError: (error: Error) => {
+      setHint(locale === "zh-CN" ? `采用失败：${error.message}` : `Could not adopt version: ${error.message}`);
     },
   });
   const loadMoreMutation = useMutation({
@@ -604,13 +634,38 @@ export function WorksPage(props: Props) {
             sidebar={
               <MediaDetailSidebar
                 task={currentLightboxTask}
+                versionTasks={versionTasks}
+                onVersionSelect={(taskId) => {
+                  const nextIndex = lightboxItems.findIndex((item) => item.taskId === taskId);
+                  if (nextIndex >= 0) {
+                    setLightboxState((current) => current ? { ...current, index: nextIndex } : current);
+                  }
+                }}
                 statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
                 updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 downloadUrl={lightboxItem.url}
                 onReuse={() => {
-                  settings.setPendingReuseDraft(toDraft(currentLightboxTask));
-                  navigate("/create");
+                  reuseMutation.mutate({
+                    task: currentLightboxTask,
+                    imageIndex: lightboxItem.imageIndex ?? 0,
+                    branch: false,
+                  });
                 }}
+                reuseDisabled={reuseMutation.isPending}
+                onBranch={() => {
+                  reuseMutation.mutate({
+                    task: currentLightboxTask,
+                    imageIndex: lightboxItem.imageIndex ?? 0,
+                    branch: true,
+                  });
+                }}
+                onAdoptVersion={(taskId) => {
+                  if (currentLightboxTask.generation_id) {
+                    adoptMutation.mutate({ generationId: currentLightboxTask.generation_id, taskId });
+                  }
+                }}
+                adoptDisabled={adoptMutation.isPending}
+                gatewayToken={settings.gatewayToken}
                 onDelete={sidebarActions?.onDelete ?? (() => undefined)}
                 deleteDisabled={sidebarActions?.deleteDisabled}
                 cancelAction={sidebarActions?.cancelAction}

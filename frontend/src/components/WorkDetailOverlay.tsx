@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { fetchTaskDetail } from "../api";
+import { adoptGenerationVersion, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
 import { MediaOverlayFrame } from "./MediaOverlayFrame";
@@ -15,14 +15,15 @@ import {
   buildTaskRequestPayload,
   copyText,
   formatRawDebugPayload,
-  toDraft,
 } from "../overlayTaskUtils";
 import {
+  buildReuseDraft,
   formatRetryErrorMessage,
   formatRetryQueuedMessage,
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type RetryTaskPayload,
+  type ReuseTaskPayload,
   type TaskActionPayload,
   runRetryTask,
   runTaskAction,
@@ -194,6 +195,30 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
+  const reuseMutation = useMutation({
+    mutationFn: (payload: ReuseTaskPayload) => buildReuseDraft(payload, settings.gatewayToken),
+    onSuccess: (draft) => {
+      settings.setPendingReuseDraft(draft);
+      navigate("/create");
+      onClose();
+    },
+    onError: (error: Error) => {
+      onHint?.(locale === "zh-CN" ? `无法准备编辑：${error.message}` : `Could not prepare edit: ${error.message}`);
+    },
+  });
+
+  const adoptMutation = useMutation({
+    mutationFn: (payload: { generationId: string; taskId: string }) =>
+      adoptGenerationVersion(payload.generationId, payload.taskId, settings.gatewayToken),
+    onSuccess: async () => {
+      onHint?.(locale === "zh-CN" ? "已采用此版本。" : "Version adopted.");
+      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+    },
+    onError: (error: Error) => {
+      onHint?.(locale === "zh-CN" ? `采用失败：${error.message}` : `Could not adopt version: ${error.message}`);
+    },
+  });
+
   if (!lightboxItem || !currentLightboxTask) {
     return null;
   }
@@ -278,10 +303,27 @@ export function WorkDetailOverlay(props: Props) {
             updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
             downloadUrl={lightboxItem.url}
             onReuse={() => {
-              settings.setPendingReuseDraft(toDraft(currentLightboxTask));
-              navigate("/create");
-              onClose();
+              reuseMutation.mutate({
+                task: currentLightboxTask,
+                imageIndex: lightboxItem.imageIndex ?? 0,
+                branch: false,
+              });
             }}
+            reuseDisabled={reuseMutation.isPending}
+            onBranch={() => {
+              reuseMutation.mutate({
+                task: currentLightboxTask,
+                imageIndex: lightboxItem.imageIndex ?? 0,
+                branch: true,
+              });
+            }}
+            onAdoptVersion={(taskId) => {
+              if (currentLightboxTask.generation_id) {
+                adoptMutation.mutate({ generationId: currentLightboxTask.generation_id, taskId });
+              }
+            }}
+            adoptDisabled={adoptMutation.isPending}
+            gatewayToken={settings.gatewayToken}
             onDelete={sidebarActions.onDelete}
             deleteDisabled={sidebarActions.deleteDisabled}
             cancelAction={sidebarActions.cancelAction}

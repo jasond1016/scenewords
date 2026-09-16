@@ -25,6 +25,9 @@ export interface CreateDraft {
   sceneId: string | null;
   generationId: string | null;
   parentVersionId: string | null;
+  subjectIds?: string[];
+  editBaseFileId?: string | null;
+  modificationInstruction?: string;
 }
 
 export interface AppSettingsState {

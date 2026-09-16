@@ -726,6 +726,96 @@ def test_generated_image_can_be_collected_as_subject_anchor(client_factory) -> N
     assert references[0]["is_primary"] is True
 
 
+def test_generated_image_output_can_be_imported_as_reusable_file(client_factory) -> None:
+    with client_factory() as client:
+        task_id = str(uuid4())
+        archive_dir = client.app.state.config.output_dir / "assets" / task_id
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        expected = b"generated-image-output"
+        (archive_dir / "image_0.png").write_bytes(expected)
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="tuzi_image_demo",
+            model="gemini-3-pro-image-preview",
+            operation="generate",
+            prompt="candidate",
+            request_payload={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "prompt": "candidate",
+                "provider_options": {},
+            },
+            asset_type="image",
+        )
+        client.app.state.store.set_result(
+            task_id,
+            {"local_image_urls": [f"/v1/assets/{task_id}/image_0.png"]},
+        )
+
+        response = client.post(f"/v1/image/tasks/{task_id}/outputs/0/file")
+        downloaded = client.get(response.json()["url"])
+
+    assert response.status_code == 200
+    assert response.json()["mime_type"] == "image/png"
+    assert downloaded.status_code == 200
+    assert downloaded.content == expected
+
+
+def test_scene_can_branch_from_version_and_adopt_result(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Branching scene", "description": ""},
+        ).json()["scene_id"]
+        first = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "first version",
+                "provider_options": {},
+            },
+        ).json()
+        branch_response = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "generation_id": None,
+                "parent_version_id": first["task_id"],
+                "prompt": "alternate direction",
+                "provider_options": {},
+            },
+        )
+        branch = branch_response.json()
+        client.app.state.store.set_result(
+            branch["task_id"],
+            {"local_image_urls": [f"/v1/assets/{branch['task_id']}/image_0.png"]},
+        )
+        adopt_response = client.post(
+            f"/v1/generations/{branch['generation_id']}/adopt/{branch['task_id']}"
+        )
+        refreshed = client.get(f"/v1/image/tasks/{branch['task_id']}").json()
+        scenes = client.get("/v1/scenes").json()
+
+    assert branch_response.status_code == 200
+    assert branch["generation_id"] != first["generation_id"]
+    assert branch["parent_version_id"] == first["task_id"]
+    assert branch["version_number"] == 1
+    assert adopt_response.status_code == 200
+    assert refreshed["adopted_version_id"] == branch["task_id"]
+    assert scenes[0]["generation_count"] == 2
+
+
 def test_delete_image_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_image_task(client)

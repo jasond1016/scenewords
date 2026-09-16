@@ -1,6 +1,10 @@
 import type { VideoTaskDetail } from "./types";
 
-export function toDraft(task: VideoTaskDetail) {
+export function toDraft(
+  task: VideoTaskDetail,
+  options: { sourceFileId?: string; branch?: boolean } = {},
+) {
+  const sourceFileId = options.sourceFileId?.trim() || null;
   return {
     provider: task.provider,
     model: task.model,
@@ -11,10 +15,15 @@ export function toDraft(task: VideoTaskDetail) {
     resolution: task.resolution ?? "",
     fps: task.fps,
     seed: task.seed,
-    providerOptions: task.provider_options ?? {},
+    providerOptions: sourceFileId
+      ? { ...(task.provider_options ?? {}), image_file_ids: [sourceFileId] }
+      : task.provider_options ?? {},
     sceneId: task.scene_id,
-    generationId: task.generation_id,
+    generationId: options.branch ? null : task.generation_id,
     parentVersionId: task.generation_id ? task.task_id : null,
+    subjectIds: task.subject_bindings.map((binding) => binding.subject_id),
+    editBaseFileId: sourceFileId,
+    modificationInstruction: "",
   };
 }
 

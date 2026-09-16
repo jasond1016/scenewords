@@ -1,10 +1,12 @@
 import {
   cancelVideoTask,
   deleteVideoTask,
+  importTaskImageAsFile,
   retryVideoTask,
 } from "./api";
 import type { TranslateFn } from "./i18n";
 import type { AssetType, RetryMode, VideoTaskDetail } from "./types";
+import { toDraft } from "./overlayTaskUtils";
 
 export interface TaskActionPayload {
   taskId: string;
@@ -15,6 +17,30 @@ export interface TaskActionPayload {
 export interface RetryTaskPayload {
   task: VideoTaskDetail;
   mode: RetryMode;
+}
+
+export interface ReuseTaskPayload {
+  task: VideoTaskDetail;
+  imageIndex: number;
+  branch: boolean;
+}
+
+export async function buildReuseDraft(
+  payload: ReuseTaskPayload,
+  gatewayToken: string,
+) {
+  if (payload.task.asset_type !== "image" || payload.task.status !== "succeeded") {
+    return toDraft(payload.task);
+  }
+  const imported = await importTaskImageAsFile(
+    payload.task.task_id,
+    payload.imageIndex,
+    gatewayToken,
+  );
+  return toDraft(payload.task, {
+    sourceFileId: imported.file_id,
+    branch: payload.branch,
+  });
 }
 
 export async function runTaskAction(

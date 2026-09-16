@@ -130,6 +130,7 @@ export interface VideoTaskResponse {
   generation_id: string | null;
   parent_version_id: string | null;
   version_number: number | null;
+  adopted_version_id: string | null;
   queue_position: number | null;
   created_at: string;
   updated_at: string;

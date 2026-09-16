@@ -1,9 +1,9 @@
 import { DotsThree, Info, WarningCircle } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n, type TranslateFn } from "../i18n";
 import { deriveTaskFormatMeta } from "../overlayTaskPresentation";
 import type { VideoTaskDetail } from "../types";
-import { formatCostAmount, resolveTaskCostState } from "../utils";
+import { extractImageUrls, formatCostAmount, resolveTaskCostState } from "../utils";
 
 export interface SidebarRetryActions {
   disabled: boolean;
@@ -28,6 +28,11 @@ interface Props {
   updatedAtLabel: string;
   downloadUrl?: string | null;
   onReuse: () => void;
+  reuseDisabled?: boolean;
+  onBranch?: () => void;
+  onAdoptVersion?: (taskId: string) => void;
+  adoptDisabled?: boolean;
+  gatewayToken?: string;
   onDelete: () => void;
   deleteDisabled?: boolean;
   cancelAction?: SidebarCancelAction;
@@ -50,6 +55,11 @@ export function MediaDetailSidebar(props: Props) {
     updatedAtLabel,
     downloadUrl,
     onReuse,
+    reuseDisabled,
+    onBranch,
+    onAdoptVersion,
+    adoptDisabled,
+    gatewayToken = "",
     onDelete,
     deleteDisabled,
     cancelAction,
@@ -66,6 +76,21 @@ export function MediaDetailSidebar(props: Props) {
   const [isSharing, setIsSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isComparing, setIsComparing] = useState(false);
+  const [comparisonTaskId, setComparisonTaskId] = useState("");
+  const comparisonCandidates = useMemo(
+    () => versionTasks.filter((version) => version.task_id !== task.task_id),
+    [task.task_id, versionTasks],
+  );
+  const comparisonTask = comparisonCandidates.find((version) => version.task_id === comparisonTaskId)
+    ?? comparisonCandidates[comparisonCandidates.length - 1]
+    ?? null;
+
+  useEffect(() => {
+    if (!comparisonCandidates.some((version) => version.task_id === comparisonTaskId)) {
+      setComparisonTaskId(comparisonCandidates[comparisonCandidates.length - 1]?.task_id ?? "");
+    }
+  }, [comparisonCandidates, comparisonTaskId]);
   const formatMeta = deriveTaskFormatMeta(task);
   const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
   const costState = resolveTaskCostState(task);
@@ -241,6 +266,25 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </section>
 
+      <div className="flex flex-wrap gap-2 border-y border-border py-3">
+        <button
+          type="button"
+          className="btn-primary text-xs"
+          onClick={onReuse}
+          disabled={reuseDisabled}
+        >
+          {task.generation_id
+            ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
+            : t("works.editAgain")}
+        </button>
+        {onBranch && task.asset_type === "image" && task.status === "succeeded" && task.generation_id ? (
+          <button type="button" className="btn-secondary text-xs" onClick={onBranch} disabled={reuseDisabled}>
+            {locale === "zh-CN" ? "从此分支" : "Branch from here"}
+          </button>
+        ) : null}
+        {renderRetryButtons(retryActions, t)}
+      </div>
+
       {task.scene_id && task.generation_id ? (
         <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">
           <div className="flex items-center justify-between gap-3">
@@ -262,10 +306,30 @@ export function MediaDetailSidebar(props: Props) {
                   onClick={() => onVersionSelect?.(version.task_id)}
                 >
                   V{version.version_number ?? 1}
+                  {task.adopted_version_id === version.task_id ? " ✓" : ""}
                 </button>
               ))}
             </div>
           ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {comparisonCandidates.length ? (
+              <button type="button" className="btn-ghost text-xs" onClick={() => setIsComparing((current) => !current)}>
+                {locale === "zh-CN" ? "并排比较" : "Compare side by side"}
+              </button>
+            ) : null}
+            {task.adopted_version_id === task.task_id ? (
+              <span className="tag tag-success">{locale === "zh-CN" ? "已采用" : "Adopted"}</span>
+            ) : (
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                disabled={adoptDisabled || task.status !== "succeeded"}
+                onClick={() => onAdoptVersion?.(task.task_id)}
+              >
+                {locale === "zh-CN" ? "采用此版本" : "Adopt this version"}
+              </button>
+            )}
+          </div>
         </section>
       ) : null}
 
@@ -328,19 +392,6 @@ export function MediaDetailSidebar(props: Props) {
         </section>
       ) : null}
 
-      <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-        <button
-          type="button"
-          className="btn-primary text-xs"
-          onClick={onReuse}
-        >
-          {task.generation_id
-            ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
-            : t("works.editAgain")}
-        </button>
-        {renderRetryButtons(retryActions, t)}
-      </div>
-
       {errorText ? (
         <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-error-bg px-3 py-2 text-xs text-error-text">
           <span className="inline-flex items-center gap-1.5">
@@ -349,7 +400,95 @@ export function MediaDetailSidebar(props: Props) {
           </span>
         </p>
       ) : null}
+
+      {isComparing && comparisonTask ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--c-overlay)] p-4 backdrop-blur-[5px]"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsComparing(false)}
+        >
+          <div
+            className="w-full max-w-[1180px] rounded-[28px] border border-border bg-[var(--c-surface)] p-4 shadow-[var(--shadow-overlay)] md:p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="m-0 text-sm font-semibold text-[var(--c-text)]">
+                  {locale === "zh-CN" ? "并排比较版本" : "Compare versions side by side"}
+                </p>
+                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
+                  {locale === "zh-CN" ? `当前 V${task.version_number ?? 1} 与对比版本` : `Current V${task.version_number ?? 1} and comparison version`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--c-text-secondary)]">
+                  <span className="mr-2">{locale === "zh-CN" ? "对比" : "Compare"}</span>
+                  <select
+                    className="input-base text-xs"
+                    value={comparisonTask.task_id}
+                    onChange={(event) => setComparisonTaskId(event.target.value)}
+                  >
+                    {comparisonCandidates.map((version) => (
+                      <option key={version.task_id} value={version.task_id}>
+                        V{version.version_number ?? 1}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" className="btn-ghost text-xs" onClick={() => setIsComparing(false)}>
+                  {t("common.close")}
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <VersionComparisonCard task={task} token={gatewayToken} active large />
+              <VersionComparisonCard task={comparisonTask} token={gatewayToken} large />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function VersionComparisonCard(props: { task: VideoTaskDetail; token: string; active?: boolean; large?: boolean }) {
+  const { task, token, active = false, large = false } = props;
+  const [source, setSource] = useState("");
+  const imageUrl = extractImageUrls(task)[0] ?? "";
+  useEffect(() => {
+    if (!imageUrl) {
+      setSource("");
+      return;
+    }
+    const controller = new AbortController();
+    let objectUrl = "";
+    const headers = new Headers();
+    if (token.trim()) headers.set("Authorization", `Bearer ${token.trim()}`);
+    void fetch(imageUrl, { headers, signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setSource(objectUrl);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSource("");
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageUrl, token]);
+  return (
+    <article className={active ? "overflow-hidden rounded-xl border border-[var(--c-accent)] bg-[var(--c-surface)]" : "overflow-hidden rounded-xl border border-border bg-[var(--c-surface)]"}>
+      {source ? <img src={source} alt={`V${task.version_number ?? 1}`} className={large ? "max-h-[68vh] w-full bg-[var(--c-surface-inset)] object-contain" : "aspect-square w-full object-cover"} /> : <div className={large ? "h-[55vh] w-full bg-[var(--c-surface-inset)]" : "aspect-square w-full bg-[var(--c-surface-inset)]"} />}
+      <p className={large ? "m-0 px-3 py-2 text-xs text-[var(--c-text-secondary)]" : "m-0 truncate px-2 py-1.5 text-[10px] text-[var(--c-text-secondary)]"}>
+        V{task.version_number ?? 1} · {task.prompt || "—"}
+      </p>
+    </article>
   );
 }
 

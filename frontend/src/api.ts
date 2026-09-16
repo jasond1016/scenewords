@@ -196,6 +196,18 @@ export async function uploadFile(file: File, token: string): Promise<UploadedFil
   );
 }
 
+export function importTaskImageAsFile(
+  taskId: string,
+  imageIndex: number,
+  token: string,
+): Promise<UploadedFileResponse> {
+  return request<UploadedFileResponse>(
+    `/v1/image/tasks/${encodeURIComponent(taskId)}/outputs/${imageIndex}/file`,
+    { method: "POST" },
+    token,
+  );
+}
+
 export function fetchSubjects(token: string): Promise<SubjectAsset[]> {
   return request<SubjectAsset[]>("/v1/subjects", {}, token);
 }
@@ -270,6 +282,18 @@ export function createScene(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
+    token,
+  );
+}
+
+export function adoptGenerationVersion(
+  generationId: string,
+  taskId: string,
+  token: string,
+): Promise<{ generation_id: string; adopted_version_id: string }> {
+  return request(
+    `/v1/generations/${encodeURIComponent(generationId)}/adopt/${encodeURIComponent(taskId)}`,
+    { method: "POST" },
     token,
   );
 }

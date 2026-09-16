@@ -178,6 +178,8 @@ export function CreatePage(props: Props) {
   const [newSceneTitle, setNewSceneTitle] = useState("");
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [parentVersionId, setParentVersionId] = useState<string | null>(null);
+  const [versionEditBasePrompt, setVersionEditBasePrompt] = useState<string | null>(null);
+  const [modificationInstruction, setModificationInstruction] = useState("");
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const subjectsQuery = useQuery({
@@ -559,8 +561,17 @@ export function CreatePage(props: Props) {
     providerId,
     selectedOperation?.id,
   ]);
+  const supportsInlineImageInput = Boolean(
+    selectedOperation?.fields.some(
+      (field) =>
+        field.target === "provider_options" &&
+        (field.key === "image" || field.key === "images") &&
+        field.input_type !== "file" &&
+        field.input_type !== "file_list",
+    ),
+  );
   const activeSubjectReferenceFileIds =
-    currentGenerationKind === "image" && currentImageVariant?.editOperation
+    currentGenerationKind === "image" && (currentImageVariant?.editOperation || supportsInlineImageInput)
       ? subjectReferenceFileIds
       : [];
   const hasImageSourceAttachments =
@@ -985,6 +996,9 @@ export function CreatePage(props: Props) {
     setSceneId(pending.sceneId ?? "");
     setGenerationId(pending.generationId);
     setParentVersionId(pending.parentVersionId);
+    setSelectedSubjectIds(pending.subjectIds ?? []);
+    setVersionEditBasePrompt(pending.editBaseFileId ? pending.prompt : null);
+    setModificationInstruction(pending.modificationInstruction ?? "");
   }, [
     currentGenerationKind,
     modelName,
@@ -1360,6 +1374,56 @@ export function CreatePage(props: Props) {
           payload.provider_options[field.key] = parsed;
         }
       }
+      const sourceFileIds = Array.from(
+        new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+      );
+      const operationHasFileSource = selectedOperation.fields.some(
+        (field) =>
+          (field.key === "image_file_ids" || field.key === "input_reference_file_ids") &&
+          (field.input_type === "file" || field.input_type === "file_list"),
+      );
+      if (
+        currentGenerationKind === "image" &&
+        !operationHasFileSource &&
+        (imageSourceFiles.length > 0 || sourceFileIds.length > 0)
+      ) {
+        const inlineImageField = selectedOperation.fields.find(
+          (field) =>
+            field.target === "provider_options" &&
+            (field.key === "image" || field.key === "images") &&
+            field.input_type !== "file" &&
+            field.input_type !== "file_list",
+        );
+        if (!inlineImageField) {
+          if (versionEditBasePrompt !== null) {
+            throw new Error(
+              locale === "zh-CN"
+                ? "当前模型不支持带入上一版图片，请切换到支持图片编辑或参考图的模型。"
+                : "This model cannot use the previous image. Choose a model with edit or image-reference support.",
+            );
+          }
+        } else {
+          const localDataUrls = await Promise.all(imageSourceFiles.map(fileToDataUrl));
+          const reusedDataUrls = await Promise.all(
+            sourceFileIds.map(async (fileId) => {
+              const { blob } = await fetchUploadedFileBinary(fileId, settings.gatewayToken);
+              return blobToDataUrl(blob);
+            }),
+          );
+          const imageInputs = [...localDataUrls, ...reusedDataUrls];
+          payload.provider_options[inlineImageField.key] =
+            imageInputs.length === 1 ? imageInputs[0] : imageInputs;
+        }
+      }
+      if (versionEditBasePrompt !== null) {
+        const instruction = modificationInstruction.trim();
+        if (!instruction) {
+          throw new Error(
+            locale === "zh-CN" ? "请输入这次要修改的内容。" : "Describe what to change in this version.",
+          );
+        }
+        payload.prompt = buildVersionEditPrompt(versionEditBasePrompt, instruction);
+      }
       if (selectedSubjects.length > 0) {
         payload.subject_bindings = selectedSubjects.map((subject) => ({
           subject_id: subject.subject_id,
@@ -1371,7 +1435,9 @@ export function CreatePage(props: Props) {
             ? sceneReferences(subject).map((reference) => reference.file_id)
             : [],
         }));
-        payload.prompt = buildPromptWithSubjects(payload.prompt ?? "", selectedSubjects);
+        if (versionEditBasePrompt === null) {
+          payload.prompt = buildPromptWithSubjects(payload.prompt ?? "", selectedSubjects);
+        }
       }
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
@@ -1747,7 +1813,13 @@ export function CreatePage(props: Props) {
               </div>
               {generationId ? (
                 <span className="tag tag-warning">
-                  {locale === "zh-CN" ? "继续当前生成链" : "Continuing generation"}
+                  {parentVersionId
+                    ? locale === "zh-CN" ? "所选版本为编辑底图" : "Selected version is the edit base"
+                    : locale === "zh-CN" ? "继续当前生成链" : "Continuing generation"}
+                </span>
+              ) : parentVersionId ? (
+                <span className="tag tag-warning">
+                  {locale === "zh-CN" ? "从所选版本建立新分支" : "Branching from selected version"}
                 </span>
               ) : null}
             </div>
@@ -1759,6 +1831,8 @@ export function CreatePage(props: Props) {
                   setSceneId(event.target.value);
                   setGenerationId(null);
                   setParentVersionId(null);
+                  setVersionEditBasePrompt(null);
+                  setModificationInstruction("");
                 }}
               >
                 <option value="">{locale === "zh-CN" ? "独立生成（不归入场景）" : "Standalone generation"}</option>
@@ -1799,10 +1873,10 @@ export function CreatePage(props: Props) {
                 </div>
                 <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
                   {locale === "zh-CN"
-                    ? currentGenerationKind === "image" && currentImageVariant?.editOperation
+                    ? currentGenerationKind === "image" && (currentImageVariant?.editOperation || supportsInlineImageInput)
                       ? "选择后会自动补充身份描述，并带入每个主体最多 3 张参考图。"
                       : "选择后会自动补充身份描述；当前模型不支持直接带入主体参考图。"
-                    : currentGenerationKind === "image" && currentImageVariant?.editOperation
+                    : currentGenerationKind === "image" && (currentImageVariant?.editOperation || supportsInlineImageInput)
                       ? "Selection adds identity notes and up to three references per subject."
                       : "Selection adds identity notes; this model cannot attach subject references directly."}
                 </p>
@@ -1951,7 +2025,30 @@ export function CreatePage(props: Props) {
             ) : null}
 
             {/* Prompt textarea */}
-            {promptField ? (
+            {promptField && versionEditBasePrompt !== null ? (
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="rounded-xl border border-border bg-[var(--c-surface-raised)] px-3 py-2.5">
+                  <p className="m-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--c-text-tertiary)]">
+                    {locale === "zh-CN" ? "原始场景（保留）" : "Original scene (preserved)"}
+                  </p>
+                  <p className="m-0 mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-[var(--c-text-secondary)]">
+                    {versionEditBasePrompt}
+                  </p>
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  className="composer-textarea"
+                  rows={COMPOSER_PROMPT_MIN_ROWS}
+                  value={modificationInstruction}
+                  placeholder={locale === "zh-CN" ? "只描述这次要改什么，例如：把外套改成琥珀色，人物和构图保持不变" : "Describe only the change, e.g. Make the coat amber; keep the person and composition unchanged"}
+                  onChange={(event) => {
+                    setModificationInstruction(event.target.value);
+                    autoResizeTextarea();
+                  }}
+                  onInput={autoResizeTextarea}
+                />
+              </div>
+            ) : promptField ? (
               <textarea
                 ref={textareaRef}
                 className="composer-textarea"
@@ -3969,6 +4066,35 @@ function buildPromptWithSubjects(scenePrompt: string, subjects: SubjectAsset[]):
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildVersionEditPrompt(originalPrompt: string, instruction: string): string {
+  return [
+    "Edit the supplied image while preserving all unspecified subjects, identities, objects, location details, composition, and style.",
+    "Original scene request:",
+    originalPrompt.trim(),
+    "Modification request:",
+    instruction.trim(),
+  ].join("\n");
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return blobToDataUrl(file);
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to encode image"));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to encode image"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function buildSubjectReferencePrompt(subject: SubjectAsset, role: string): string {
