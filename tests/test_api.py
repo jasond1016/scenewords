@@ -629,6 +629,103 @@ def test_retry_image_task_clears_seed_for_tuzi_provider(
     assert new_task["request"]["seed"] is None
 
 
+def test_scene_generation_retry_creates_linear_versions(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_response = client.post(
+            "/v1/scenes",
+            json={"title": "Rainy station", "description": "Recurring scene"},
+        )
+        scene_id = scene_response.json()["scene_id"]
+
+        first_response = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "first version",
+                "provider_options": {},
+            },
+        )
+        first = first_response.json()
+        retry_response = client.post(
+            f"/v1/image/tasks/{first['task_id']}/retry",
+            json={"retry_mode": "same_seed", "prompt": "second version"},
+        )
+        second = retry_response.json()
+        scenes = client.get("/v1/scenes").json()
+
+    assert scene_response.status_code == 201
+    assert first_response.status_code == 200
+    assert first["scene_id"] == scene_id
+    assert first["scene_title"] == "Rainy station"
+    assert first["version_number"] == 1
+    assert second["generation_id"] == first["generation_id"]
+    assert second["parent_version_id"] == first["task_id"]
+    assert second["version_number"] == 2
+    assert scenes[0]["generation_count"] == 1
+    assert scenes[0]["version_count"] == 2
+
+
+def test_generated_image_can_be_collected_as_subject_anchor(client_factory) -> None:
+    with client_factory() as client:
+        subject = client.post(
+            "/v1/subjects",
+            json={
+                "kind": "character",
+                "name": "Ming",
+                "description": "line-art protagonist",
+                "fixed_traits": [],
+                "variable_traits": [],
+                "references": [],
+            },
+        ).json()
+        task_id = str(uuid4())
+        archive_dir = client.app.state.config.output_dir / "assets" / task_id
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / "image_0.png").write_bytes(b"generated-image")
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="tuzi_image_demo",
+            model="gemini-3-pro-image-preview",
+            operation="generate",
+            prompt="candidate",
+            request_payload={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "prompt": "candidate",
+                "provider_options": {},
+            },
+            asset_type="image",
+        )
+        client.app.state.store.set_result(
+            task_id,
+            {"local_image_urls": [f"/v1/assets/{task_id}/image_0.png"]},
+        )
+
+        response = client.post(
+            f"/v1/subjects/{subject['subject_id']}/references/from-task",
+            json={
+                "task_id": task_id,
+                "image_index": 0,
+                "role": "Identity anchor",
+                "is_primary": False,
+            },
+        )
+
+    assert response.status_code == 200
+    references = response.json()["references"]
+    assert len(references) == 1
+    assert references[0]["role"] == "Identity anchor"
+    assert references[0]["is_primary"] is True
+
+
 def test_delete_image_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_image_task(client)

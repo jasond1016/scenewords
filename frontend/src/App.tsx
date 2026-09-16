@@ -164,7 +164,7 @@ export default function App() {
           />
           <Route path="/jobs" element={<Navigate to="/works" replace />} />
           <Route path="/assets" element={<Navigate to="/works" replace />} />
-          <Route path="/subjects" element={<SubjectsPage />} />
+          <Route path="/subjects" element={<SubjectsPage tasks={tasksQuery.data ?? []} />} />
           <Route
             path="/works"
             element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}

@@ -22,6 +22,8 @@ export interface SidebarCancelAction {
 
 interface Props {
   task: VideoTaskDetail;
+  versionTasks?: VideoTaskDetail[];
+  onVersionSelect?: (taskId: string) => void;
   statusLabel: string;
   updatedAtLabel: string;
   downloadUrl?: string | null;
@@ -42,6 +44,8 @@ interface Props {
 export function MediaDetailSidebar(props: Props) {
   const {
     task,
+    versionTasks = [],
+    onVersionSelect,
     statusLabel,
     updatedAtLabel,
     downloadUrl,
@@ -237,6 +241,34 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </section>
 
+      {task.scene_id && task.generation_id ? (
+        <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="m-0 text-label">{locale === "zh-CN" ? "场景 · 生成链" : "Scene · generation"}</p>
+              <p className="m-0 mt-1 text-sm font-semibold text-[var(--c-text)]">
+                {task.scene_title ?? (locale === "zh-CN" ? "未命名场景" : "Untitled scene")}
+              </p>
+            </div>
+            <span className="tag tag-warning">V{task.version_number ?? 1}</span>
+          </div>
+          {versionTasks.length > 1 ? (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {versionTasks.map((version) => (
+                <button
+                  key={version.task_id}
+                  type="button"
+                  className={version.task_id === task.task_id ? "btn-primary px-3 text-xs" : "btn-ghost px-3 text-xs"}
+                  onClick={() => onVersionSelect?.(version.task_id)}
+                >
+                  V{version.version_number ?? 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {isDetailsOpen ? (
         <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">
           <div className="grid grid-cols-2 gap-3 text-[11px] text-[var(--c-text-secondary)]">
@@ -302,7 +334,9 @@ export function MediaDetailSidebar(props: Props) {
           className="btn-primary text-xs"
           onClick={onReuse}
         >
-          {t("works.editAgain")}
+          {task.generation_id
+            ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
+            : t("works.editAgain")}
         </button>
         {renderRetryButtons(retryActions, t)}
       </div>

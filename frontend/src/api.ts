@@ -2,6 +2,7 @@ import type {
   AssetType,
   ProviderCatalogResponse,
   RetryMode,
+  Scene,
   SubjectAsset,
   SubjectAssetInput,
   TaskPageResult,
@@ -234,6 +235,41 @@ export function deleteSubject(subjectId: string, token: string): Promise<void> {
   return request<void>(
     `/v1/subjects/${encodeURIComponent(subjectId)}`,
     { method: "DELETE" },
+    token,
+  );
+}
+
+export function addSubjectReferenceFromTask(
+  subjectId: string,
+  payload: { task_id: string; image_index: number; role: string; is_primary: boolean },
+  token: string,
+): Promise<SubjectAsset> {
+  return request<SubjectAsset>(
+    `/v1/subjects/${encodeURIComponent(subjectId)}/references/from-task`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function fetchScenes(token: string): Promise<Scene[]> {
+  return request<Scene[]>("/v1/scenes", {}, token);
+}
+
+export function createScene(
+  payload: { title: string; description: string },
+  token: string,
+): Promise<Scene> {
+  return request<Scene>(
+    "/v1/scenes",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
     token,
   );
 }

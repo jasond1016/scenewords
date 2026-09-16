@@ -10,6 +10,9 @@ class VideoGenerationRequest(BaseModel):
     provider: str = Field(..., description="Provider id from /v1/models")
     model: str = Field(..., description="Model name")
     operation: str | None = Field(default=None, description="Operation id for selected model")
+    scene_id: str | None = None
+    generation_id: str | None = None
+    parent_version_id: str | None = None
     prompt: str | None = None
     negative_prompt: str | None = None
     duration_sec: int | None = Field(default=None, ge=1, le=60)
@@ -35,6 +38,11 @@ class VideoTaskResponse(BaseModel):
     asset_type: Literal["video", "image"] = "video"
     provider: str
     model: str
+    scene_id: str | None = None
+    scene_title: str | None = None
+    generation_id: str | None = None
+    parent_version_id: str | None = None
+    version_number: int | None = None
     queue_position: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -159,6 +167,28 @@ class SubjectAssetResponse(BaseModel):
     fixed_traits: list[str]
     variable_traits: list[str]
     references: list[SubjectReferenceResponse]
+    created_at: datetime
+    updated_at: datetime
+
+
+class SubjectReferenceFromTaskInput(BaseModel):
+    task_id: str
+    image_index: int = Field(default=0, ge=0)
+    role: str = Field(default="reference", max_length=120)
+    is_primary: bool = False
+
+
+class SceneCreateInput(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+
+
+class SceneResponse(BaseModel):
+    scene_id: str
+    title: str
+    description: str
+    generation_count: int = 0
+    version_count: int = 0
     created_at: datetime
     updated_at: datetime
 

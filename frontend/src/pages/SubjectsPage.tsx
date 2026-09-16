@@ -1,17 +1,26 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   Cube,
   IdentificationCard,
   MapPin,
   PencilSimple,
   Plus,
+  Sparkle,
   Star,
   Trash,
   UploadSimple,
   X,
 } from "@phosphor-icons/react";
-import { createSubject, deleteSubject, fetchSubjects, updateSubject, uploadFile } from "../api";
+import {
+  addSubjectReferenceFromTask,
+  createSubject,
+  deleteSubject,
+  fetchSubjects,
+  updateSubject,
+  uploadFile,
+} from "../api";
 import { UploadedImage } from "../components/UploadedImage";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
@@ -20,7 +29,9 @@ import type {
   SubjectAssetInput,
   SubjectKind,
   SubjectReference,
+  VideoTaskDetail,
 } from "../types";
+import { extractImageUrls } from "../utils";
 
 interface PendingReference {
   file: File;
@@ -34,10 +45,11 @@ const KIND_ICONS = {
   location: MapPin,
 };
 
-export function SubjectsPage() {
+export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
   const { locale } = useI18n();
   const isZh = locale === "zh-CN";
   const token = useAppSettingsStore((state) => state.gatewayToken);
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const subjectsQuery = useQuery({
     queryKey: ["subjects", token],
@@ -115,6 +127,51 @@ export function SubjectsPage() {
       setShowEditor(false);
     },
   });
+
+  const collectMutation = useMutation({
+    mutationFn: (input: { taskId: string; imageIndex: number; role: string }) => {
+      if (!editing) {
+        throw new Error("Missing subject");
+      }
+      return addSubjectReferenceFromTask(
+        editing.subject_id,
+        {
+          task_id: input.taskId,
+          image_index: input.imageIndex,
+          role: input.role,
+          is_primary: existingReferences.length === 0,
+        },
+        token,
+      );
+    },
+    onSuccess: async (subject) => {
+      setEditing(subject);
+      setExistingReferences(subject.references);
+      await queryClient.invalidateQueries({ queryKey: ["subjects", token] });
+    },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : String(reason)),
+  });
+
+  const generatedCandidates = editing
+    ? tasks
+        .filter(
+          (task) =>
+            task.asset_type === "image" &&
+            task.status === "succeeded" &&
+            task.subject_bindings.some((binding) => binding.subject_id === editing.subject_id),
+        )
+        .flatMap((task) =>
+          extractImageUrls(task).map((url, imageIndex) => ({ task, url, imageIndex })),
+        )
+    : [];
+
+  const generateReference = (role: string) => {
+    if (!editing) return;
+    setShowEditor(false);
+    navigate(
+      `/create?subjectId=${encodeURIComponent(editing.subject_id)}&subjectRole=${encodeURIComponent(role)}`,
+    );
+  };
 
   const markPrimary = (source: "existing" | "pending", index: number) => {
     setExistingReferences((items) =>
@@ -211,6 +268,10 @@ export function SubjectsPage() {
                     {subject.fixed_traits.slice(0, 3).map((trait) => <span key={trait} className="tag">{trait}</span>)}
                     <span className="tag">{isZh ? `${subject.references.length} 张参考` : `${subject.references.length} refs`}</span>
                   </div>
+                  <button type="button" className="btn-secondary w-full text-xs" onClick={() => resetEditor(subject)}>
+                    <Sparkle size={15} />
+                    {isZh ? "AI 建立参考集" : "Build references with AI"}
+                  </button>
                 </div>
               </article>
             );
@@ -289,6 +350,73 @@ export function SubjectsPage() {
                 />
               </label>
             </div>
+
+            {editing ? (
+              <section className="mt-4 rounded-2xl border border-border bg-[var(--c-surface-raised)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="m-0 flex items-center gap-2 text-sm font-semibold text-[var(--c-text)]">
+                      <Sparkle size={16} />
+                      {isZh ? "AI 辅助参考集" : "AI-assisted reference set"}
+                    </h3>
+                    <p className="m-0 mt-1 text-xs leading-5 text-[var(--c-text-secondary)]">
+                      {isZh
+                        ? existingReferences.length
+                          ? "以主锚点派生不同角度，生成完成后回到这里筛选收录。"
+                          : "先生成候选形象并选一张主锚点，再派生其他角度。"
+                        : existingReferences.length
+                          ? "Derive useful angles from the anchor, then return here to curate them."
+                          : "Generate identity candidates, choose one anchor, then derive other angles."}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {existingReferences.length === 0 ? (
+                    <button type="button" className="btn-primary text-xs" onClick={() => generateReference("anchor")}>
+                      <Sparkle size={14} /> {isZh ? "生成身份候选" : "Generate identity candidate"}
+                    </button>
+                  ) : (
+                    [
+                      ["front", isZh ? "正面全身" : "Front"],
+                      ["threeQuarter", isZh ? "3/4 全身" : "Three-quarter"],
+                      ["side", isZh ? "侧面全身" : "Side"],
+                      ["expression", isZh ? "表情特写" : "Expressions"],
+                    ].map(([role, label]) => (
+                      <button key={role} type="button" className="btn-secondary text-xs" onClick={() => generateReference(role)}>
+                        {label}
+                      </button>
+                    ))
+                  )}
+                </div>
+                {generatedCandidates.length ? (
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {generatedCandidates.slice(0, 9).map(({ task, url, imageIndex }) => (
+                      <article key={`${task.task_id}-${imageIndex}`} className="overflow-hidden rounded-2xl border border-border bg-[var(--c-surface)]">
+                        <AuthenticatedResultImage url={url} token={token} alt={editing.name} />
+                        <div className="p-2">
+                          <button
+                            type="button"
+                            className="btn-secondary w-full text-xs"
+                            disabled={collectMutation.isPending}
+                            onClick={() =>
+                              collectMutation.mutate({
+                                taskId: task.task_id,
+                                imageIndex,
+                                role: existingReferences.length ? (isZh ? "AI 派生参考" : "AI-derived reference") : (isZh ? "身份锚点" : "Identity anchor"),
+                              })
+                            }
+                          >
+                            {existingReferences.length === 0
+                              ? isZh ? "设为主锚点" : "Use as anchor"
+                              : isZh ? "收录参考" : "Add reference"}
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <div className="mt-4 space-y-2">
               {existingReferences.map((reference, index) => (
@@ -382,6 +510,35 @@ function LocalImage({ file }: { file: File }) {
     return () => URL.revokeObjectURL(url);
   }, [file]);
   return source ? <img src={source} alt="" className="h-14 w-14 rounded-xl object-cover" /> : <div className="h-14 w-14 rounded-xl bg-[var(--c-surface-inset)]" />;
+}
+
+function AuthenticatedResultImage(props: { url: string; token: string; alt: string }) {
+  const [source, setSource] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl = "";
+    const headers = new Headers();
+    if (props.token.trim()) headers.set("Authorization", `Bearer ${props.token.trim()}`);
+    fetch(props.url, { headers, signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setSource(objectUrl);
+      })
+      .catch(() => undefined);
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [props.token, props.url]);
+  return source ? (
+    <img src={source} alt={props.alt} className="aspect-square w-full object-cover" />
+  ) : (
+    <div className="aspect-square w-full animate-pulse bg-[var(--c-surface-inset)]" />
+  );
 }
 
 function splitTraits(value: string): string[] {

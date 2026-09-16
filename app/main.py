@@ -37,8 +37,11 @@ from app.schemas import (
     ProviderModelInfo,
     ProviderModelOperationInfo,
     RetryTaskRequest,
+    SceneCreateInput,
+    SceneResponse,
     SubjectAssetInput,
     SubjectAssetResponse,
+    SubjectReferenceFromTaskInput,
     SubjectReferenceResponse,
     TaskCostSummaryResponse,
     UploadedFileResponse,
@@ -361,6 +364,11 @@ def create_app() -> FastAPI:
             app_config=app.state.config,
         )
         _apply_orientation_mode_to_resolution(payload)
+        scene_id, generation_id, parent_task_id = _prepare_generation_lineage(
+            payload,
+            asset_type=asset_type,
+            store=app.state.store,
+        )
         estimated_cost, currency, cost_source = _estimate_cost_for_request(payload)
         task_id = str(uuid4())
         prompt_text = payload.prompt or ""
@@ -375,6 +383,9 @@ def create_app() -> FastAPI:
             estimated_cost=estimated_cost,
             currency=currency,
             cost_source=cost_source,
+            scene_id=scene_id,
+            generation_id=generation_id,
+            parent_task_id=parent_task_id,
         )
         await app.state.worker.submit(task_id)
         return _to_task_response(
@@ -423,6 +434,10 @@ def create_app() -> FastAPI:
             source_request.seed = None
         elif retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        if task.get("generation_id"):
+            source_request.scene_id = task.get("scene_id")
+            source_request.generation_id = task.get("generation_id")
+            source_request.parent_version_id = task_id
         return await _enqueue_video_task(source_request)
 
     @app.post("/v1/video/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
@@ -578,6 +593,10 @@ def create_app() -> FastAPI:
             source_request.seed = None
         elif retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        if task.get("generation_id"):
+            source_request.scene_id = task.get("scene_id")
+            source_request.generation_id = task.get("generation_id")
+            source_request.parent_version_id = task_id
         return await _enqueue_image_task(source_request)
 
     @app.post("/v1/image/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
@@ -833,6 +852,94 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Subject not found") from error
         return Response(status_code=204)
 
+    @app.post(
+        "/v1/subjects/{subject_id}/references/from-task",
+        response_model=SubjectAssetResponse,
+    )
+    async def add_subject_reference_from_task(
+        subject_id: str,
+        payload: SubjectReferenceFromTaskInput,
+        _: None = Depends(require_auth),
+    ) -> SubjectAssetResponse:
+        try:
+            subject = app.state.store.get_subject(subject_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Subject not found") from error
+        try:
+            task = app.state.store.get_task(payload.task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        if task.get("asset_type") != "image" or task.get("status") != "succeeded":
+            raise HTTPException(status_code=409, detail="Task has no completed image result")
+        result = task.get("result") or {}
+        image_urls = result.get("local_image_urls")
+        if not isinstance(image_urls, list) or payload.image_index >= len(image_urls):
+            raise HTTPException(status_code=400, detail="Image result not found")
+        image_url = image_urls[payload.image_index]
+        expected_prefix = f"/v1/assets/{payload.task_id}/"
+        if not isinstance(image_url, str) or not image_url.startswith(expected_prefix):
+            raise HTTPException(status_code=400, detail="Image result is not archived locally")
+        filename = image_url.removeprefix(expected_prefix).split("?", 1)[0]
+        if Path(filename).name != filename:
+            raise HTTPException(status_code=400, detail="Invalid archived image path")
+        source_path = app.state.config.output_dir / "assets" / payload.task_id / filename
+        if not source_path.is_file():
+            raise HTTPException(status_code=404, detail="Archived image not found")
+
+        mime_type, _ = mimetypes.guess_type(filename)
+        if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+            raise HTTPException(status_code=400, detail="Archived result is not a supported image")
+        file_bytes = source_path.read_bytes()
+        file_id = str(uuid4())
+        stored_name = f"{file_id}{MIME_TO_EXTENSION[mime_type]}"
+        target_path = app.state.config.upload_dir / stored_name
+        target_path.write_bytes(file_bytes)
+        app.state.store.create_file(
+            file_id=file_id,
+            original_name=f"generated-{payload.task_id[:8]}-{payload.image_index}{MIME_TO_EXTENSION[mime_type]}",
+            stored_name=stored_name,
+            mime_type=mime_type,
+            size_bytes=len(file_bytes),
+            sha256=hashlib.sha256(file_bytes).hexdigest(),
+        )
+        updated = app.state.store.add_subject_reference(
+            subject_id=subject_id,
+            reference_id=str(uuid4()),
+            file_id=file_id,
+            role=payload.role.strip() or "reference",
+            is_primary=payload.is_primary or not subject["references"],
+        )
+        return _subject_response(updated)
+
+    def _scene_response(scene: dict[str, Any]) -> SceneResponse:
+        return SceneResponse(
+            scene_id=scene["scene_id"],
+            title=scene["title"],
+            description=scene["description"],
+            generation_count=scene["generation_count"],
+            version_count=scene["version_count"],
+            created_at=_as_datetime(scene["created_at"]),
+            updated_at=_as_datetime(scene["updated_at"]),
+        )
+
+    @app.get("/v1/scenes", response_model=list[SceneResponse])
+    async def list_scenes(_: None = Depends(require_auth)) -> list[SceneResponse]:
+        return [_scene_response(scene) for scene in app.state.store.list_scenes()]
+
+    @app.post("/v1/scenes", response_model=SceneResponse, status_code=201)
+    async def create_scene(
+        payload: SceneCreateInput, _: None = Depends(require_auth)
+    ) -> SceneResponse:
+        title = payload.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Scene title is required")
+        scene = app.state.store.create_scene(
+            scene_id=str(uuid4()),
+            title=title,
+            description=payload.description.strip(),
+        )
+        return _scene_response(scene)
+
     @app.get("/v1/assets/{task_id}/{filename}")
     async def get_archived_asset(
         task_id: str,
@@ -869,6 +976,53 @@ def _provider_supports_seed_retry(
     if not provider_config:
         return True
     return not provider_config.provider_type.startswith("tuzi")
+
+
+def _prepare_generation_lineage(
+    payload: VideoGenerationRequest,
+    *,
+    asset_type: str,
+    store: TaskStore,
+) -> tuple[str | None, str | None, str | None]:
+    scene_id = (payload.scene_id or "").strip() or None
+    generation_id = (payload.generation_id or "").strip() or None
+    parent_task_id = (payload.parent_version_id or "").strip() or None
+    if not scene_id:
+        if generation_id or parent_task_id:
+            raise HTTPException(status_code=400, detail="Version lineage requires a scene")
+        payload.scene_id = None
+        payload.generation_id = None
+        payload.parent_version_id = None
+        return None, None, None
+    try:
+        store.get_scene(scene_id)
+    except KeyError as error:
+        raise HTTPException(status_code=400, detail="Unknown scene") from error
+    if generation_id:
+        try:
+            generation = store.get_generation(generation_id)
+        except KeyError as error:
+            raise HTTPException(status_code=400, detail="Unknown generation") from error
+        if generation["scene_id"] != scene_id or generation["asset_type"] != asset_type:
+            raise HTTPException(status_code=400, detail="Generation does not belong to this scene")
+    else:
+        generation_id = str(uuid4())
+        store.create_generation(
+            generation_id=generation_id,
+            scene_id=scene_id,
+            asset_type=asset_type,
+        )
+    if parent_task_id:
+        try:
+            parent = store.get_task(parent_task_id)
+        except KeyError as error:
+            raise HTTPException(status_code=400, detail="Unknown parent version") from error
+        if parent.get("generation_id") != generation_id:
+            raise HTTPException(status_code=400, detail="Parent version belongs to another generation")
+    payload.scene_id = scene_id
+    payload.generation_id = generation_id
+    payload.parent_version_id = parent_task_id
+    return scene_id, generation_id, parent_task_id
 
 
 def require_auth(request: Request) -> None:
@@ -1159,6 +1313,11 @@ def _to_task_response(
         asset_type=task.get("asset_type", "video"),
         provider=task["provider"],
         model=task["model"],
+        scene_id=task.get("scene_id"),
+        scene_title=task.get("scene_title"),
+        generation_id=task.get("generation_id"),
+        parent_version_id=task.get("parent_task_id"),
+        version_number=task.get("version_number"),
         queue_position=queue_position,
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
@@ -1196,6 +1355,11 @@ def _to_task_detail(
         asset_type=task.get("asset_type", "video"),
         provider=task["provider"],
         model=task["model"],
+        scene_id=task.get("scene_id"),
+        scene_title=task.get("scene_title"),
+        generation_id=task.get("generation_id"),
+        parent_version_id=task.get("parent_task_id"),
+        version_number=task.get("version_number"),
         operation=task.get("operation") or request_payload.get("operation"),
         provider_job_id=task.get("provider_job_id"),
         provider_status=task.get("provider_status"),

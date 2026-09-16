@@ -66,6 +66,9 @@ export interface VideoGenerationRequest {
   provider: string;
   model: string;
   operation?: string | null;
+  scene_id?: string | null;
+  generation_id?: string | null;
+  parent_version_id?: string | null;
   prompt?: string | null;
   negative_prompt?: string | null;
   duration_sec?: number | null;
@@ -122,6 +125,11 @@ export interface VideoTaskResponse {
   asset_type: AssetType;
   provider: string;
   model: string;
+  scene_id: string | null;
+  scene_title: string | null;
+  generation_id: string | null;
+  parent_version_id: string | null;
+  version_number: number | null;
   queue_position: number | null;
   created_at: string;
   updated_at: string;
@@ -188,4 +196,14 @@ export interface UploadedFileResponse {
   sha256: string;
   created_at: string;
   url: string;
+}
+
+export interface Scene {
+  scene_id: string;
+  title: string;
+  description: string;
+  generation_count: number;
+  version_count: number;
+  created_at: string;
+  updated_at: string;
 }

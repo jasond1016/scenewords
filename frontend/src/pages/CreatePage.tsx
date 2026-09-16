@@ -8,7 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   CaretLeft,
   CaretRight,
@@ -23,7 +23,9 @@ import {
   Shapes,
 } from "@phosphor-icons/react";
 import {
+  createScene,
   createVideoTask,
+  fetchScenes,
   fetchSubjects,
   fetchUploadedFileBinary,
   uploadFile,
@@ -144,6 +146,7 @@ export function CreatePage(props: Props) {
   const { catalog, loading, tasks } = props;
   const { locale, t } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const settings = useAppSettingsStore();
   const providers = catalog?.providers ?? [];
@@ -171,11 +174,19 @@ export function CreatePage(props: Props) {
   const [openPopover, setOpenPopover] = useState<"kind" | "model" | "format" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+  const [sceneId, setSceneId] = useState("");
+  const [newSceneTitle, setNewSceneTitle] = useState("");
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [parentVersionId, setParentVersionId] = useState<string | null>(null);
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const subjectsQuery = useQuery({
     queryKey: ["subjects", settings.gatewayToken],
     queryFn: () => fetchSubjects(settings.gatewayToken),
+  });
+  const scenesQuery = useQuery({
+    queryKey: ["scenes", settings.gatewayToken],
+    queryFn: () => fetchScenes(settings.gatewayToken),
   });
   const selectedSubjects = useMemo(
     () =>
@@ -971,6 +982,9 @@ export function CreatePage(props: Props) {
     if (operationId !== pending.operation) {
       setOperationId(pending.operation);
     }
+    setSceneId(pending.sceneId ?? "");
+    setGenerationId(pending.generationId);
+    setParentVersionId(pending.parentVersionId);
   }, [
     currentGenerationKind,
     modelName,
@@ -978,6 +992,27 @@ export function CreatePage(props: Props) {
     providerId,
     providers,
     settings.pendingReuseDraft,
+  ]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const subjectId = params.get("subjectId")?.trim() ?? "";
+    if (!subjectId) {
+      return;
+    }
+    const subject = subjectsQuery.data?.find((item) => item.subject_id === subjectId);
+    if (!subject) {
+      return;
+    }
+    setSelectedSubjectIds([subjectId]);
+    if (currentGenerationKind !== "image") {
+      setCurrentGenerationKind("image");
+      return;
+    }
+  }, [
+    currentGenerationKind,
+    location.search,
+    subjectsQuery.data,
   ]);
 
   useEffect(() => {
@@ -1080,6 +1115,18 @@ export function CreatePage(props: Props) {
       navigate("/create");
     }
 
+    const launchParams = new URLSearchParams(location.search);
+    const launchSubjectId = launchParams.get("subjectId")?.trim() ?? "";
+    const launchSubject = subjectsQuery.data?.find(
+      (subject) => subject.subject_id === launchSubjectId,
+    );
+    if (launchSubject && promptField && currentGenerationKind === "image") {
+      hydrated[fieldKey(promptField)] = buildSubjectReferencePrompt(
+        launchSubject,
+        launchParams.get("subjectRole")?.trim() || "anchor",
+      );
+    }
+
     // Keep the current prompt when switching model/operation unless the target already has one.
     if (promptField) {
       const promptKey = fieldKey(promptField);
@@ -1124,6 +1171,7 @@ export function CreatePage(props: Props) {
     }
   }, [
     currentGenerationKind,
+    location.search,
     modelName,
     navigate,
     providerId,
@@ -1137,6 +1185,7 @@ export function CreatePage(props: Props) {
     settings.providerDefaults,
     settings.restoreLastSession,
     settings.setPendingReuseDraft,
+    subjectsQuery.data,
   ]);
 
   useEffect(() => {
@@ -1212,10 +1261,25 @@ export function CreatePage(props: Props) {
       if (!selectedOperation) {
         throw new Error(t("create.errorNoOperation"));
       }
+      let resolvedSceneId = sceneId || null;
+      if (sceneId === "__new__") {
+        const title = newSceneTitle.trim();
+        if (!title) {
+          throw new Error(locale === "zh-CN" ? "请输入场景名称。" : "Enter a scene name.");
+        }
+        const scene = await createScene({ title, description: "" }, settings.gatewayToken);
+        resolvedSceneId = scene.scene_id;
+        setSceneId(scene.scene_id);
+        setNewSceneTitle("");
+        await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
+      }
       const payload: VideoGenerationRequest = {
         provider: providerId,
         model: modelName,
         operation: selectedOperation.id,
+        scene_id: resolvedSceneId,
+        generation_id: resolvedSceneId ? generationId : null,
+        parent_version_id: resolvedSceneId ? parentVersionId : null,
         provider_options: {},
       };
       const requestPayload = payload as unknown as Record<string, unknown>;
@@ -1312,6 +1376,12 @@ export function CreatePage(props: Props) {
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
     onSuccess: async (response) => {
+      if (response.scene_id) {
+        setSceneId(response.scene_id);
+        setGenerationId(response.generation_id);
+        setParentVersionId(response.task_id);
+        await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
+      }
       setLastSubmittedTaskId(response.task_id);
       setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
       if (settings.savePromptHistory && promptField) {
@@ -1663,6 +1733,63 @@ export function CreatePage(props: Props) {
       {/* ── Canvas Area (above composer) ─────────────── */}
       <div className="create-canvas">
         <div className="flex w-full min-w-0 flex-col gap-6 sm:gap-8">
+          <section className="card flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[var(--c-text)]">
+                  {locale === "zh-CN" ? "场景与版本" : "Scene & versions"}
+                </div>
+                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
+                  {locale === "zh-CN"
+                    ? "选择场景后，本次生成及后续修改会保留为连续版本。"
+                    : "Choose a scene to keep this generation and later edits in one version history."}
+                </p>
+              </div>
+              {generationId ? (
+                <span className="tag tag-warning">
+                  {locale === "zh-CN" ? "继续当前生成链" : "Continuing generation"}
+                </span>
+              ) : null}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <select
+                className="input-base"
+                value={sceneId}
+                onChange={(event) => {
+                  setSceneId(event.target.value);
+                  setGenerationId(null);
+                  setParentVersionId(null);
+                }}
+              >
+                <option value="">{locale === "zh-CN" ? "独立生成（不归入场景）" : "Standalone generation"}</option>
+                <option value="__new__">{locale === "zh-CN" ? "+ 新建场景" : "+ New scene"}</option>
+                {scenesQuery.data?.map((scene) => (
+                  <option key={scene.scene_id} value={scene.scene_id}>
+                    {scene.title} · {scene.version_count} {locale === "zh-CN" ? "个版本" : "versions"}
+                  </option>
+                ))}
+              </select>
+              {sceneId === "__new__" ? (
+                <input
+                  className="input-base"
+                  value={newSceneTitle}
+                  maxLength={160}
+                  onChange={(event) => setNewSceneTitle(event.target.value)}
+                  placeholder={locale === "zh-CN" ? "例如：小明的雨夜车站" : "e.g. Ming at the rainy station"}
+                />
+              ) : (
+                <div className="flex items-center rounded-xl bg-[var(--c-surface-raised)] px-3 text-xs text-[var(--c-text-secondary)]">
+                  {generationId
+                    ? locale === "zh-CN"
+                      ? "提交后会创建下一个版本。"
+                      : "Submitting creates the next version."
+                    : locale === "zh-CN"
+                      ? "首次提交会建立一个新的生成分支。"
+                      : "The first submission starts a generation branch."}
+                </div>
+              )}
+            </div>
+          </section>
           <section className="card flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -3842,6 +3969,23 @@ function buildPromptWithSubjects(scenePrompt: string, subjects: SubjectAsset[]):
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildSubjectReferencePrompt(subject: SubjectAsset, role: string): string {
+  const identity = [subject.description, ...subject.fixed_traits].filter(Boolean).join("; ");
+  const roleInstructions: Record<string, string> = {
+    anchor: "Create a clean, distinctive identity anchor on a plain neutral background, front three-quarter view, full body visible, no text, no character sheet.",
+    front: "Create a clean front-view full-body reference on a plain neutral background. Preserve the supplied identity exactly.",
+    threeQuarter: "Create a clean three-quarter full-body reference on a plain neutral background. Preserve the supplied identity exactly.",
+    side: "Create a clean side-profile full-body reference on a plain neutral background. Preserve the supplied identity exactly.",
+    expression: "Create a close-up expression reference with neutral, happy, surprised, and concerned expressions. Preserve the supplied identity exactly.",
+  };
+  return [
+    `Subject: ${subject.name} (${subject.kind}).`,
+    identity ? `Stable identity traits: ${identity}.` : "Design a recognizable, repeatable visual identity.",
+    roleInstructions[role] ?? roleInstructions.anchor,
+    "Use simple even lighting and avoid props or scenery that obscure the subject.",
+  ].join("\n");
 }
 
 function subjectKindLabel(subject: SubjectAsset, isZh: boolean): string {

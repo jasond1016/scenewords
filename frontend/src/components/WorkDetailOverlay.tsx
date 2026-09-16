@@ -100,6 +100,15 @@ export function WorkDetailOverlay(props: Props) {
   const currentLightboxOrientation = currentLightboxTask
     ? inferTaskOrientation(currentLightboxTask)
     : "landscape";
+  const versionTasks = useMemo(
+    () =>
+      currentLightboxTask?.generation_id
+        ? tasks
+            .filter((task) => task.generation_id === currentLightboxTask.generation_id)
+            .sort((left, right) => (left.version_number ?? 0) - (right.version_number ?? 0))
+        : [],
+    [currentLightboxTask?.generation_id, tasks],
+  );
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
   const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
 
@@ -258,6 +267,13 @@ export function WorkDetailOverlay(props: Props) {
         sidebar={
           <MediaDetailSidebar
             task={currentLightboxTask}
+            versionTasks={versionTasks}
+            onVersionSelect={(taskId) => {
+              const nextIndex = lightboxItems.findIndex((item) => item.taskId === taskId);
+              if (nextIndex >= 0) {
+                setLightboxState((current) => current ? { ...current, index: nextIndex } : current);
+              }
+            }}
             statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
             updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
             downloadUrl={lightboxItem.url}

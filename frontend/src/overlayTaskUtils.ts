@@ -12,6 +12,9 @@ export function toDraft(task: VideoTaskDetail) {
     fps: task.fps,
     seed: task.seed,
     providerOptions: task.provider_options ?? {},
+    sceneId: task.scene_id,
+    generationId: task.generation_id,
+    parentVersionId: task.generation_id ? task.task_id : null,
   };
 }
 
@@ -20,6 +23,9 @@ export function buildTaskRequestPayload(task: VideoTaskDetail) {
     provider: task.provider,
     model: task.model,
     operation: task.operation ?? "generate",
+    scene_id: task.scene_id,
+    generation_id: task.generation_id,
+    parent_version_id: task.parent_version_id,
     prompt: task.prompt,
     negative_prompt: task.negative_prompt,
     duration_sec: task.duration_sec,

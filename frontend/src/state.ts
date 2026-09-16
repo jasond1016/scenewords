@@ -22,6 +22,9 @@ export interface CreateDraft {
   fps: number | null;
   seed: number | null;
   providerOptions: Record<string, unknown>;
+  sceneId: string | null;
+  generationId: string | null;
+  parentVersionId: string | null;
 }
 
 export interface AppSettingsState {
