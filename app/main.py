@@ -37,6 +37,9 @@ from app.schemas import (
     ProviderModelInfo,
     ProviderModelOperationInfo,
     RetryTaskRequest,
+    SubjectAssetInput,
+    SubjectAssetResponse,
+    SubjectReferenceResponse,
     TaskCostSummaryResponse,
     UploadedFileResponse,
     VideoGenerationRequest,
@@ -729,6 +732,107 @@ def create_app() -> FastAPI:
             filename=file_record["original_name"],
         )
 
+    def _subject_response(subject: dict[str, Any]) -> SubjectAssetResponse:
+        return SubjectAssetResponse(
+            subject_id=subject["subject_id"],
+            kind=subject["kind"],
+            name=subject["name"],
+            description=subject["description"],
+            fixed_traits=subject["fixed_traits"],
+            variable_traits=subject["variable_traits"],
+            references=[
+                SubjectReferenceResponse(
+                    **reference,
+                    url=f"/v1/files/{reference['file_id']}",
+                )
+                for reference in subject["references"]
+            ],
+            created_at=_as_datetime(subject["created_at"]),
+            updated_at=_as_datetime(subject["updated_at"]),
+        )
+
+    def _validated_subject_references(
+        payload: SubjectAssetInput,
+    ) -> list[dict[str, Any]]:
+        seen_file_ids: set[str] = set()
+        references: list[dict[str, Any]] = []
+        primary_assigned = False
+        for item in payload.references:
+            file_id = item.file_id.strip()
+            if not file_id or file_id in seen_file_ids:
+                continue
+            try:
+                app.state.store.get_file(file_id)
+            except KeyError as error:
+                raise HTTPException(status_code=400, detail=f"Unknown file: {file_id}") from error
+            seen_file_ids.add(file_id)
+            is_primary = bool(item.is_primary and not primary_assigned)
+            primary_assigned = primary_assigned or is_primary
+            references.append(
+                {
+                    "reference_id": str(uuid4()),
+                    "file_id": file_id,
+                    "role": item.role.strip() or "reference",
+                    "is_primary": is_primary,
+                }
+            )
+        if references and not primary_assigned:
+            references[0]["is_primary"] = True
+        return references
+
+    @app.get("/v1/subjects", response_model=list[SubjectAssetResponse])
+    async def list_subjects(_: None = Depends(require_auth)) -> list[SubjectAssetResponse]:
+        return [_subject_response(item) for item in app.state.store.list_subjects()]
+
+    @app.post("/v1/subjects", response_model=SubjectAssetResponse, status_code=201)
+    async def create_subject(
+        payload: SubjectAssetInput, _: None = Depends(require_auth)
+    ) -> SubjectAssetResponse:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Subject name is required")
+        subject = app.state.store.create_subject(
+            subject_id=str(uuid4()),
+            kind=payload.kind,
+            name=name,
+            description=payload.description.strip(),
+            fixed_traits=_clean_string_list(payload.fixed_traits),
+            variable_traits=_clean_string_list(payload.variable_traits),
+            references=_validated_subject_references(payload),
+        )
+        return _subject_response(subject)
+
+    @app.put("/v1/subjects/{subject_id}", response_model=SubjectAssetResponse)
+    async def update_subject(
+        subject_id: str,
+        payload: SubjectAssetInput,
+        _: None = Depends(require_auth),
+    ) -> SubjectAssetResponse:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Subject name is required")
+        try:
+            subject = app.state.store.update_subject(
+                subject_id=subject_id,
+                kind=payload.kind,
+                name=name,
+                description=payload.description.strip(),
+                fixed_traits=_clean_string_list(payload.fixed_traits),
+                variable_traits=_clean_string_list(payload.variable_traits),
+                references=_validated_subject_references(payload),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Subject not found") from error
+        return _subject_response(subject)
+
+    @app.delete("/v1/subjects/{subject_id}", status_code=204)
+    async def delete_subject(subject_id: str, _: None = Depends(require_auth)) -> Response:
+        try:
+            app.state.store.delete_subject(subject_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Subject not found") from error
+        return Response(status_code=204)
+
     @app.get("/v1/assets/{task_id}/{filename}")
     async def get_archived_asset(
         task_id: str,
@@ -1103,6 +1207,7 @@ def _to_task_detail(
         fps=request_payload.get("fps"),
         seed=request_payload.get("seed"),
         provider_options=safe_provider_options,
+        subject_bindings=request_payload.get("subject_bindings") or [],
         queue_position=queue_position,
         estimated_cost=task.get("estimated_cost"),
         actual_cost=task.get("actual_cost"),
@@ -1169,6 +1274,10 @@ def _as_datetime(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(value)
+
+
+def _clean_string_list(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 def _parse_bool_env(raw_value: str) -> bool:

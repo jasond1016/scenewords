@@ -57,6 +57,34 @@ class TaskStore:
                 );
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS subjects (
+                    subject_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    fixed_traits_json TEXT NOT NULL,
+                    variable_traits_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS subject_references (
+                    reference_id TEXT PRIMARY KEY,
+                    subject_id TEXT NOT NULL,
+                    file_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    is_primary INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(subject_id) REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    FOREIGN KEY(file_id) REFERENCES files(file_id)
+                );
+                """
+            )
             _ensure_task_columns(self._connection)
             self._connection.commit()
 
@@ -428,6 +456,142 @@ class TaskStore:
             )
             self._connection.commit()
 
+    def create_subject(
+        self,
+        *,
+        subject_id: str,
+        kind: str,
+        name: str,
+        description: str,
+        fixed_traits: list[str],
+        variable_traits: list[str],
+        references: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        now_iso = _now_iso()
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO subjects (
+                    subject_id, kind, name, description, fixed_traits_json,
+                    variable_traits_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    subject_id,
+                    kind,
+                    name,
+                    description,
+                    json.dumps(fixed_traits, ensure_ascii=False),
+                    json.dumps(variable_traits, ensure_ascii=False),
+                    now_iso,
+                    now_iso,
+                ),
+            )
+            self._replace_subject_references(subject_id, references, now_iso)
+            self._connection.commit()
+        return self.get_subject(subject_id)
+
+    def update_subject(
+        self,
+        *,
+        subject_id: str,
+        kind: str,
+        name: str,
+        description: str,
+        fixed_traits: list[str],
+        variable_traits: list[str],
+        references: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        now_iso = _now_iso()
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE subjects
+                SET kind = ?, name = ?, description = ?, fixed_traits_json = ?,
+                    variable_traits_json = ?, updated_at = ?
+                WHERE subject_id = ?
+                """,
+                (
+                    kind,
+                    name,
+                    description,
+                    json.dumps(fixed_traits, ensure_ascii=False),
+                    json.dumps(variable_traits, ensure_ascii=False),
+                    now_iso,
+                    subject_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(subject_id)
+            self._connection.execute(
+                "DELETE FROM subject_references WHERE subject_id = ?", (subject_id,)
+            )
+            self._replace_subject_references(subject_id, references, now_iso)
+            self._connection.commit()
+        return self.get_subject(subject_id)
+
+    def _replace_subject_references(
+        self,
+        subject_id: str,
+        references: list[dict[str, Any]],
+        created_at: str,
+    ) -> None:
+        for reference in references:
+            self._connection.execute(
+                """
+                INSERT INTO subject_references (
+                    reference_id, subject_id, file_id, role, is_primary, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    reference["reference_id"],
+                    subject_id,
+                    reference["file_id"],
+                    reference["role"],
+                    1 if reference.get("is_primary") else 0,
+                    created_at,
+                ),
+            )
+
+    def get_subject(self, subject_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM subjects WHERE subject_id = ?", (subject_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(subject_id)
+            references = self._connection.execute(
+                """
+                SELECT sr.*, f.original_name, f.mime_type
+                FROM subject_references sr
+                JOIN files f ON f.file_id = sr.file_id
+                WHERE sr.subject_id = ?
+                ORDER BY sr.is_primary DESC, sr.created_at ASC
+                """,
+                (subject_id,),
+            ).fetchall()
+        return _subject_row_to_dict(row, references)
+
+    def list_subjects(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT subject_id FROM subjects ORDER BY updated_at DESC"
+            ).fetchall()
+        return [self.get_subject(row["subject_id"]) for row in rows]
+
+    def delete_subject(self, subject_id: str) -> None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT subject_id FROM subjects WHERE subject_id = ?", (subject_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(subject_id)
+            self._connection.execute(
+                "DELETE FROM subject_references WHERE subject_id = ?", (subject_id,)
+            )
+            self._connection.execute("DELETE FROM subjects WHERE subject_id = ?", (subject_id,))
+            self._connection.commit()
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     request_payload = json.loads(row["request_json"])
@@ -468,6 +632,32 @@ def _file_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "sha256": row["sha256"],
         "created_at": _parse_iso(row["created_at"]),
         "last_used_at": _parse_iso(row["last_used_at"]),
+    }
+
+
+def _subject_row_to_dict(
+    row: sqlite3.Row, references: list[sqlite3.Row]
+) -> dict[str, Any]:
+    return {
+        "subject_id": row["subject_id"],
+        "kind": row["kind"],
+        "name": row["name"],
+        "description": row["description"],
+        "fixed_traits": json.loads(row["fixed_traits_json"]),
+        "variable_traits": json.loads(row["variable_traits_json"]),
+        "references": [
+            {
+                "reference_id": reference["reference_id"],
+                "file_id": reference["file_id"],
+                "role": reference["role"],
+                "is_primary": bool(reference["is_primary"]),
+                "original_name": reference["original_name"],
+                "mime_type": reference["mime_type"],
+            }
+            for reference in references
+        ],
+        "created_at": _parse_iso(row["created_at"]),
+        "updated_at": _parse_iso(row["updated_at"]),
     }
 
 

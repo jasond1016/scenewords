@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Images, GearSix, CircleNotch } from "@phosphor-icons/react";
+import { Plus, Images, GearSix, CircleNotch, Shapes } from "@phosphor-icons/react";
 import { fetchCatalog, fetchTasks } from "./api";
 import { useI18n } from "./i18n";
 import { useAppSettingsStore } from "./state";
@@ -9,6 +9,7 @@ import type { VideoTaskDetail } from "./types";
 import { CreatePage } from "./pages/CreatePage";
 import { WorksPage } from "./pages/WorksPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { SubjectsPage } from "./pages/SubjectsPage";
 
 const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
 const IDLE_TASK_POLL_INTERVAL_MS = 20000;
@@ -78,6 +79,7 @@ export default function App() {
 
   const navItems = [
     { to: "/create", label: t("nav.create"), icon: Plus },
+    { to: "/subjects", label: t("nav.subjects"), icon: Shapes },
     { to: "/works", label: t("nav.works"), icon: Images },
     { to: "/settings", label: t("nav.settings"), icon: GearSix },
   ];
@@ -162,6 +164,7 @@ export default function App() {
           />
           <Route path="/jobs" element={<Navigate to="/works" replace />} />
           <Route path="/assets" element={<Navigate to="/works" replace />} />
+          <Route path="/subjects" element={<SubjectsPage />} />
           <Route
             path="/works"
             element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}

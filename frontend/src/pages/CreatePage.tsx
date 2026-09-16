@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   CaretLeft,
@@ -20,9 +20,11 @@ import {
   VideoCamera,
   X,
   CaretDown,
+  Shapes,
 } from "@phosphor-icons/react";
 import {
   createVideoTask,
+  fetchSubjects,
   fetchUploadedFileBinary,
   uploadFile,
 } from "../api";
@@ -38,6 +40,7 @@ import type {
   ProviderModelInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
+  SubjectAsset,
   VideoGenerationRequest,
   VideoTaskDetail,
 } from "../types";
@@ -57,6 +60,7 @@ import {
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { SkeletonForm } from "../components/Skeletons";
 import { TaskPreviewCard } from "../components/TaskPreviewCard";
+import { UploadedImage } from "../components/UploadedImage";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -166,8 +170,31 @@ export function CreatePage(props: Props) {
   const formRef = useRef<HTMLFormElement | null>(null);
   const [openPopover, setOpenPopover] = useState<"kind" | "model" | "format" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const subjectsQuery = useQuery({
+    queryKey: ["subjects", settings.gatewayToken],
+    queryFn: () => fetchSubjects(settings.gatewayToken),
+  });
+  const selectedSubjects = useMemo(
+    () =>
+      (subjectsQuery.data ?? []).filter((subject) =>
+        selectedSubjectIds.includes(subject.subject_id),
+      ),
+    [selectedSubjectIds, subjectsQuery.data],
+  );
+  const subjectReferenceFileIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedSubjects.flatMap((subject) =>
+            sceneReferences(subject).map((reference) => reference.file_id),
+          ),
+        ),
+      ),
+    [selectedSubjects],
+  );
 
   // Cmd+Enter / Ctrl+Enter to submit
   useEffect(() => {
@@ -521,8 +548,14 @@ export function CreatePage(props: Props) {
     providerId,
     selectedOperation?.id,
   ]);
+  const activeSubjectReferenceFileIds =
+    currentGenerationKind === "image" && currentImageVariant?.editOperation
+      ? subjectReferenceFileIds
+      : [];
   const hasImageSourceAttachments =
-    imageSourceFiles.length > 0 || imageSourceReusedFileIds.length > 0;
+    imageSourceFiles.length > 0 ||
+    imageSourceReusedFileIds.length > 0 ||
+    activeSubjectReferenceFileIds.length > 0;
   const currentImageResolutionLabel = currentImageVariant?.resolutionLabel ?? "1K";
   const currentImageAsyncEnabled = currentImageVariant?.asyncEnabled ?? false;
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
@@ -682,7 +715,9 @@ export function CreatePage(props: Props) {
     }
     return {
       ...reusedFileIds,
-      [fieldKey(sharedImageSourceField)]: imageSourceReusedFileIds,
+      [fieldKey(sharedImageSourceField)]: Array.from(
+        new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+      ),
       [fieldKey(sharedImageMaskField)]: imageMaskReusedFileIds,
     };
   }, [
@@ -692,6 +727,7 @@ export function CreatePage(props: Props) {
     reusedFileIds,
     sharedImageMaskField,
     sharedImageSourceField,
+    activeSubjectReferenceFileIds,
   ]);
 
   // Primary file field for inline "+" button
@@ -1183,7 +1219,9 @@ export function CreatePage(props: Props) {
             currentGenerationKind === "image"
               ? {
                   sourceFiles: imageSourceFiles,
-                  sourceReusedFileIds: imageSourceReusedFileIds,
+                  sourceReusedFileIds: Array.from(
+                    new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+                  ),
                   maskFiles: imageMaskFiles,
                   maskReusedFileIds: imageMaskReusedFileIds,
                 }
@@ -1241,6 +1279,19 @@ export function CreatePage(props: Props) {
         } else {
           payload.provider_options[field.key] = parsed;
         }
+      }
+      if (selectedSubjects.length > 0) {
+        payload.subject_bindings = selectedSubjects.map((subject) => ({
+          subject_id: subject.subject_id,
+          kind: subject.kind,
+          name: subject.name,
+          description: subject.description,
+          fixed_traits: subject.fixed_traits,
+          reference_file_ids: activeSubjectReferenceFileIds.length
+            ? sceneReferences(subject).map((reference) => reference.file_id)
+            : [],
+        }));
+        payload.prompt = buildPromptWithSubjects(payload.prompt ?? "", selectedSubjects);
       }
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
@@ -1596,6 +1647,78 @@ export function CreatePage(props: Props) {
       {/* ── Canvas Area (above composer) ─────────────── */}
       <div className="create-canvas">
         <div className="flex w-full min-w-0 flex-col gap-6 sm:gap-8">
+          <section className="card flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--c-text)]">
+                  <Shapes size={17} />
+                  <span>{locale === "zh-CN" ? "本次场景的主体" : "Subjects in this scene"}</span>
+                </div>
+                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
+                  {locale === "zh-CN"
+                    ? currentGenerationKind === "image" && currentImageVariant?.editOperation
+                      ? "选择后会自动补充身份描述，并带入每个主体最多 3 张参考图。"
+                      : "选择后会自动补充身份描述；当前模型不支持直接带入主体参考图。"
+                    : currentGenerationKind === "image" && currentImageVariant?.editOperation
+                      ? "Selection adds identity notes and up to three references per subject."
+                      : "Selection adds identity notes; this model cannot attach subject references directly."}
+                </p>
+              </div>
+              <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/subjects")}>
+                {locale === "zh-CN" ? "管理主体库" : "Manage subjects"}
+              </button>
+            </div>
+            {(subjectsQuery.data?.length ?? 0) > 0 ? (
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {subjectsQuery.data?.map((subject) => {
+                  const selected = selectedSubjectIds.includes(subject.subject_id);
+                  const primary = subject.references.find((item) => item.is_primary) ?? subject.references[0];
+                  return (
+                    <button
+                      key={subject.subject_id}
+                      type="button"
+                      aria-pressed={selected}
+                      className={`flex min-w-40 items-center gap-3 rounded-2xl border p-2.5 text-left transition ${
+                        selected
+                          ? "border-[var(--c-cta)] bg-[var(--c-cta-subtle)]"
+                          : "border-border bg-[var(--c-surface-raised)] hover:border-[var(--c-border-strong)]"
+                      }`}
+                      onClick={() =>
+                        setSelectedSubjectIds((ids) =>
+                          selected
+                            ? ids.filter((id) => id !== subject.subject_id)
+                            : [...ids, subject.subject_id],
+                        )
+                      }
+                    >
+                      {primary ? (
+                        <UploadedImage
+                          fileId={primary.file_id}
+                          token={settings.gatewayToken}
+                          alt=""
+                          className="h-12 w-12 shrink-0 rounded-xl bg-[var(--c-surface-inset)] object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--c-surface-inset)]">
+                          <Shapes size={20} />
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <strong className="block truncate text-sm text-[var(--c-text)]">{subject.name}</strong>
+                        <span className="mt-1 block text-xs text-[var(--c-text-secondary)]">
+                          {subjectKindLabel(subject, locale === "zh-CN")} · {subject.references.length}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <button type="button" className="rounded-2xl border border-dashed border-border px-5 py-6 text-sm text-[var(--c-text-secondary)]" onClick={() => navigate("/subjects")}>
+                {locale === "zh-CN" ? "主体库还是空的，先创建一个固定人物或物品。" : "Your subject library is empty. Create a recurring character or object first."}
+              </button>
+            )}
+          </section>
           <section className="card flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <span className="text-label">{t("create.recentTasks")}</span>
@@ -3679,4 +3802,34 @@ function readRecentPrompts(): RecentPromptEntry[] {
   } catch {
     return [];
   }
+}
+
+function sceneReferences(subject: SubjectAsset) {
+  return [...subject.references]
+    .sort((left, right) => Number(right.is_primary) - Number(left.is_primary))
+    .slice(0, 3);
+}
+
+function buildPromptWithSubjects(scenePrompt: string, subjects: SubjectAsset[]): string {
+  const subjectInstructions = subjects.map((subject) => {
+    const details = [subject.description.trim(), ...subject.fixed_traits]
+      .filter(Boolean)
+      .join("; ");
+    return `- ${subject.name} (${subject.kind}): ${details || "preserve the supplied reference identity"}`;
+  });
+  return [
+    "Keep the following recurring subjects visually consistent with their supplied references:",
+    ...subjectInstructions,
+    "Do not transfer identity traits, clothing, colors, or distinctive details between subjects.",
+    "Scene request:",
+    scenePrompt.trim(),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function subjectKindLabel(subject: SubjectAsset, isZh: boolean): string {
+  if (subject.kind === "character") return isZh ? "人物" : "Character";
+  if (subject.kind === "object") return isZh ? "物品" : "Object";
+  return isZh ? "场景" : "Location";
 }

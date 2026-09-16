@@ -73,6 +73,47 @@ export interface VideoGenerationRequest {
   fps?: number | null;
   seed?: number | null;
   provider_options: Record<string, unknown>;
+  subject_bindings?: SubjectBindingSnapshot[];
+}
+
+export type SubjectKind = "character" | "object" | "location";
+
+export interface SubjectBindingSnapshot {
+  subject_id: string;
+  kind: SubjectKind;
+  name: string;
+  description: string;
+  fixed_traits: string[];
+  reference_file_ids: string[];
+}
+
+export interface SubjectReferenceInput {
+  file_id: string;
+  role: string;
+  is_primary: boolean;
+}
+
+export interface SubjectReference extends SubjectReferenceInput {
+  reference_id: string;
+  original_name: string;
+  mime_type: string;
+  url: string;
+}
+
+export interface SubjectAssetInput {
+  kind: SubjectKind;
+  name: string;
+  description: string;
+  fixed_traits: string[];
+  variable_traits: string[];
+  references: SubjectReferenceInput[];
+}
+
+export interface SubjectAsset extends Omit<SubjectAssetInput, "references"> {
+  subject_id: string;
+  references: SubjectReference[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface VideoTaskResponse {
@@ -98,6 +139,7 @@ export interface VideoTaskDetail extends VideoTaskResponse {
   fps: number | null;
   seed: number | null;
   provider_options: Record<string, unknown>;
+  subject_bindings: SubjectBindingSnapshot[];
   estimated_cost: number | null;
   actual_cost: number | null;
   currency: string | null;

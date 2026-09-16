@@ -17,6 +17,16 @@ class VideoGenerationRequest(BaseModel):
     fps: int | None = Field(default=None, ge=1, le=120)
     seed: int | None = None
     provider_options: dict[str, Any] = Field(default_factory=dict)
+    subject_bindings: list["SubjectBindingSnapshot"] = Field(default_factory=list)
+
+
+class SubjectBindingSnapshot(BaseModel):
+    subject_id: str
+    kind: Literal["character", "object", "location"]
+    name: str
+    description: str = ""
+    fixed_traits: list[str] = Field(default_factory=list)
+    reference_file_ids: list[str] = Field(default_factory=list)
 
 
 class VideoTaskResponse(BaseModel):
@@ -42,6 +52,7 @@ class VideoTaskDetail(VideoTaskResponse):
     fps: int | None = None
     seed: int | None = None
     provider_options: dict[str, Any] = Field(default_factory=dict)
+    subject_bindings: list[SubjectBindingSnapshot] = Field(default_factory=list)
     estimated_cost: float | None = None
     actual_cost: float | None = None
     currency: str | None = None
@@ -116,6 +127,40 @@ class UploadedFileResponse(BaseModel):
     sha256: str
     created_at: datetime
     url: str
+
+
+class SubjectReferenceInput(BaseModel):
+    file_id: str
+    role: str = "reference"
+    is_primary: bool = False
+
+
+class SubjectReferenceResponse(SubjectReferenceInput):
+    reference_id: str
+    original_name: str
+    mime_type: str
+    url: str
+
+
+class SubjectAssetInput(BaseModel):
+    kind: Literal["character", "object", "location"]
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str = Field(default="", max_length=4000)
+    fixed_traits: list[str] = Field(default_factory=list)
+    variable_traits: list[str] = Field(default_factory=list)
+    references: list[SubjectReferenceInput] = Field(default_factory=list)
+
+
+class SubjectAssetResponse(BaseModel):
+    subject_id: str
+    kind: Literal["character", "object", "location"]
+    name: str
+    description: str
+    fixed_traits: list[str]
+    variable_traits: list[str]
+    references: list[SubjectReferenceResponse]
+    created_at: datetime
+    updated_at: datetime
 
 
 class RetryTaskRequest(BaseModel):

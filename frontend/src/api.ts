@@ -2,6 +2,8 @@ import type {
   AssetType,
   ProviderCatalogResponse,
   RetryMode,
+  SubjectAsset,
+  SubjectAssetInput,
   TaskPageResult,
   TaskCostSummary,
   UploadedFileResponse,
@@ -189,6 +191,49 @@ export async function uploadFile(file: File, token: string): Promise<UploadedFil
       method: "POST",
       body: formData,
     },
+    token,
+  );
+}
+
+export function fetchSubjects(token: string): Promise<SubjectAsset[]> {
+  return request<SubjectAsset[]>("/v1/subjects", {}, token);
+}
+
+export function createSubject(
+  payload: SubjectAssetInput,
+  token: string,
+): Promise<SubjectAsset> {
+  return request<SubjectAsset>(
+    "/v1/subjects",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function updateSubject(
+  subjectId: string,
+  payload: SubjectAssetInput,
+  token: string,
+): Promise<SubjectAsset> {
+  return request<SubjectAsset>(
+    `/v1/subjects/${encodeURIComponent(subjectId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function deleteSubject(subjectId: string, token: string): Promise<void> {
+  return request<void>(
+    `/v1/subjects/${encodeURIComponent(subjectId)}`,
+    { method: "DELETE" },
     token,
   );
 }

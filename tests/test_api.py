@@ -155,11 +155,128 @@ def test_upload_and_readback_file(client_factory) -> None:
     assert download_response.content == png_bytes
 
 
+def test_subject_asset_crud_preserves_reference_roles(client_factory) -> None:
+    with client_factory() as client:
+        uploads = []
+        for name in ("anchor.png", "side.png"):
+            response = client.post(
+                "/v1/files",
+                files={"file": (name, b"\x89PNG\r\n\x1a\nimage", "image/png")},
+            )
+            assert response.status_code == 200
+            uploads.append(response.json())
+
+        create_response = client.post(
+            "/v1/subjects",
+            json={
+                "kind": "character",
+                "name": " Xiao Wang ",
+                "description": "Recurring office character",
+                "fixed_traits": ["yellow hoodie", "round face", "yellow hoodie"],
+                "variable_traits": ["expression", "pose"],
+                "references": [
+                    {
+                        "file_id": uploads[0]["file_id"],
+                        "role": "3/4 full body",
+                        "is_primary": False,
+                    },
+                    {
+                        "file_id": uploads[1]["file_id"],
+                        "role": "side",
+                        "is_primary": False,
+                    },
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["name"] == "Xiao Wang"
+        assert created["fixed_traits"] == ["yellow hoodie", "round face"]
+        assert created["references"][0]["is_primary"] is True
+        assert created["references"][0]["role"] == "3/4 full body"
+
+        list_response = client.get("/v1/subjects")
+        assert list_response.status_code == 200
+        assert [item["subject_id"] for item in list_response.json()] == [created["subject_id"]]
+
+        update_response = client.put(
+            f"/v1/subjects/{created['subject_id']}",
+            json={
+                "kind": "object",
+                "name": "Yellow mascot",
+                "description": "",
+                "fixed_traits": ["yellow"],
+                "variable_traits": [],
+                "references": [
+                    {
+                        "file_id": uploads[1]["file_id"],
+                        "role": "side",
+                        "is_primary": True,
+                    }
+                ],
+            },
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["kind"] == "object"
+        assert len(update_response.json()["references"]) == 1
+
+        delete_response = client.delete(f"/v1/subjects/{created['subject_id']}")
+        assert delete_response.status_code == 204
+        assert client.get("/v1/subjects").json() == []
+
+
+def test_subject_asset_rejects_unknown_reference(client_factory) -> None:
+    with client_factory() as client:
+        response = client.post(
+            "/v1/subjects",
+            json={
+                "kind": "object",
+                "name": "Cup",
+                "references": [
+                    {"file_id": "missing", "role": "front", "is_primary": True}
+                ],
+            },
+        )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unknown file: missing"
+
+
 def test_list_video_tasks_default_empty(client_factory) -> None:
     with client_factory() as client:
         response = client.get("/v1/video/tasks")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_task_detail_returns_immutable_subject_binding_snapshot(client_factory) -> None:
+    with client_factory() as client:
+        task_id = str(uuid4())
+        snapshot = {
+            "subject_id": "subject-1",
+            "kind": "character",
+            "name": "Xiao Wang",
+            "description": "Office character",
+            "fixed_traits": ["yellow hoodie"],
+            "reference_file_ids": ["reference-1"],
+        }
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="demo_provider",
+            model="demo-model",
+            operation="generate",
+            prompt="compiled prompt",
+            request_payload={
+                "provider": "demo_provider",
+                "model": "demo-model",
+                "operation": "generate",
+                "prompt": "compiled prompt",
+                "provider_options": {},
+                "subject_bindings": [snapshot],
+            },
+        )
+        response = client.get(f"/v1/video/tasks/{task_id}")
+    assert response.status_code == 200
+    assert response.json()["subject_bindings"] == [snapshot]
 
 
 def test_list_video_tasks_supports_offset(client_factory) -> None:
