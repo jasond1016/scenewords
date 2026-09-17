@@ -631,6 +631,54 @@ class TaskStore:
             raise KeyError(generation_id)
         return dict(row)
 
+    def list_generation_task_ids(self, generation_id: str) -> list[str]:
+        with self._lock:
+            generation = self._connection.execute(
+                "SELECT generation_id FROM generations WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()
+            if generation is None:
+                raise KeyError(generation_id)
+            rows = self._connection.execute(
+                "SELECT task_id FROM tasks WHERE generation_id = ? ORDER BY created_at ASC",
+                (generation_id,),
+            ).fetchall()
+        return [row["task_id"] for row in rows]
+
+    def delete_generation(self, generation_id: str) -> None:
+        now_iso = _now_iso()
+        with self._lock:
+            generation = self._connection.execute(
+                "SELECT scene_id FROM generations WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()
+            if generation is None:
+                raise KeyError(generation_id)
+            self._connection.execute(
+                """
+                UPDATE scenes
+                SET approved_task_id = NULL, updated_at = ?
+                WHERE scene_id = ?
+                  AND approved_task_id IN (
+                      SELECT task_id FROM tasks WHERE generation_id = ?
+                  )
+                """,
+                (now_iso, generation["scene_id"], generation_id),
+            )
+            self._connection.execute(
+                "DELETE FROM tasks WHERE generation_id = ?",
+                (generation_id,),
+            )
+            self._connection.execute(
+                "DELETE FROM generations WHERE generation_id = ?",
+                (generation_id,),
+            )
+            self._connection.execute(
+                "UPDATE scenes SET updated_at = ? WHERE scene_id = ?",
+                (now_iso, generation["scene_id"]),
+            )
+            self._connection.commit()
+
     def get_scene_generations(self, scene_id: str) -> list[dict[str, Any]]:
         scene = self.get_scene(scene_id)
         with self._lock:

@@ -307,6 +307,14 @@ export function approveSceneVersion(
   );
 }
 
+export function deleteGeneration(generationId: string, token: string): Promise<void> {
+  return request<void>(
+    `/v1/generations/${encodeURIComponent(generationId)}`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
 export function adoptGenerationVersion(
   generationId: string,
   taskId: string,

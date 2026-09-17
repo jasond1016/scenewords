@@ -1104,6 +1104,28 @@ def create_app() -> FastAPI:
             "adopted_version_id": generation["adopted_task_id"],
         }
 
+    @app.delete(
+        "/v1/generations/{generation_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def delete_generation(
+        generation_id: str, _: None = Depends(require_auth)
+    ) -> Response:
+        try:
+            task_ids = app.state.store.list_generation_task_ids(generation_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Generation not found") from error
+        for task_id in task_ids:
+            app.state.worker.cancel(task_id)
+        try:
+            app.state.store.delete_generation(generation_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Generation not found") from error
+        for task_id in task_ids:
+            _delete_archived_assets(app.state.config.output_dir, task_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @app.get("/v1/assets/{task_id}/{filename}")
     async def get_archived_asset(
         task_id: str,

@@ -1034,6 +1034,58 @@ def test_deleting_only_candidate_version_clears_scene_selection(client_factory) 
     assert detail["generations"] == []
 
 
+def test_deleting_candidate_direction_removes_all_versions_and_selection(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Delete direction", "description": ""},
+        ).json()["scene_id"]
+        first = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "version one",
+                "provider_options": {},
+            },
+        ).json()
+        second = client.post(
+            f"/v1/image/tasks/{first['task_id']}/retry",
+            json={"retry_mode": "same_seed", "prompt": "version two"},
+        ).json()
+        for task in (first, second):
+            client.app.state.store.set_result(
+                task["task_id"], {"image_urls": ["https://example.com/result.png"]}
+            )
+            archive_dir = client.app.state.config.output_dir / "assets" / task["task_id"]
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            (archive_dir / "image_1.png").write_bytes(b"result")
+        client.post(f"/v1/scenes/{scene_id}/approve/{second['task_id']}")
+
+        delete_response = client.delete(f"/v1/generations/{first['generation_id']}")
+        detail = client.get(f"/v1/scenes/{scene_id}").json()
+        task_responses = [
+            client.get(f"/v1/image/tasks/{task['task_id']}") for task in (first, second)
+        ]
+
+    assert delete_response.status_code == 204
+    assert all(response.status_code == 404 for response in task_responses)
+    assert detail["approved_version_id"] is None
+    assert detail["generation_count"] == 0
+    assert detail["version_count"] == 0
+    assert detail["generations"] == []
+    assert all(
+        not (client.app.state.config.output_dir / "assets" / task["task_id"]).exists()
+        for task in (first, second)
+    )
+
+
 def test_delete_image_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_image_task(client)

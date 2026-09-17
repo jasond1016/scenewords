@@ -8,9 +8,16 @@ import {
   PencilSimple,
   Plus,
   Stack,
+  Trash,
 } from "@phosphor-icons/react";
 import { useNavigate, useParams } from "react-router-dom";
-import { approveSceneVersion, fetchScene, fetchScenes } from "../api";
+import {
+  approveSceneVersion,
+  deleteGeneration,
+  deleteVideoTask,
+  fetchScene,
+  fetchScenes,
+} from "../api";
 import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n } from "../i18n";
 import { buildReuseDraft } from "../overlayTaskActions";
@@ -152,6 +159,25 @@ function SceneWorkspace({ sceneId }: { sceneId: string }) {
     },
     onError: (error: Error) => setHint(isZh ? `无法准备编辑：${error.message}` : `Could not prepare edit: ${error.message}`),
   });
+  const deleteMutation = useMutation({
+    mutationFn: (payload: { kind: "version"; task: VideoTaskDetail } | { kind: "generation"; generationId: string }) =>
+      payload.kind === "version"
+        ? deleteVideoTask(payload.task.task_id, settings.gatewayToken, payload.task.asset_type)
+        : deleteGeneration(payload.generationId, settings.gatewayToken),
+    onSuccess: async (_data, payload) => {
+      setHint(
+        payload.kind === "version"
+          ? isZh ? "已删除当前版本。" : "Version deleted."
+          : isZh ? "已删除整个候选方向。" : "Candidate direction deleted.",
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["scene", settings.gatewayToken, sceneId] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+      ]);
+    },
+    onError: (error: Error) => setHint(isZh ? `删除失败：${error.message}` : `Could not delete: ${error.message}`),
+  });
 
   if (sceneQuery.isLoading) {
     return <div className="card p-10 text-center text-sm text-[var(--c-text-secondary)]">{isZh ? "正在加载场景…" : "Loading scene…"}</div>;
@@ -271,6 +297,42 @@ function SceneWorkspace({ sceneId }: { sceneId: string }) {
                       onClick={() => reuseMutation.mutate({ task, branch: true })}
                     >
                       <GitBranch size={15} /> {isZh ? "从此建立新方向" : "Branch new direction"}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+                    <button
+                      type="button"
+                      className="btn-ghost px-3 text-xs text-[var(--c-error-text)]"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => {
+                        const warning = generation.versions.length === 1
+                          ? isZh
+                            ? "这是该候选的最后一个版本。删除后整个候选方向也会消失，确定继续？"
+                            : "This is the candidate's last version. Deleting it also removes the candidate direction. Continue?"
+                          : isZh
+                            ? `删除当前 V${task.version_number ?? 1}？此操作无法撤销。`
+                            : `Delete the current V${task.version_number ?? 1}? This cannot be undone.`;
+                        if (window.confirm(warning)) {
+                          deleteMutation.mutate({ kind: "version", task });
+                        }
+                      }}
+                    >
+                      <Trash size={14} /> {isZh ? "删除当前版本" : "Delete version"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost px-3 text-xs text-[var(--c-error-text)]"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => {
+                        const warning = isZh
+                          ? `删除候选方向 ${index + 1} 及其全部 ${generation.versions.length} 个版本？此操作无法撤销。`
+                          : `Delete direction ${index + 1} and all ${generation.versions.length} versions? This cannot be undone.`;
+                        if (window.confirm(warning)) {
+                          deleteMutation.mutate({ kind: "generation", generationId: generation.generation_id });
+                        }
+                      }}
+                    >
+                      <Trash size={14} /> {isZh ? "删除整个候选" : "Delete candidate"}
                     </button>
                   </div>
                 </div>
