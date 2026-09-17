@@ -265,7 +265,9 @@ export function CreatePage(props: Props) {
   const qualityField = useMemo(
     () =>
       selectedOperation?.fields.find(
-        (field) => field.target === "provider_options" && field.key === "quality",
+        (field) =>
+          field.target === "provider_options" &&
+          (field.key === "quality" || field.key === "resolution_tier"),
       ) ?? null,
     [selectedOperation],
   );
@@ -3593,7 +3595,7 @@ function applySettingDefaults(
   const qualityField =
     operation.fields.find(
       (field) =>
-        field.key === "quality" &&
+        (field.key === "quality" || field.key === "resolution_tier") &&
         (field.target === "provider_options" || field.target === "request"),
     ) ?? null;
   if (qualityField && resolvedDefaults.defaultQuality) {
@@ -3662,7 +3664,7 @@ function captureProviderDefaultsFromValues(
   const qualityField =
     operation.fields.find(
       (field) =>
-        field.key === "quality" &&
+        (field.key === "quality" || field.key === "resolution_tier") &&
         (field.target === "provider_options" || field.target === "request"),
     ) ?? null;
   if (qualityField) {

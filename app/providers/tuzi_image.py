@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from app.config import ProviderConfig
-from app.providers.tuzi_image_models import GPT_IMAGE_25_1K, GPT_IMAGE_25_1K_SIZES
+from app.providers.tuzi_image_models import (
+    GPT_IMAGE_25_1K,
+    GPT_IMAGE_25_1K_SIZES,
+    GPT_IMAGE_25_TIERED_MODELS,
+    GPT_IMAGE_25_TIERED_SIZES,
+)
 from app.providers.base import (
     Provider,
     ProviderError,
@@ -94,6 +99,7 @@ async def _generate_sync(
         provider_job_id=_extract_task_id(response_payload),
         images=images,
         raw_response={"submit_endpoint": endpoint, "submit": response_payload},
+        requested_size=_string_or_none(payload.get("size")),
     )
 
 
@@ -273,13 +279,23 @@ def _build_generate_payload(request: VideoGenerationRequest) -> dict[str, Any]:
         "prompt": prompt,
     }
 
-    size = _sync_image_size(model_name, request.resolution)
+    legacy_tier = _legacy_resolution_tier(request, model_name)
+    resolution_tier = legacy_tier or _string_or_none(
+        request.provider_options.get("resolution_tier")
+    )
+
+    size = _sync_image_size(model_name, request.resolution, resolution_tier)
     if size:
         payload["size"] = size
 
-    quality = _string_or_none(request.provider_options.get("quality")) or _quality_from_model(
-        model_name
-    )
+    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
+        # Tuzi prices/routes these aliases by 1K/2K/4K while ``size`` is the
+        # concrete output request. Supplying both avoids a tier being treated
+        # as OpenAI's render-quality field and silently falling back in size.
+        quality = (resolution_tier or "1k").upper()
+    else:
+        quality = None if legacy_tier else _string_or_none(request.provider_options.get("quality"))
+        quality = quality or _quality_from_model(model_name)
     if quality:
         payload["quality"] = quality
 
@@ -289,11 +305,57 @@ def _build_generate_payload(request: VideoGenerationRequest) -> dict[str, Any]:
     images = _normalize_string_list(
         request.provider_options.get("image", request.provider_options.get("images"))
     )
+    images.extend(
+        _resolved_files_as_data_urls(
+            request.provider_options.get("__resolved_image_file_ids")
+        )
+    )
     if images:
         payload["image"] = images if len(images) > 1 else images[0]
 
     payload.update(_safe_dict(request.provider_options.get("extra_body")))
     return payload
+
+
+def _resolved_files_as_data_urls(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="__resolved_image_file_ids must be a resolved file entry list",
+        )
+    data_urls: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path_text = entry.get("path")
+        if not isinstance(path_text, str) or not path_text.strip():
+            raise ProviderError(
+                code="file_not_found",
+                message="Uploaded file path is missing",
+                raw_error={"entry": entry},
+            )
+        file_path = Path(path_text)
+        if not file_path.exists():
+            raise ProviderError(
+                code="file_not_found",
+                message=f"Uploaded file not found: {file_path}",
+                raw_error={"path": str(file_path)},
+            )
+        try:
+            encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+        except OSError as error:
+            raise ProviderError(
+                code="file_read_failed",
+                message=f"Failed to read uploaded file: {file_path}",
+                raw_error=str(error),
+            ) from error
+        mime_type = entry.get("mime_type")
+        if not isinstance(mime_type, str) or not mime_type.strip():
+            mime_type = "application/octet-stream"
+        data_urls.append(f"data:{mime_type};base64,{encoded}")
+    return data_urls
 
 
 def _build_edit_form(request: VideoGenerationRequest) -> list[tuple[str, Any]]:
@@ -546,9 +608,10 @@ def _build_image_result(
     provider_job_id: str | None,
     images: list[dict[str, str]],
     raw_response: dict[str, Any],
+    requested_size: str | None = None,
 ) -> dict[str, Any]:
     image_urls = [item["url"] for item in images if "url" in item]
-    return {
+    result = {
         "mode": "tuzi_image",
         "operation": operation,
         "asset_type": "image",
@@ -557,6 +620,9 @@ def _build_image_result(
         "image_urls": image_urls,
         "raw_response": raw_response,
     }
+    if requested_size:
+        result["requested_size"] = requested_size
+    return result
 
 
 def _collect_file_parts(
@@ -712,7 +778,24 @@ def _quality_from_model(model_name: str) -> str | None:
     return None
 
 
-def _sync_image_size(model_name: str, resolution: str | None) -> str | None:
+def _sync_image_size(
+    model_name: str,
+    resolution: str | None,
+    resolution_tier: str | None = None,
+) -> str | None:
+    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
+        ratio = _size_from_resolution(resolution or "16:9", style=":")
+        tier = (resolution_tier or "1k").lower()
+        size = GPT_IMAGE_25_TIERED_SIZES.get(tier, {}).get(ratio or "")
+        if size:
+            return size
+        explicit_size = _size_from_resolution(resolution, style="x")
+        if explicit_size:
+            return explicit_size
+        raise ProviderError(
+            code="invalid_resolution",
+            message=f"Unsupported {tier.upper()} resolution for {model_name}: {resolution}",
+        )
     if model_name.lower() != GPT_IMAGE_25_1K:
         return _size_from_resolution(resolution, style="x")
     normalized = _size_from_resolution(resolution or "16:9", style=":")
@@ -725,6 +808,16 @@ def _sync_image_size(model_name: str, resolution: str | None) -> str | None:
         code="invalid_resolution",
         message=f"Unsupported resolution for {GPT_IMAGE_25_1K}: {resolution}",
     )
+
+
+def _legacy_resolution_tier(
+    request: VideoGenerationRequest,
+    model_name: str,
+) -> str | None:
+    if model_name.lower() not in GPT_IMAGE_25_TIERED_MODELS:
+        return None
+    value = _string_or_none(request.provider_options.get("quality"))
+    return value.lower() if value and value.lower() in {"1k", "2k", "4k"} else None
 
 
 def _size_from_resolution(raw_resolution: str | None, *, style: str) -> str | None:

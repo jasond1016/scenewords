@@ -161,6 +161,7 @@ def test_tuzi_image_operations_include_generate_and_edit_for_sync_model() -> Non
     edit_field_keys = {field.key for field in edit.fields}
     assert "quality" not in generate_field_keys
     assert "quality" not in edit_field_keys
+    assert "image_file_ids" in generate_field_keys
     assert [option.value for option in format_field.options] == ["url", "b64_json"]
 
 

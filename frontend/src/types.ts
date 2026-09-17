@@ -131,6 +131,8 @@ export interface VideoTaskResponse {
   parent_version_id: string | null;
   version_number: number | null;
   adopted_version_id: string | null;
+  task_stage: "draft" | "final";
+  final_source_task_id: string | null;
   queue_position: number | null;
   created_at: string;
   updated_at: string;
@@ -205,6 +207,7 @@ export interface Scene {
   description: string;
   approved_generation_id: string | null;
   approved_version_id: string | null;
+  current_final_id: string | null;
   generation_count: number;
   version_count: number;
   created_at: string;
@@ -221,4 +224,13 @@ export interface SceneGeneration {
 
 export interface SceneDetail extends Scene {
   generations: SceneGeneration[];
+  finals: VideoTaskDetail[];
+}
+
+export interface SceneFinalizeInput {
+  provider: string;
+  model: string;
+  operation: string;
+  resolution?: string | null;
+  resolution_tier?: string | null;
 }

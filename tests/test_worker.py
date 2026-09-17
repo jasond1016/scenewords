@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import httpx
 import app.worker as worker_module
+from PIL import Image
 
 from app.config import AppConfig, ProviderConfig, ProviderModelConfig
 from app.db import TaskStore
@@ -250,6 +251,51 @@ def test_archives_image_results_with_stable_local_urls(tmp_path: Path) -> None:
             await http_client.aclose()
 
     asyncio.run(_run())
+
+
+def test_image_resolution_validation_uses_archived_pixels(tmp_path: Path) -> None:
+    task_id = "final-task"
+    archive_dir = tmp_path / "assets" / task_id
+    archive_dir.mkdir(parents=True)
+    Image.new("RGB", (1536, 1024)).save(archive_dir / "image_1.png")
+    result = {
+        "requested_size": "3840x2160",
+        "local_image_urls": [f"/v1/assets/{task_id}/image_1.png"],
+        # The archived image is the source of truth even if the API reports
+        # the requested dimensions rather than the delivered dimensions.
+        "raw_response": {"width": 3840, "height": 2160},
+    }
+
+    worker_module._annotate_image_resolution(
+        task_id=task_id,
+        result=result,
+        output_dir=tmp_path,
+    )
+
+    assert result["resolution_validation"] == {
+        "requested": "3840x2160",
+        "actual": "1536x1024",
+        "matches": False,
+    }
+
+
+def test_image_resolution_validation_falls_back_to_provider_dimensions(tmp_path: Path) -> None:
+    result = {
+        "requested_size": "3840x2160",
+        "raw_response": {"data": [{"width": 3840, "height": 2160}]},
+    }
+
+    worker_module._annotate_image_resolution(
+        task_id="remote-only",
+        result=result,
+        output_dir=tmp_path,
+    )
+
+    assert result["resolution_validation"] == {
+        "requested": "3840x2160",
+        "actual": "3840x2160",
+        "matches": True,
+    }
 
 
 def test_success_without_provider_cost_uses_estimated_cost_as_actual(tmp_path: Path) -> None:

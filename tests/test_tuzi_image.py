@@ -38,6 +38,32 @@ def test_build_generate_payload_maps_ratio_quality_and_references() -> None:
     assert payload["image"] == ["https://example.com/a.png", "https://example.com/b.png"]
 
 
+def test_build_generate_payload_encodes_uploaded_references(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"fake-image")
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model="gpt-image-2.5",
+        operation="generate",
+        prompt="finalize",
+        provider_options={
+            "image": ["https://example.com/reference.png"],
+            "__resolved_image_file_ids": [{
+                "path": str(source),
+                "original_name": "source.png",
+                "mime_type": "image/png",
+            }],
+        },
+    )
+
+    payload = _build_generate_payload(request=request)
+
+    assert payload["image"] == [
+        "https://example.com/reference.png",
+        "data:image/png;base64,ZmFrZS1pbWFnZQ==",
+    ]
+
+
 def test_build_generate_payload_infers_quality_from_model_when_missing() -> None:
     request = VideoGenerationRequest(
         provider="tuzi_image_demo",

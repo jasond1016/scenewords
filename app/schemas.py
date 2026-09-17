@@ -44,6 +44,8 @@ class VideoTaskResponse(BaseModel):
     parent_version_id: str | None = None
     version_number: int | None = None
     adopted_version_id: str | None = None
+    task_stage: Literal["draft", "final"] = "draft"
+    final_source_task_id: str | None = None
     queue_position: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -190,6 +192,7 @@ class SceneResponse(BaseModel):
     description: str
     approved_generation_id: str | None = None
     approved_version_id: str | None = None
+    current_final_id: str | None = None
     generation_count: int = 0
     version_count: int = 0
     created_at: datetime
@@ -206,6 +209,15 @@ class SceneGenerationResponse(BaseModel):
 
 class SceneDetailResponse(SceneResponse):
     generations: list[SceneGenerationResponse]
+    finals: list[VideoTaskDetail] = Field(default_factory=list)
+
+
+class SceneFinalizeInput(BaseModel):
+    provider: str
+    model: str
+    operation: str
+    resolution: str | None = None
+    resolution_tier: str | None = None
 
 
 class RetryTaskRequest(BaseModel):

@@ -4,6 +4,7 @@ import type {
   RetryMode,
   Scene,
   SceneDetail,
+  SceneFinalizeInput,
   SubjectAsset,
   SubjectAssetInput,
   TaskPageResult,
@@ -303,6 +304,22 @@ export function approveSceneVersion(
   return request<Scene>(
     `/v1/scenes/${encodeURIComponent(sceneId)}/approve/${encodeURIComponent(taskId)}`,
     { method: "POST" },
+    token,
+  );
+}
+
+export function finalizeScene(
+  sceneId: string,
+  payload: SceneFinalizeInput,
+  token: string,
+): Promise<VideoTaskResponse> {
+  return request<VideoTaskResponse>(
+    `/v1/scenes/${encodeURIComponent(sceneId)}/finalize`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
     token,
   );
 }

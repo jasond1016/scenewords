@@ -641,6 +641,13 @@ def _tuzi_image_operations(
                     _field("prompt", "提示词", input_type="textarea", required=True),
                     ratio_field(),
                     _field(
+                        "image_file_ids",
+                        "参考图文件",
+                        target="provider_options",
+                        input_type="file_list",
+                        help_text="可选。上传的图片会作为生成参考图。",
+                    ),
+                    _field(
                         "image",
                         "参考图 URL / Base64",
                         target="provider_options",
@@ -737,8 +744,8 @@ def _tuzi_image_operations(
         # The public catalog lists generations, but no images/edits endpoint.
         generate = operations[0]
         generate.fields.insert(2, _field(
-            "quality",
-            "输出清晰度",
+            "resolution_tier",
+            "输出分辨率",
             target="provider_options",
             input_type="select",
             required=True,

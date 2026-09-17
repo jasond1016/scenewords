@@ -40,6 +40,7 @@ from app.schemas import (
     RetryTaskRequest,
     SceneCreateInput,
     SceneDetailResponse,
+    SceneFinalizeInput,
     SceneGenerationResponse,
     SceneResponse,
     SubjectAssetInput,
@@ -339,7 +340,9 @@ def create_app() -> FastAPI:
         payload: VideoGenerationRequest,
     ) -> tuple[float | None, str | None, str]:
         pricing_catalog: PricingCatalog = app.state.pricing_catalog
-        quality = payload.provider_options.get("quality")
+        quality = payload.provider_options.get("resolution_tier")
+        if quality is None:
+            quality = payload.provider_options.get("quality")
         quality_text = quality.strip() if isinstance(quality, str) and quality.strip() else None
         return pricing_catalog.estimate(
             provider=payload.provider,
@@ -355,7 +358,11 @@ def create_app() -> FastAPI:
         *,
         asset_type: str,
         allowed_provider_types: set[str] | None = None,
+        prepare_lineage: bool = True,
+        task_stage: Literal["draft", "final"] = "draft",
+        final_source_task_id: str | None = None,
     ) -> VideoTaskResponse:
+        _normalize_legacy_image_resolution_tier(payload)
         _, operation = _validate_generation_payload(
             payload,
             allowed_provider_types=allowed_provider_types,
@@ -367,11 +374,18 @@ def create_app() -> FastAPI:
             app_config=app.state.config,
         )
         _apply_orientation_mode_to_resolution(payload)
-        scene_id, generation_id, parent_task_id = _prepare_generation_lineage(
-            payload,
-            asset_type=asset_type,
-            store=app.state.store,
-        )
+        if prepare_lineage:
+            scene_id, generation_id, parent_task_id = _prepare_generation_lineage(
+                payload,
+                asset_type=asset_type,
+                store=app.state.store,
+            )
+        else:
+            scene_id = (payload.scene_id or "").strip() or None
+            generation_id = None
+            parent_task_id = None
+            payload.generation_id = None
+            payload.parent_version_id = None
         estimated_cost, currency, cost_source = _estimate_cost_for_request(payload)
         task_id = str(uuid4())
         prompt_text = payload.prompt or ""
@@ -389,6 +403,8 @@ def create_app() -> FastAPI:
             scene_id=scene_id,
             generation_id=generation_id,
             parent_task_id=parent_task_id,
+            task_stage=task_stage,
+            final_source_task_id=final_source_task_id,
         )
         await app.state.worker.submit(task_id)
         return _to_task_response(
@@ -596,6 +612,16 @@ def create_app() -> FastAPI:
             source_request.seed = None
         elif retry_payload.retry_mode == "new_seed":
             source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        if task.get("task_stage") == "final":
+            source_request.scene_id = task.get("scene_id")
+            return await _enqueue_task(
+                source_request,
+                asset_type="image",
+                allowed_provider_types={"tuzi_image"},
+                prepare_lineage=False,
+                task_stage="final",
+                final_source_task_id=task.get("final_source_task_id"),
+            )
         if task.get("generation_id"):
             source_request.scene_id = task.get("scene_id")
             source_request.generation_id = task.get("generation_id")
@@ -1006,6 +1032,7 @@ def create_app() -> FastAPI:
             description=scene["description"],
             approved_generation_id=scene["approved_generation_id"],
             approved_version_id=scene["approved_version_id"],
+            current_final_id=scene["current_final_id"],
             generation_count=scene["generation_count"],
             version_count=scene["version_count"],
             created_at=_as_datetime(scene["created_at"]),
@@ -1023,6 +1050,7 @@ def create_app() -> FastAPI:
         try:
             scene = app.state.store.get_scene(scene_id)
             generations = app.state.store.get_scene_generations(scene_id)
+            finals = app.state.store.get_scene_final_tasks(scene_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Scene not found") from error
         return SceneDetailResponse(
@@ -1039,6 +1067,7 @@ def create_app() -> FastAPI:
                 )
                 for generation in generations
             ],
+            finals=[_to_task_detail(task) for task in finals],
         )
 
     @app.post("/v1/scenes", response_model=SceneResponse, status_code=201)
@@ -1077,6 +1106,116 @@ def create_app() -> FastAPI:
                 detail="Only a succeeded version can be approved",
             ) from error
         return _scene_response(scene)
+
+    @app.post(
+        "/v1/scenes/{scene_id}/finalize",
+        response_model=VideoTaskResponse,
+    )
+    async def finalize_scene(
+        scene_id: str,
+        payload: SceneFinalizeInput,
+        _: None = Depends(require_auth),
+    ) -> VideoTaskResponse:
+        try:
+            scene = app.state.store.get_scene(scene_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Scene not found") from error
+        source_task_id = scene.get("approved_version_id")
+        if not source_task_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Approve a scene version before finalizing",
+            )
+        try:
+            source_task = app.state.store.get_task(source_task_id)
+        except KeyError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="Approved scene version no longer exists",
+            ) from error
+        if source_task.get("asset_type") != "image" or source_task.get("status") != "succeeded":
+            raise HTTPException(
+                status_code=409,
+                detail="Only a succeeded image version can be finalized",
+            )
+
+        provider_config = app.state.provider_configs.get(payload.provider)
+        if not provider_config or provider_config.provider_type != "tuzi_image":
+            raise HTTPException(status_code=400, detail="Finalize requires an image provider")
+        model_config = next(
+            (model for model in provider_config.models if model.name == payload.model),
+            None,
+        )
+        if model_config is None:
+            raise HTTPException(status_code=400, detail="Unknown finalize model")
+        operation = next(
+            (
+                item
+                for item in build_model_operations(provider_config, model_config.name)
+                if item.id == payload.operation
+            ),
+            None,
+        )
+        if operation is None:
+            raise HTTPException(status_code=400, detail="Unsupported finalize operation")
+        field_keys = {field.key for field in operation.fields}
+        source_field = next(
+            (
+                key
+                for key in ("image_file_ids", "input_reference_file_ids")
+                if key in field_keys
+            ),
+            None,
+        )
+        if source_field is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected operation cannot use an approved image as input",
+            )
+        if payload.resolution_tier and "resolution_tier" not in field_keys:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected operation does not support a resolution tier",
+            )
+
+        imported_source = await _archive_image_output_as_file(source_task_id, 0)
+        source_request = source_task.get("request") or {}
+        raw_bindings = source_request.get("subject_bindings")
+        subject_bindings = raw_bindings if isinstance(raw_bindings, list) else []
+        reference_file_ids = [imported_source.file_id]
+        for binding in subject_bindings:
+            if not isinstance(binding, dict):
+                continue
+            raw_ids = binding.get("reference_file_ids")
+            if not isinstance(raw_ids, list):
+                continue
+            reference_file_ids.extend(
+                file_id.strip()
+                for file_id in raw_ids
+                if isinstance(file_id, str) and file_id.strip()
+            )
+        reference_file_ids = list(dict.fromkeys(reference_file_ids))
+        provider_options: dict[str, Any] = {source_field: reference_file_ids}
+        if payload.resolution_tier:
+            provider_options["resolution_tier"] = payload.resolution_tier
+        final_request = VideoGenerationRequest(
+            provider=payload.provider,
+            model=payload.model,
+            operation=payload.operation,
+            scene_id=scene_id,
+            prompt=_build_finalize_prompt(source_task.get("prompt") or ""),
+            resolution=payload.resolution,
+            provider_options=provider_options,
+            subject_bindings=subject_bindings,
+        )
+        return await _enqueue_task(
+            final_request,
+            asset_type="image",
+            allowed_provider_types={"tuzi_image"},
+            prepare_lineage=False,
+            task_stage="final",
+            final_source_task_id=source_task_id,
+        )
 
     @app.post("/v1/generations/{generation_id}/adopt/{task_id}")
     async def adopt_generation_version(
@@ -1444,6 +1583,28 @@ def _extract_result_image_urls(result: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+def _build_finalize_prompt(source_prompt: str) -> str:
+    prompt_parts = [
+        "Create a final production-quality render from the first supplied approved image.",
+        "Preserve every subject's identity, pose, expression, clothing, object details, composition, framing, text, location, colors, and visual style unless the requested output ratio requires extending the canvas.",
+        "Any additional supplied images are identity references only; do not copy their poses or backgrounds.",
+        "Improve rendering fidelity, edge quality, texture coherence, and fine details without redesigning the scene.",
+    ]
+    if source_prompt.strip():
+        prompt_parts.append(f"Original scene brief: {source_prompt.strip()}")
+    return "\n".join(prompt_parts)
+
+
+def _normalize_legacy_image_resolution_tier(request: VideoGenerationRequest) -> None:
+    if request.model.lower() not in {"gpt-image-2.5", "gpt-image-2.5-vip"}:
+        return
+    legacy_value = request.provider_options.get("quality")
+    if not isinstance(legacy_value, str) or legacy_value.lower() not in {"1k", "2k", "4k"}:
+        return
+    request.provider_options.pop("quality", None)
+    request.provider_options["resolution_tier"] = legacy_value.lower()
+
+
 def _delete_archived_assets(output_dir: Path, task_id: str) -> None:
     target = output_dir / "assets" / task_id
     try:
@@ -1526,6 +1687,8 @@ def _to_task_response(
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
         adopted_version_id=task.get("adopted_version_id"),
+        task_stage=task.get("task_stage", "draft"),
+        final_source_task_id=task.get("final_source_task_id"),
         queue_position=queue_position,
         created_at=_as_datetime(task["created_at"]),
         updated_at=_as_datetime(task["updated_at"]),
@@ -1569,6 +1732,8 @@ def _to_task_detail(
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
         adopted_version_id=task.get("adopted_version_id"),
+        task_stage=task.get("task_stage", "draft"),
+        final_source_task_id=task.get("final_source_task_id"),
         operation=task.get("operation") or request_payload.get("operation"),
         provider_job_id=task.get("provider_job_id"),
         provider_status=task.get("provider_status"),

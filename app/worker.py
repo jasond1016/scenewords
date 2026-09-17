@@ -8,6 +8,8 @@ import shutil
 from typing import Any
 from urllib.parse import urlparse
 
+from PIL import Image
+
 from app.config import ProviderConfig
 from app.db import TaskStore
 from app.providers import PROVIDER_TYPE_REGISTRY
@@ -257,6 +259,11 @@ async def _archive_result_assets(
                 local_image_urls.append(local_url)
         if local_image_urls:
             archived["local_image_urls"] = local_image_urls
+        _annotate_image_resolution(
+            task_id=task_id,
+            result=archived,
+            output_dir=provider.app_config.output_dir,
+        )
         return archived
 
     source_video_url = _extract_video_url(archived)
@@ -276,6 +283,86 @@ async def _archive_result_assets(
             if poster_path is not None:
                 archived["local_poster_url"] = f"/v1/assets/{task_id}/{poster_path.name}"
     return archived
+
+
+def _annotate_image_resolution(
+    *,
+    task_id: str,
+    result: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    requested = _parse_image_size(result.get("requested_size"))
+    if requested is None:
+        return
+
+    actual = _read_first_archived_image_size(
+        task_id=task_id,
+        local_urls=result.get("local_image_urls"),
+        output_dir=output_dir,
+    )
+    if actual is None:
+        actual = _find_reported_image_size(result.get("raw_response"))
+
+    requested_text = f"{requested[0]}x{requested[1]}"
+    actual_text = f"{actual[0]}x{actual[1]}" if actual else None
+    result["resolution_validation"] = {
+        "requested": requested_text,
+        "actual": actual_text,
+        "matches": actual == requested if actual else None,
+    }
+
+
+def _parse_image_size(value: Any) -> tuple[int, int] | None:
+    if not isinstance(value, str):
+        return None
+    left, separator, right = value.strip().lower().partition("x")
+    if not separator:
+        return None
+    try:
+        width, height = int(left), int(right)
+    except ValueError:
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def _read_first_archived_image_size(
+    *,
+    task_id: str,
+    local_urls: Any,
+    output_dir: Path,
+) -> tuple[int, int] | None:
+    if not isinstance(local_urls, list):
+        return None
+    archive_dir = output_dir / "assets" / task_id
+    for local_url in local_urls:
+        if not isinstance(local_url, str) or not local_url.strip():
+            continue
+        image_path = archive_dir / local_url.rsplit("/", 1)[-1]
+        try:
+            with Image.open(image_path) as image:
+                width, height = image.size
+        except (OSError, ValueError):
+            continue
+        if width > 0 and height > 0:
+            return width, height
+    return None
+
+
+def _find_reported_image_size(value: Any) -> tuple[int, int] | None:
+    if isinstance(value, dict):
+        width, height = value.get("width"), value.get("height")
+        if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
+            return width, height
+        for nested in value.values():
+            found = _find_reported_image_size(nested)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = _find_reported_image_size(nested)
+            if found:
+                return found
+    return None
 
 
 async def _download_media_to_local(

@@ -60,6 +60,7 @@ interface Props {
 }
 
 type BrowseFilter = "all" | "image" | "video";
+type StageFilter = "all" | "draft" | "final";
 const TASK_PAGE_SIZE = 50;
 
 export function WorksPage(props: Props) {
@@ -74,6 +75,7 @@ export function WorksPage(props: Props) {
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
+  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -144,6 +146,9 @@ export function WorksPage(props: Props) {
     if (browseFilter !== "all") {
       nextList = nextList.filter((task) => task.asset_type === browseFilter);
     }
+    if (stageFilter !== "all") {
+      nextList = nextList.filter((task) => task.task_stage === stageFilter);
+    }
 
     if (providerFilter !== "all") {
       nextList = nextList.filter((task) => task.provider === providerFilter);
@@ -162,7 +167,7 @@ export function WorksPage(props: Props) {
         .toLowerCase();
       return searchable.includes(normalizedSearchQuery);
     });
-  }, [allTasks, browseFilter, normalizedSearchQuery, providerFilter]);
+  }, [allTasks, browseFilter, normalizedSearchQuery, providerFilter, stageFilter]);
   const assetList = useMemo(
     () => filteredTasks.filter((task) => task.status !== "queued" && task.status !== "running"),
     [filteredTasks],
@@ -468,20 +473,38 @@ export function WorksPage(props: Props) {
     <div className="flex w-full flex-col gap-6">
       <section className="card">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="segment-group">
-            {filterPills.map((pill) => {
-              const isActive = browseFilter === pill.value;
-              return (
+          <div className="flex flex-wrap gap-2">
+            <div className="segment-group">
+              {filterPills.map((pill) => {
+                const isActive = browseFilter === pill.value;
+                return (
+                  <button
+                    type="button"
+                    key={pill.value}
+                    onClick={() => setBrowseFilter(pill.value)}
+                    className={`segment-item ${isActive ? "segment-active" : ""}`}
+                  >
+                    {pill.label} {pill.count}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="segment-group">
+              {([
+                { value: "all", label: locale === "zh-CN" ? "全部阶段" : "All stages" },
+                { value: "draft", label: locale === "zh-CN" ? "草稿" : "Draft" },
+                { value: "final", label: locale === "zh-CN" ? "定稿" : "Final" },
+              ] as Array<{ value: StageFilter; label: string }>).map((pill) => (
                 <button
                   type="button"
                   key={pill.value}
-                  onClick={() => setBrowseFilter(pill.value)}
-                  className={`segment-item ${isActive ? "segment-active" : ""}`}
+                  onClick={() => setStageFilter(pill.value)}
+                  className={`segment-item ${stageFilter === pill.value ? "segment-active" : ""}`}
                 >
-                  {pill.label} {pill.count}
+                  {pill.label}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)] sm:items-center xl:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)_auto]">
@@ -943,6 +966,12 @@ function MasonryGrid({
                 mediaFetchPriority={eagerTaskIds.has(task.task_id) ? "high" : "auto"}
                 timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 modelLabel={task.model || task.provider}
+                statusBadge={{
+                  label: task.task_stage === "final"
+                    ? locale === "zh-CN" ? "定稿" : "Final"
+                    : locale === "zh-CN" ? "草稿" : "Draft",
+                  tone: task.task_stage === "final" ? "ok" : "muted",
+                }}
                 onClick={() => {
                   setSelectedTaskId(task.task_id);
                   if (task.asset_type === "video") {

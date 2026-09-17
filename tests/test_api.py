@@ -53,6 +53,11 @@ def _write_test_configs(
                                 "name": "gemini-3-pro-image-preview",
                                 "display_name": "Nano Banana 2",
                                 "default": True,
+                            },
+                            {
+                                "name": "gpt-image-2.5",
+                                "display_name": "GPT Image 2.5",
+                                "default": False,
                             }
                         ],
                     },
@@ -559,6 +564,32 @@ def test_list_image_tasks_supports_offset(client_factory) -> None:
     assert payload[0]["task_id"] != oldest
 
 
+def test_tiered_image_generation_normalizes_legacy_quality_to_resolution_tier(
+    client_factory,
+) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        response = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gpt-image-2.5",
+                "operation": "generate",
+                "prompt": "legacy 4k request",
+                "resolution": "16:9",
+                "provider_options": {"quality": "4k"},
+            },
+        )
+        task = client.app.state.store.get_task(response.json()["task_id"])
+
+    assert response.status_code == 200
+    assert task["request"]["provider_options"]["resolution_tier"] == "4k"
+    assert "quality" not in task["request"]["provider_options"]
+
+
 def test_retry_video_task_keeps_seed_for_supported_provider(
     client_factory,
 ) -> None:
@@ -995,6 +1026,129 @@ def test_scene_rejects_approving_unfinished_or_foreign_version(client_factory) -
 
     assert unfinished.status_code == 409
     assert foreign.status_code == 400
+
+
+def test_scene_finalize_requires_approved_version(client_factory) -> None:
+    with client_factory() as client:
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Not approved", "description": ""},
+        ).json()["scene_id"]
+
+        response = client.post(
+            f"/v1/scenes/{scene_id}/finalize",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gpt-image-2.5",
+                "operation": "generate",
+                "resolution": "16:9",
+                "resolution_tier": "2k",
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Approve a scene version before finalizing"
+
+
+def test_scene_finalize_keeps_final_history_outside_draft_versions(client_factory) -> None:
+    with client_factory() as client:
+        submitted: list[str] = []
+
+        async def _submit_noop(task_id: str) -> None:
+            submitted.append(task_id)
+
+        client.app.state.worker.submit = _submit_noop
+        reference = client.post(
+            "/v1/files",
+            files={"file": ("anchor.png", b"subject-reference", "image/png")},
+        ).json()
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Final scene", "description": ""},
+        ).json()["scene_id"]
+        draft = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "hero at the station",
+                "provider_options": {},
+                "subject_bindings": [{
+                    "subject_id": "subject-1",
+                    "name": "Hero",
+                    "kind": "character",
+                    "reference_file_ids": [reference["file_id"]],
+                }],
+            },
+        ).json()
+        archive_dir = client.app.state.config.output_dir / "assets" / draft["task_id"]
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / "image_0.png").write_bytes(b"approved-output")
+        client.app.state.store.set_result(
+            draft["task_id"],
+            {"local_image_urls": [f"/v1/assets/{draft['task_id']}/image_0.png"]},
+        )
+        client.post(f"/v1/scenes/{scene_id}/approve/{draft['task_id']}")
+
+        finalize_response = client.post(
+            f"/v1/scenes/{scene_id}/finalize",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gpt-image-2.5",
+                "operation": "generate",
+                "resolution": "16:9",
+                "resolution_tier": "2k",
+            },
+        )
+        final = finalize_response.json()
+        stored_final = client.app.state.store.get_task(final["task_id"])
+        detail_before = client.get(f"/v1/scenes/{scene_id}").json()
+
+        client.app.state.store.set_result(
+            final["task_id"], {"image_urls": ["https://example.com/final.png"]}
+        )
+        detail_after = client.get(f"/v1/scenes/{scene_id}").json()
+        retried_final = client.post(
+            f"/v1/image/tasks/{final['task_id']}/retry",
+            json={"retry_mode": "new_seed"},
+        ).json()
+        delete_response = client.delete(f"/v1/image/tasks/{final['task_id']}")
+        client.delete(f"/v1/image/tasks/{retried_final['task_id']}")
+        detail_deleted = client.get(f"/v1/scenes/{scene_id}").json()
+
+    assert finalize_response.status_code == 200
+    assert submitted == [draft["task_id"], final["task_id"], retried_final["task_id"]]
+    assert final["task_stage"] == "final"
+    assert final["final_source_task_id"] == draft["task_id"]
+    assert final["scene_id"] == scene_id
+    assert final["generation_id"] is None
+    assert final["version_number"] is None
+    assert stored_final["request"]["resolution"] == "16:9"
+    assert stored_final["request"]["provider_options"]["resolution_tier"] == "2k"
+    resolved = stored_final["request"]["provider_options"]["__resolved_image_file_ids"]
+    assert len(resolved) == 2
+    assert stored_final["request"]["subject_bindings"][0]["reference_file_ids"] == [
+        reference["file_id"]
+    ]
+    assert detail_before["generation_count"] == 1
+    assert detail_before["version_count"] == 1
+    assert detail_before["current_final_id"] is None
+    assert [item["task_id"] for item in detail_before["finals"]] == [final["task_id"]]
+    assert detail_after["current_final_id"] == final["task_id"]
+    assert detail_after["generation_count"] == 1
+    assert detail_after["version_count"] == 1
+    assert retried_final["task_stage"] == "final"
+    assert retried_final["final_source_task_id"] == draft["task_id"]
+    assert retried_final["generation_id"] is None
+    assert retried_final["version_number"] is None
+    assert delete_response.status_code == 204
+    assert detail_deleted["current_final_id"] is None
+    assert detail_deleted["finals"] == []
+    assert detail_deleted["approved_version_id"] == draft["task_id"]
+    assert detail_deleted["generation_count"] == 1
+    assert detail_deleted["version_count"] == 1
 
 
 def test_deleting_only_candidate_version_clears_scene_selection(client_factory) -> None:
