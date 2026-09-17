@@ -39,6 +39,8 @@ from app.schemas import (
     ProviderModelOperationInfo,
     RetryTaskRequest,
     SceneCreateInput,
+    SceneDetailResponse,
+    SceneGenerationResponse,
     SceneResponse,
     SubjectAssetInput,
     SubjectAssetResponse,
@@ -1002,6 +1004,8 @@ def create_app() -> FastAPI:
             scene_id=scene["scene_id"],
             title=scene["title"],
             description=scene["description"],
+            approved_generation_id=scene["approved_generation_id"],
+            approved_version_id=scene["approved_version_id"],
             generation_count=scene["generation_count"],
             version_count=scene["version_count"],
             created_at=_as_datetime(scene["created_at"]),
@@ -1011,6 +1015,31 @@ def create_app() -> FastAPI:
     @app.get("/v1/scenes", response_model=list[SceneResponse])
     async def list_scenes(_: None = Depends(require_auth)) -> list[SceneResponse]:
         return [_scene_response(scene) for scene in app.state.store.list_scenes()]
+
+    @app.get("/v1/scenes/{scene_id}", response_model=SceneDetailResponse)
+    async def get_scene(
+        scene_id: str, _: None = Depends(require_auth)
+    ) -> SceneDetailResponse:
+        try:
+            scene = app.state.store.get_scene(scene_id)
+            generations = app.state.store.get_scene_generations(scene_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Scene not found") from error
+        return SceneDetailResponse(
+            **_scene_response(scene).model_dump(),
+            generations=[
+                SceneGenerationResponse(
+                    generation_id=generation["generation_id"],
+                    asset_type=generation["asset_type"],
+                    adopted_version_id=generation["adopted_version_id"],
+                    created_at=_as_datetime(generation["created_at"]),
+                    versions=[
+                        _to_task_detail(version) for version in generation["versions"]
+                    ],
+                )
+                for generation in generations
+            ],
+        )
 
     @app.post("/v1/scenes", response_model=SceneResponse, status_code=201)
     async def create_scene(
@@ -1024,6 +1053,29 @@ def create_app() -> FastAPI:
             title=title,
             description=payload.description.strip(),
         )
+        return _scene_response(scene)
+
+    @app.post("/v1/scenes/{scene_id}/approve/{task_id}", response_model=SceneResponse)
+    async def approve_scene_version(
+        scene_id: str,
+        task_id: str,
+        _: None = Depends(require_auth),
+    ) -> SceneResponse:
+        try:
+            scene = app.state.store.approve_scene_version(
+                scene_id=scene_id,
+                task_id=task_id,
+            )
+        except KeyError as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Version does not belong to this scene",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="Only a succeeded version can be approved",
+            ) from error
         return _scene_response(scene)
 
     @app.post("/v1/generations/{generation_id}/adopt/{task_id}")

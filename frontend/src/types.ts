@@ -203,8 +203,22 @@ export interface Scene {
   scene_id: string;
   title: string;
   description: string;
+  approved_generation_id: string | null;
+  approved_version_id: string | null;
   generation_count: number;
   version_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface SceneGeneration {
+  generation_id: string;
+  asset_type: AssetType;
+  adopted_version_id: string | null;
+  created_at: string;
+  versions: VideoTaskDetail[];
+}
+
+export interface SceneDetail extends Scene {
+  generations: SceneGeneration[];
 }

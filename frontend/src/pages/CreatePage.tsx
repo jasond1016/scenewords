@@ -1030,6 +1030,19 @@ export function CreatePage(props: Props) {
   ]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const launchSceneId = params.get("sceneId")?.trim() ?? "";
+    if (!launchSceneId || !scenesQuery.data?.some((scene) => scene.scene_id === launchSceneId)) {
+      return;
+    }
+    setSceneId(launchSceneId);
+    setGenerationId(null);
+    setParentVersionId(null);
+    setVersionEditBasePrompt(null);
+    setModificationInstruction("");
+  }, [location.search, scenesQuery.data]);
+
+  useEffect(() => {
     if (!selectedProvider) {
       return;
     }

@@ -91,6 +91,7 @@ class TaskStore:
                     scene_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     description TEXT NOT NULL,
+                    approved_task_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -110,6 +111,7 @@ class TaskStore:
             )
             _ensure_task_columns(self._connection)
             _ensure_generation_columns(self._connection)
+            _ensure_scene_columns(self._connection)
             self._connection.commit()
 
     def create_task(
@@ -322,7 +324,7 @@ class TaskStore:
     def delete_task(self, task_id: str) -> None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT task_id FROM tasks WHERE task_id = ?",
+                "SELECT task_id, scene_id, generation_id FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
             if row is None:
@@ -332,9 +334,28 @@ class TaskStore:
                 (task_id,),
             )
             self._connection.execute(
+                "UPDATE scenes SET approved_task_id = NULL WHERE approved_task_id = ?",
+                (task_id,),
+            )
+            self._connection.execute(
                 "DELETE FROM tasks WHERE task_id = ?",
                 (task_id,),
             )
+            if row["generation_id"]:
+                remaining = self._connection.execute(
+                    "SELECT 1 FROM tasks WHERE generation_id = ? LIMIT 1",
+                    (row["generation_id"],),
+                ).fetchone()
+                if remaining is None:
+                    self._connection.execute(
+                        "DELETE FROM generations WHERE generation_id = ?",
+                        (row["generation_id"],),
+                    )
+            if row["scene_id"]:
+                self._connection.execute(
+                    "UPDATE scenes SET updated_at = ? WHERE scene_id = ?",
+                    (_now_iso(), row["scene_id"]),
+                )
             self._connection.commit()
 
     def list_tasks(
@@ -544,11 +565,13 @@ class TaskStore:
             row = self._connection.execute(
                 """
                 SELECT s.*,
+                    approved.generation_id AS approved_generation_id,
                     COUNT(DISTINCT g.generation_id) AS generation_count,
                     COUNT(t.task_id) AS version_count
                 FROM scenes s
                 LEFT JOIN generations g ON g.scene_id = s.scene_id
                 LEFT JOIN tasks t ON t.generation_id = g.generation_id
+                LEFT JOIN tasks approved ON approved.task_id = s.approved_task_id
                 WHERE s.scene_id = ?
                 GROUP BY s.scene_id
                 """,
@@ -563,11 +586,13 @@ class TaskStore:
             rows = self._connection.execute(
                 """
                 SELECT s.*,
+                    approved.generation_id AS approved_generation_id,
                     COUNT(DISTINCT g.generation_id) AS generation_count,
                     COUNT(t.task_id) AS version_count
                 FROM scenes s
                 LEFT JOIN generations g ON g.scene_id = s.scene_id
                 LEFT JOIN tasks t ON t.generation_id = g.generation_id
+                LEFT JOIN tasks approved ON approved.task_id = s.approved_task_id
                 GROUP BY s.scene_id
                 ORDER BY s.updated_at DESC
                 """
@@ -605,6 +630,68 @@ class TaskStore:
         if row is None:
             raise KeyError(generation_id)
         return dict(row)
+
+    def get_scene_generations(self, scene_id: str) -> list[dict[str, Any]]:
+        scene = self.get_scene(scene_id)
+        with self._lock:
+            generation_rows = self._connection.execute(
+                "SELECT * FROM generations WHERE scene_id = ? ORDER BY created_at ASC",
+                (scene_id,),
+            ).fetchall()
+            task_rows = self._connection.execute(
+                "SELECT * FROM tasks WHERE scene_id = ? ORDER BY created_at ASC",
+                (scene_id,),
+            ).fetchall()
+        tasks_by_generation: dict[str, list[dict[str, Any]]] = {}
+        adopted_by_generation = {
+            row["generation_id"]: row["adopted_task_id"] for row in generation_rows
+        }
+        for row in task_rows:
+            task = _row_to_dict(row)
+            generation_id = task.get("generation_id")
+            if not generation_id:
+                continue
+            task["scene_title"] = scene["title"]
+            task["adopted_version_id"] = adopted_by_generation.get(generation_id)
+            tasks_by_generation.setdefault(generation_id, []).append(task)
+        return [
+            {
+                "generation_id": row["generation_id"],
+                "asset_type": row["asset_type"],
+                "adopted_version_id": row["adopted_task_id"],
+                "created_at": _parse_iso(row["created_at"]),
+                "versions": tasks_by_generation.get(row["generation_id"], []),
+            }
+            for row in generation_rows
+        ]
+
+    def approve_scene_version(self, *, scene_id: str, task_id: str) -> dict[str, Any]:
+        now_iso = _now_iso()
+        with self._lock:
+            task = self._connection.execute(
+                "SELECT scene_id, generation_id, status FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if (
+                task is None
+                or task["scene_id"] != scene_id
+                or not task["generation_id"]
+            ):
+                raise KeyError(task_id)
+            if task["status"] != "succeeded":
+                raise ValueError(task_id)
+            updated = self._connection.execute(
+                "UPDATE scenes SET approved_task_id = ?, updated_at = ? WHERE scene_id = ?",
+                (task_id, now_iso, scene_id),
+            )
+            if updated.rowcount == 0:
+                raise KeyError(scene_id)
+            self._connection.execute(
+                "UPDATE generations SET adopted_task_id = ? WHERE generation_id = ?",
+                (task_id, task["generation_id"]),
+            )
+            self._connection.commit()
+        return self.get_scene(scene_id)
 
     def adopt_generation_version(
         self, *, generation_id: str, task_id: str
@@ -880,6 +967,8 @@ def _scene_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "scene_id": row["scene_id"],
         "title": row["title"],
         "description": row["description"],
+        "approved_generation_id": row["approved_generation_id"],
+        "approved_version_id": row["approved_task_id"],
         "generation_count": int(row["generation_count"] or 0),
         "version_count": int(row["version_count"] or 0),
         "created_at": _parse_iso(row["created_at"]),
@@ -940,3 +1029,11 @@ def _ensure_generation_columns(connection: sqlite3.Connection) -> None:
     }
     if "adopted_task_id" not in existing:
         connection.execute("ALTER TABLE generations ADD COLUMN adopted_task_id TEXT")
+
+
+def _ensure_scene_columns(connection: sqlite3.Connection) -> None:
+    existing = {
+        row["name"] for row in connection.execute("PRAGMA table_info(scenes)").fetchall()
+    }
+    if "approved_task_id" not in existing:
+        connection.execute("ALTER TABLE scenes ADD COLUMN approved_task_id TEXT")

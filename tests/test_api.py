@@ -903,6 +903,137 @@ def test_scene_can_branch_from_version_and_adopt_result(client_factory) -> None:
     assert scenes[0]["generation_count"] == 2
 
 
+def test_scene_detail_groups_candidates_and_approves_exact_version(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Candidate board", "description": "Choose a direction"},
+        ).json()["scene_id"]
+        first = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "candidate A",
+                "provider_options": {},
+            },
+        ).json()
+        second = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "generation_id": None,
+                "parent_version_id": first["task_id"],
+                "prompt": "candidate B",
+                "provider_options": {},
+            },
+        ).json()
+        client.app.state.store.set_result(first["task_id"], {"image_urls": ["https://example.com/a.png"]})
+        client.app.state.store.set_result(second["task_id"], {"image_urls": ["https://example.com/b.png"]})
+
+        approve_response = client.post(
+            f"/v1/scenes/{scene_id}/approve/{second['task_id']}"
+        )
+        detail_response = client.get(f"/v1/scenes/{scene_id}")
+
+    assert approve_response.status_code == 200
+    assert approve_response.json()["approved_generation_id"] == second["generation_id"]
+    assert approve_response.json()["approved_version_id"] == second["task_id"]
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert [item["generation_id"] for item in detail["generations"]] == [
+        first["generation_id"],
+        second["generation_id"],
+    ]
+    assert [item["versions"][0]["prompt"] for item in detail["generations"]] == [
+        "candidate A",
+        "candidate B",
+    ]
+    assert detail["generations"][1]["adopted_version_id"] == second["task_id"]
+
+
+def test_scene_rejects_approving_unfinished_or_foreign_version(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_ids = [
+            client.post(
+                "/v1/scenes",
+                json={"title": title, "description": ""},
+            ).json()["scene_id"]
+            for title in ("First scene", "Second scene")
+        ]
+        task = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_ids[0],
+                "prompt": "still queued",
+                "provider_options": {},
+            },
+        ).json()
+
+        unfinished = client.post(
+            f"/v1/scenes/{scene_ids[0]}/approve/{task['task_id']}"
+        )
+        foreign = client.post(
+            f"/v1/scenes/{scene_ids[1]}/approve/{task['task_id']}"
+        )
+
+    assert unfinished.status_code == 409
+    assert foreign.status_code == 400
+
+
+def test_deleting_only_candidate_version_clears_scene_selection(client_factory) -> None:
+    with client_factory() as client:
+        async def _submit_noop(task_id: str) -> None:
+            return None
+
+        client.app.state.worker.submit = _submit_noop
+        scene_id = client.post(
+            "/v1/scenes",
+            json={"title": "Disposable candidate", "description": ""},
+        ).json()["scene_id"]
+        task = client.post(
+            "/v1/image/generations",
+            json={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "scene_id": scene_id,
+                "prompt": "only candidate",
+                "provider_options": {},
+            },
+        ).json()
+        client.app.state.store.set_result(
+            task["task_id"], {"image_urls": ["https://example.com/result.png"]}
+        )
+        client.post(f"/v1/scenes/{scene_id}/approve/{task['task_id']}")
+
+        delete_response = client.delete(f"/v1/image/tasks/{task['task_id']}")
+        detail = client.get(f"/v1/scenes/{scene_id}").json()
+
+    assert delete_response.status_code == 204
+    assert detail["approved_generation_id"] is None
+    assert detail["approved_version_id"] is None
+    assert detail["generation_count"] == 0
+    assert detail["version_count"] == 0
+    assert detail["generations"] == []
+
+
 def test_delete_image_history_task(client_factory) -> None:
     with client_factory() as client:
         task_id = _seed_image_task(client)

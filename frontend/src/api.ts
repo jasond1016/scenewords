@@ -3,6 +3,7 @@ import type {
   ProviderCatalogResponse,
   RetryMode,
   Scene,
+  SceneDetail,
   SubjectAsset,
   SubjectAssetInput,
   TaskPageResult,
@@ -271,6 +272,14 @@ export function fetchScenes(token: string): Promise<Scene[]> {
   return request<Scene[]>("/v1/scenes", {}, token);
 }
 
+export function fetchScene(sceneId: string, token: string): Promise<SceneDetail> {
+  return request<SceneDetail>(
+    `/v1/scenes/${encodeURIComponent(sceneId)}`,
+    {},
+    token,
+  );
+}
+
 export function createScene(
   payload: { title: string; description: string },
   token: string,
@@ -282,6 +291,18 @@ export function createScene(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
+    token,
+  );
+}
+
+export function approveSceneVersion(
+  sceneId: string,
+  taskId: string,
+  token: string,
+): Promise<Scene> {
+  return request<Scene>(
+    `/v1/scenes/${encodeURIComponent(sceneId)}/approve/${encodeURIComponent(taskId)}`,
+    { method: "POST" },
     token,
   );
 }

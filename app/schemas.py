@@ -188,10 +188,24 @@ class SceneResponse(BaseModel):
     scene_id: str
     title: str
     description: str
+    approved_generation_id: str | None = None
+    approved_version_id: str | None = None
     generation_count: int = 0
     version_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class SceneGenerationResponse(BaseModel):
+    generation_id: str
+    asset_type: Literal["video", "image"]
+    adopted_version_id: str | None = None
+    created_at: datetime
+    versions: list[VideoTaskDetail]
+
+
+class SceneDetailResponse(SceneResponse):
+    generations: list[SceneGenerationResponse]
 
 
 class RetryTaskRequest(BaseModel):
