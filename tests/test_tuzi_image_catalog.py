@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize("model, costs", [
     ("gpt-image-2.5", [0.0196, 0.084, 0.147]),
     ("gpt-image-2.5-vip", [0.049, 0.126, 0.196]),
+    ("gpt-image-2.5-flare", [0.084, 0.112, 0.147]),
+    ("gpt-image-2.5-sunburst", [0.084, 0.112, 0.147]),
 ])
 def test_tiered_models_submit_resolution_tier_and_estimate_matching_price(model, costs):
     provider = load_provider_configs(ROOT / "config/providers.json")["nano_banana2"]

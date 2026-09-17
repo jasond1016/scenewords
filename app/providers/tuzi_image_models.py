@@ -1,7 +1,12 @@
-"""Tuzi model constraints from its public pricing catalog (2026-09-12)."""
+"""Tuzi model constraints from its public pricing catalog (2026-09-17)."""
 
 GPT_IMAGE_25_1K = "gpt-image-2.5-1k"
-GPT_IMAGE_25_TIERED_MODELS = {"gpt-image-2.5", "gpt-image-2.5-vip"}
+GPT_IMAGE_25_TIERED_MODELS = {
+    "gpt-image-2.5",
+    "gpt-image-2.5-vip",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+}
 GPT_IMAGE_25_TIERED_SIZES = {
     "1k": {
         "1:1": "1024x1024", "2:3": "832x1248", "3:2": "1248x832",

@@ -30,6 +30,7 @@ from app.db import TaskStore
 from app.pricing import PricingCatalog
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider
+from app.providers.tuzi_image_models import GPT_IMAGE_25_TIERED_MODELS
 from app.schemas import (
     PricingCatalogResponse,
     PricingEntryResponse,
@@ -1596,7 +1597,7 @@ def _build_finalize_prompt(source_prompt: str) -> str:
 
 
 def _normalize_legacy_image_resolution_tier(request: VideoGenerationRequest) -> None:
-    if request.model.lower() not in {"gpt-image-2.5", "gpt-image-2.5-vip"}:
+    if request.model.lower() not in GPT_IMAGE_25_TIERED_MODELS:
         return
     legacy_value = request.provider_options.get("quality")
     if not isinstance(legacy_value, str) or legacy_value.lower() not in {"1k", "2k", "4k"}:

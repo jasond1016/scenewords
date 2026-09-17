@@ -97,6 +97,66 @@
     },
     {
       "provider": "nano_banana2",
+      "model": "gpt-image-2.5-flare",
+      "operation": "generate",
+      "quality": "1k",
+      "fixed_cost": 0.12,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-flare",
+      "operation": "generate",
+      "quality": "2k",
+      "fixed_cost": 0.16,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-flare",
+      "operation": "generate",
+      "quality": "4k",
+      "fixed_cost": 0.21,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-sunburst",
+      "operation": "generate",
+      "quality": "1k",
+      "fixed_cost": 0.12,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-sunburst",
+      "operation": "generate",
+      "quality": "2k",
+      "fixed_cost": 0.16,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-sunburst",
+      "operation": "generate",
+      "quality": "4k",
+      "fixed_cost": 0.21,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-17"
+    },
+    {
+      "provider": "nano_banana2",
       "model": "gemini-3-pro-image-preview-async",
       "fixed_cost": 0.428,
       "discount_rate": 0.7,
