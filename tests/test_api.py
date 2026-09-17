@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -760,6 +761,92 @@ def test_generated_image_output_can_be_imported_as_reusable_file(client_factory)
     assert response.json()["mime_type"] == "image/png"
     assert downloaded.status_code == 200
     assert downloaded.content == expected
+
+
+def test_generated_image_output_recovers_from_remote_url(client_factory) -> None:
+    class RemoteImageClient:
+        call_count = 0
+
+        async def get(self, url: str, **kwargs) -> httpx.Response:
+            self.call_count += 1
+            assert url == "https://cdn.example.com/generated/result.webp"
+            assert kwargs["follow_redirects"] is True
+            if self.call_count == 1:
+                raise httpx.RemoteProtocolError(
+                    "Server disconnected without sending a response"
+                )
+            return httpx.Response(
+                200,
+                content=b"remote-generated-image",
+                headers={"content-type": "image/webp"},
+            )
+
+    with client_factory() as client:
+        task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="tuzi_image_demo",
+            model="gemini-3-pro-image-preview",
+            operation="generate",
+            prompt="candidate",
+            request_payload={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "prompt": "candidate",
+                "provider_options": {},
+            },
+            asset_type="image",
+        )
+        client.app.state.store.set_result(
+            task_id,
+            {"image_urls": ["https://cdn.example.com/generated/result.webp"]},
+        )
+        remote_client = RemoteImageClient()
+        client.app.state.http_client = remote_client
+
+        response = client.post(f"/v1/image/tasks/{task_id}/outputs/0/file")
+        downloaded = client.get(response.json()["url"])
+
+    assert response.status_code == 200
+    assert remote_client.call_count == 2
+    assert response.json()["mime_type"] == "image/webp"
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"remote-generated-image"
+
+
+def test_generated_image_output_reports_remote_download_failure(client_factory) -> None:
+    class FailedRemoteImageClient:
+        async def get(self, url: str, **kwargs) -> httpx.Response:
+            return httpx.Response(403, content=b"expired")
+
+    with client_factory() as client:
+        task_id = str(uuid4())
+        client.app.state.store.create_task(
+            task_id=task_id,
+            provider="tuzi_image_demo",
+            model="gemini-3-pro-image-preview",
+            operation="generate",
+            prompt="candidate",
+            request_payload={
+                "provider": "tuzi_image_demo",
+                "model": "gemini-3-pro-image-preview",
+                "operation": "generate",
+                "prompt": "candidate",
+                "provider_options": {},
+            },
+            asset_type="image",
+        )
+        client.app.state.store.set_result(
+            task_id,
+            {"images": [{"url": "https://cdn.example.com/expired.png"}]},
+        )
+        client.app.state.http_client = FailedRemoteImageClient()
+
+        response = client.post(f"/v1/image/tasks/{task_id}/outputs/0/file")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Failed to download generated image from provider"
 
 
 def test_scene_can_branch_from_version_and_adopt_result(client_factory) -> None:

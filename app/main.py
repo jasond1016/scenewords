@@ -11,6 +11,7 @@ import mimetypes
 from pathlib import Path
 import shutil
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -681,7 +682,7 @@ def create_app() -> FastAPI:
             )
         return {"task_id": task_id, "result": task["result"]}
 
-    def _archive_image_output_as_file(
+    async def _archive_image_output_as_file(
         task_id: str, image_index: int
     ) -> UploadedFileResponse:
         try:
@@ -691,25 +692,78 @@ def create_app() -> FastAPI:
         if task.get("asset_type") != "image" or task.get("status") != "succeeded":
             raise HTTPException(status_code=409, detail="Task has no completed image result")
         result = task.get("result") or {}
-        image_urls = result.get("local_image_urls")
-        if not isinstance(image_urls, list) or image_index >= len(image_urls):
-            raise HTTPException(status_code=400, detail="Image result not found")
-        image_url = image_urls[image_index]
-        expected_prefix = f"/v1/assets/{task_id}/"
-        if not isinstance(image_url, str) or not image_url.startswith(expected_prefix):
-            raise HTTPException(status_code=400, detail="Image result is not archived locally")
-        filename = image_url.removeprefix(expected_prefix).split("?", 1)[0]
-        if Path(filename).name != filename:
-            raise HTTPException(status_code=400, detail="Invalid archived image path")
-        source_path = app.state.config.output_dir / "assets" / task_id / filename
-        if not source_path.is_file():
-            raise HTTPException(status_code=404, detail="Archived image not found")
+        file_bytes: bytes | None = None
+        mime_type: str | None = None
+        local_image_urls = result.get("local_image_urls")
+        if isinstance(local_image_urls, list) and image_index < len(local_image_urls):
+            image_url = local_image_urls[image_index]
+            expected_prefix = f"/v1/assets/{task_id}/"
+            if isinstance(image_url, str) and image_url.startswith(expected_prefix):
+                filename = image_url.removeprefix(expected_prefix).split("?", 1)[0]
+                if Path(filename).name == filename:
+                    source_path = app.state.config.output_dir / "assets" / task_id / filename
+                    if source_path.is_file():
+                        guessed_mime_type, _ = mimetypes.guess_type(filename)
+                        if guessed_mime_type in ALLOWED_IMAGE_MIME_TYPES:
+                            try:
+                                file_bytes = source_path.read_bytes()
+                            except OSError as error:
+                                raise HTTPException(
+                                    status_code=500,
+                                    detail="Failed to read archived generated image",
+                                ) from error
+                            mime_type = guessed_mime_type
 
-        mime_type, _ = mimetypes.guess_type(filename)
-        if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
-            raise HTTPException(status_code=400, detail="Archived result is not a supported image")
+        if file_bytes is None or mime_type is None:
+            remote_image_urls = _extract_result_image_urls(result)
+            if image_index >= len(remote_image_urls):
+                raise HTTPException(status_code=400, detail="Image result not found")
+            source_url = remote_image_urls[image_index]
+            response: httpx.Response | None = None
+            for attempt in range(2):
+                try:
+                    response = await app.state.http_client.get(
+                        source_url,
+                        timeout=90.0,
+                        follow_redirects=True,
+                    )
+                except Exception as error:
+                    if attempt == 0:
+                        continue
+                    LOGGER.warning(
+                        "Failed to recover remote image output for task %s: %s",
+                        task_id,
+                        error,
+                    )
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Failed to download generated image from provider",
+                    ) from error
+                if response.status_code != 429 and response.status_code < 500:
+                    break
+            if response is None:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Failed to download generated image from provider",
+                )
+            if response.status_code >= 400 or not response.content:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Failed to download generated image from provider",
+                )
+            try:
+                mime_type = _resolve_upload_mime_type(
+                    response.headers.get("content-type"),
+                    Path(urlparse(source_url).path).name,
+                )
+            except HTTPException as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Provider result is not a supported image",
+                ) from error
+            file_bytes = response.content
+
         try:
-            file_bytes = source_path.read_bytes()
             file_id = str(uuid4())
             extension = MIME_TO_EXTENSION[mime_type]
             stored_name = f"{file_id}{extension}"
@@ -745,7 +799,7 @@ def create_app() -> FastAPI:
     ) -> UploadedFileResponse:
         if image_index < 0:
             raise HTTPException(status_code=400, detail="Image result not found")
-        return _archive_image_output_as_file(task_id, image_index)
+        return await _archive_image_output_as_file(task_id, image_index)
 
     @app.post("/v1/files", response_model=UploadedFileResponse)
     async def upload_file(
@@ -931,7 +985,9 @@ def create_app() -> FastAPI:
             subject = app.state.store.get_subject(subject_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Subject not found") from error
-        imported_file = _archive_image_output_as_file(payload.task_id, payload.image_index)
+        imported_file = await _archive_image_output_as_file(
+            payload.task_id, payload.image_index
+        )
         updated = app.state.store.add_subject_reference(
             subject_id=subject_id,
             reference_id=str(uuid4()),
@@ -1294,6 +1350,24 @@ def _resolve_upload_mime_type(content_type: str | None, filename: str) -> str:
         status_code=400,
         detail="Unsupported file type; only jpg/png/webp are allowed",
     )
+
+
+def _extract_result_image_urls(result: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    direct = result.get("image_urls")
+    if isinstance(direct, list):
+        urls.extend(
+            item.strip() for item in direct if isinstance(item, str) and item.strip()
+        )
+    images = result.get("images")
+    if isinstance(images, list):
+        for item in images:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url.strip():
+                urls.append(url.strip())
+    return list(dict.fromkeys(urls))
 
 
 def _delete_archived_assets(output_dir: Path, task_id: str) -> None:
