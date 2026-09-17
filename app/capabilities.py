@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import ProviderConfig
+from app.providers.tuzi_image_models import (
+    GPT_IMAGE_25_1K,
+    GPT_IMAGE_25_1K_SIZES,
+    GPT_IMAGE_25_TIERED_MODELS,
+)
 from app.schemas import ProviderModelOperationInfo, ProviderOperationField, ProviderOperationOption
 from app.schemas import VideoGenerationRequest
 
@@ -565,6 +570,15 @@ def _tuzi_image_operations(
     poll_default: float,
     model_name: str,
 ) -> list[ProviderModelOperationInfo]:
+    def ratio_field() -> ProviderOperationField:
+        field = _image_ratio_field()
+        if model_name.lower() == GPT_IMAGE_25_1K:
+            field.options = [
+                _option(ratio, f"{ratio} ({size})")
+                for ratio, size in GPT_IMAGE_25_1K_SIZES.items()
+            ]
+        return field
+
     if _is_tuzi_image_async_model(model_name):
         return [
             ProviderModelOperationInfo(
@@ -574,7 +588,7 @@ def _tuzi_image_operations(
                 is_default=True,
                 fields=[
                     _field("prompt", "提示词", input_type="textarea", required=True),
-                    _image_ratio_field(),
+                    ratio_field(),
                     _field(
                         "input_reference_file_ids",
                         "参考图文件",
@@ -617,7 +631,7 @@ def _tuzi_image_operations(
                 ],
             ),
         ]
-    return [
+    operations = [
         ProviderModelOperationInfo(
             id="generate",
             display_name="生成图片",
@@ -625,7 +639,7 @@ def _tuzi_image_operations(
             is_default=True,
                 fields=[
                     _field("prompt", "提示词", input_type="textarea", required=True),
-                    _image_ratio_field(),
+                    ratio_field(),
                     _field(
                         "image",
                         "参考图 URL / Base64",
@@ -668,7 +682,7 @@ def _tuzi_image_operations(
             description="调用 Tuzi image/edits 同步编辑",
             fields=[
                 _field("prompt", "提示词", input_type="textarea", required=True),
-                _image_ratio_field(),
+                ratio_field(),
                 _field(
                     "image_file_ids",
                     "编辑图片",
@@ -719,6 +733,21 @@ def _tuzi_image_operations(
             ],
         ),
     ]
+    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
+        # The public catalog lists generations, but no images/edits endpoint.
+        generate = operations[0]
+        generate.fields.insert(2, _field(
+            "quality",
+            "输出清晰度",
+            target="provider_options",
+            input_type="select",
+            required=True,
+            default="1k",
+            options=[_option(value, value.upper()) for value in ("1k", "2k", "4k")],
+        ))
+        return [generate]
+    return operations
+
 
 
 def _is_tuzi_image_async_model(model_name: str) -> bool:

@@ -42,9 +42,19 @@
       "default_poll_interval_sec": 8,
       "models": [
         {
-          "name": "gpt-image-2-vip",
-          "display_name": "GPT Image 2 VIP",
+          "name": "gpt-image-2.5-1k",
+          "display_name": "GPT Image 2.5 1K",
           "default": true
+        },
+        {
+          "name": "gpt-image-2.5",
+          "display_name": "GPT Image 2.5",
+          "default": false
+        },
+        {
+          "name": "gpt-image-2.5-vip",
+          "display_name": "GPT Image 2.5 VIP",
+          "default": false
         },
         {
           "name": "gemini-3.1-flash-image-preview",

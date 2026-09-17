@@ -1,7 +1,7 @@
 {
   "mode": "local_config",
   "currency": "RMB",
-  "pricing_version": "2026-04-22",
+  "pricing_version": "2026-09-12",
   "entries": [
     {
       "provider": "nano_banana2",
@@ -29,19 +29,71 @@
     },
     {
       "provider": "nano_banana2",
-      "model": "gpt-image-2-vip",
-      "fixed_cost": 0.12,
+      "model": "gpt-image-2.5-1k",
+      "fixed_cost": 0.02,
       "discount_rate": 0.7,
       "currency": "RMB",
-      "effective_from": "2026-04-22"
+      "effective_from": "2026-09-12"
     },
     {
       "provider": "nano_banana2",
-      "model": "gpt-image-2",
-      "fixed_cost": 0.06,
+      "model": "gpt-image-2.5",
+      "operation": "generate",
+      "quality": "1k",
+      "fixed_cost": 0.028,
       "discount_rate": 0.7,
       "currency": "RMB",
-      "effective_from": "2026-04-22"
+      "effective_from": "2026-09-12"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5",
+      "operation": "generate",
+      "quality": "2k",
+      "fixed_cost": 0.12,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-12"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5",
+      "operation": "generate",
+      "quality": "4k",
+      "fixed_cost": 0.21,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-12"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-vip",
+      "operation": "generate",
+      "quality": "1k",
+      "fixed_cost": 0.07,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-12"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-vip",
+      "operation": "generate",
+      "quality": "2k",
+      "fixed_cost": 0.18,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-12"
+    },
+    {
+      "provider": "nano_banana2",
+      "model": "gpt-image-2.5-vip",
+      "operation": "generate",
+      "quality": "4k",
+      "fixed_cost": 0.28,
+      "discount_rate": 0.7,
+      "currency": "RMB",
+      "effective_from": "2026-09-12"
     },
     {
       "provider": "nano_banana2",

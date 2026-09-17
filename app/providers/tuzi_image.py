@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import ProviderConfig
+from app.providers.tuzi_image_models import GPT_IMAGE_25_1K, GPT_IMAGE_25_1K_SIZES
 from app.providers.base import (
     Provider,
     ProviderError,
@@ -272,7 +273,7 @@ def _build_generate_payload(request: VideoGenerationRequest) -> dict[str, Any]:
         "prompt": prompt,
     }
 
-    size = _size_from_resolution(request.resolution, style="x")
+    size = _sync_image_size(model_name, request.resolution)
     if size:
         payload["size"] = size
 
@@ -303,7 +304,7 @@ def _build_edit_form(request: VideoGenerationRequest) -> list[tuple[str, Any]]:
         ("prompt", (None, prompt)),
     ]
 
-    size = _size_from_resolution(request.resolution, style="x")
+    size = _sync_image_size(model_name, request.resolution)
     if size:
         form_parts.append(("size", (None, size)))
 
@@ -709,6 +710,21 @@ def _quality_from_model(model_name: str) -> str | None:
     if normalized.startswith("gemini-3-pro-image-preview"):
         return "1k"
     return None
+
+
+def _sync_image_size(model_name: str, resolution: str | None) -> str | None:
+    if model_name.lower() != GPT_IMAGE_25_1K:
+        return _size_from_resolution(resolution, style="x")
+    normalized = _size_from_resolution(resolution or "16:9", style=":")
+    if normalized in GPT_IMAGE_25_1K_SIZES:
+        return GPT_IMAGE_25_1K_SIZES[normalized]
+    size = _size_from_resolution(resolution, style="x")
+    if size in GPT_IMAGE_25_1K_SIZES.values():
+        return size
+    raise ProviderError(
+        code="invalid_resolution",
+        message=f"Unsupported resolution for {GPT_IMAGE_25_1K}: {resolution}",
+    )
 
 
 def _size_from_resolution(raw_resolution: str | None, *, style: str) -> str | None:

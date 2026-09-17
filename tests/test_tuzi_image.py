@@ -53,7 +53,7 @@ def test_build_generate_payload_infers_quality_from_model_when_missing() -> None
     assert payload["quality"] == "4k"
 
 
-@pytest.mark.parametrize("model_name", ["gpt-image-2", "gpt-image-2-vip"])
+@pytest.mark.parametrize("model_name", ["gpt-image-2.5-1k"])
 def test_build_generate_payload_does_not_infer_quality_for_gpt_image_models(
     model_name: str,
 ) -> None:
@@ -69,7 +69,7 @@ def test_build_generate_payload_does_not_infer_quality_for_gpt_image_models(
     payload = _build_generate_payload(request=request)
 
     assert payload["model"] == model_name
-    assert payload["size"] == "1x1"
+    assert payload["size"] == "1254x1254"
     assert "quality" not in payload
 
 
@@ -146,3 +146,37 @@ def test_async_model_maps_generate_operation_to_generate_async() -> None:
         provider_options={},
     )
     assert _normalize_operation(request) == "generate_async"
+
+
+@pytest.mark.parametrize("resolution, expected", [
+    ("1:1", "1254x1254"), ("2:3", "1024x1536"), ("3:2", "1536x1024"),
+    ("3:4", "1086x1448"), ("4:3", "1448x1086"), ("4:5", "1122x1402"),
+    ("5:4", "1402x1122"), ("16:9", "1672x941"), ("9:16", "941x1672"),
+    ("21:9", "1915x821"), ("9:21", "821x1915"),
+    ("1672x941", "1672x941"), (None, "1672x941"),
+])
+def test_gpt_image_25_1k_sizes_for_generate_and_edit(tmp_path, resolution, expected):
+    source = tmp_path / "source.png"
+    source.write_bytes(b"fake-image")
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo", model="gpt-image-2.5-1k",
+        prompt="test", resolution=resolution,
+        provider_options={"__resolved_image_file_ids": [{
+            "path": str(source), "original_name": "source.png", "mime_type": "image/png",
+        }]},
+    )
+    assert _build_generate_payload(request)["size"] == expected
+    form = _build_edit_form(request)
+    assert ("model", (None, "gpt-image-2.5-1k")) in form
+    assert ("size", (None, expected)) in form
+    assert not any(key == "quality" for key, _ in form)
+
+
+def test_gpt_image_25_1k_rejects_unsupported_size():
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo", model="gpt-image-2.5-1k",
+        prompt="test", resolution="1024x1024",
+    )
+    for build in (_build_generate_payload, _build_edit_form):
+        with pytest.raises(ProviderError, match="Unsupported resolution"):
+            build(request)
