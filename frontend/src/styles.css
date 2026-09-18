@@ -1166,6 +1166,15 @@ select.input-base {
   flex-wrap: nowrap;
 }
 
+.composer-chip-row-wrap {
+  flex-wrap: wrap;
+}
+
+.composer-chip-row-wrap .chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .composer-chip-row .tag {
   min-height: 32px;
   padding: 0.125rem 0.625rem;

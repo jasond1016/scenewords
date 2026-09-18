@@ -6,7 +6,7 @@ from app.config import ProviderConfig
 from app.providers.tuzi_image_models import (
     GPT_IMAGE_25_1K,
     GPT_IMAGE_25_1K_SIZES,
-    GPT_IMAGE_25_TIERED_MODELS,
+    GPT_IMAGE_25_OFFICIAL_MODELS,
 )
 from app.schemas import ProviderModelOperationInfo, ProviderOperationField, ProviderOperationOption
 from app.schemas import VideoGenerationRequest
@@ -570,7 +570,30 @@ def _tuzi_image_operations(
     poll_default: float,
     model_name: str,
 ) -> list[ProviderModelOperationInfo]:
+    is_official_gpt_image_25 = model_name.lower() in GPT_IMAGE_25_OFFICIAL_MODELS
+
     def ratio_field() -> ProviderOperationField:
+        if is_official_gpt_image_25:
+            return _field(
+                "resolution",
+                "输出尺寸",
+                input_type="select",
+                required=True,
+                default="auto",
+                help_text=(
+                    "官方支持 auto 或满足约束的自定义尺寸；这里列出官方文档中的常用尺寸。"
+                ),
+                options=[
+                    _option("auto", "自动"),
+                    _option("1024x1024", "1024x1024（方形）"),
+                    _option("1536x1024", "1536x1024（横向）"),
+                    _option("1024x1536", "1024x1536（纵向）"),
+                    _option("2048x2048", "2048x2048（2K 方形）"),
+                    _option("2048x1152", "2048x1152（2K 横向）"),
+                    _option("3840x2160", "3840x2160（4K 横向，实验性）"),
+                    _option("2160x3840", "2160x3840（4K 纵向，实验性）"),
+                ],
+            )
         field = _image_ratio_field()
         if model_name.lower() == GPT_IMAGE_25_1K:
             field.options = [
@@ -740,19 +763,112 @@ def _tuzi_image_operations(
             ],
         ),
     ]
-    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
-        # The public catalog lists generations, but no images/edits endpoint.
-        generate = operations[0]
-        generate.fields.insert(2, _field(
-            "resolution_tier",
-            "输出分辨率",
-            target="provider_options",
-            input_type="select",
-            required=True,
-            default="1k",
-            options=[_option(value, value.upper()) for value in ("1k", "2k", "4k")],
-        ))
-        return [generate]
+    if is_official_gpt_image_25:
+        shared_fields = [
+            _field(
+                "quality",
+                "生成质量",
+                target="provider_options",
+                input_type="select",
+                required=True,
+                default="auto",
+                options=[
+                    _option(value, label)
+                    for value, label in (
+                        ("auto", "自动"),
+                        ("low", "低"),
+                        ("medium", "中"),
+                        ("high", "高"),
+                        ("xhigh", "超高"),
+                        ("max", "最高"),
+                    )
+                ],
+            ),
+            _field(
+                "background",
+                "背景",
+                target="provider_options",
+                input_type="select",
+                required=True,
+                default="auto",
+                options=[
+                    _option("auto", "自动"),
+                    _option("opaque", "不透明"),
+                    _option("transparent", "透明"),
+                ],
+                help_text="透明背景仅支持 PNG 或 WebP。",
+            ),
+            _field(
+                "output_format",
+                "输出格式",
+                target="provider_options",
+                input_type="select",
+                required=True,
+                default="png",
+                options=[
+                    _option("png", "PNG"),
+                    _option("jpeg", "JPEG"),
+                    _option("webp", "WebP"),
+                ],
+            ),
+            _field(
+                "output_compression",
+                "输出压缩率",
+                target="provider_options",
+                input_type="number",
+                min_value=0,
+                max_value=100,
+                step=1,
+                help_text="仅 JPEG 或 WebP 使用；0–100，默认 100。",
+            ),
+            _field(
+                "moderation",
+                "内容审核",
+                target="provider_options",
+                input_type="select",
+                required=True,
+                default="auto",
+                options=[_option("auto", "标准"), _option("low", "较宽松")],
+            ),
+            _field(
+                "n",
+                "生成张数",
+                target="provider_options",
+                input_type="number",
+                required=True,
+                default=1,
+                min_value=1,
+                max_value=10,
+                step=1,
+            ),
+            _field(
+                "user",
+                "终端用户标识",
+                target="provider_options",
+                help_text="可选，用于服务商的滥用监测。",
+            ),
+        ]
+        for operation in operations:
+            operation.fields = [
+                field
+                for field in operation.fields
+                if field.key not in {"response_format", "image", "image_file_ids", "user"}
+                or operation.id == "edit" and field.key == "image_file_ids"
+            ]
+            insert_at = 2 if operation.id == "generate" else 3
+            operation.fields[insert_at:insert_at] = [field.model_copy(deep=True) for field in shared_fields]
+        edit = operations[1]
+        edit.fields.insert(
+            3,
+            _field(
+                "input_fidelity",
+                "输入保真度",
+                target="provider_options",
+                input_type="select",
+                options=[_option("", "服务商默认"), _option("low", "低"), _option("high", "高")],
+            ),
+        )
+        return operations
     return operations
 
 

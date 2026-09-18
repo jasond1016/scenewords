@@ -30,7 +30,6 @@ from app.db import TaskStore
 from app.pricing import PricingCatalog
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider
-from app.providers.tuzi_image_models import GPT_IMAGE_25_TIERED_MODELS
 from app.schemas import (
     PricingCatalogResponse,
     PricingEntryResponse,
@@ -363,7 +362,6 @@ def create_app() -> FastAPI:
         task_stage: Literal["draft", "final"] = "draft",
         final_source_task_id: str | None = None,
     ) -> VideoTaskResponse:
-        _normalize_legacy_image_resolution_tier(payload)
         _, operation = _validate_generation_payload(
             payload,
             allowed_provider_types=allowed_provider_types,
@@ -1594,16 +1592,6 @@ def _build_finalize_prompt(source_prompt: str) -> str:
     if source_prompt.strip():
         prompt_parts.append(f"Original scene brief: {source_prompt.strip()}")
     return "\n".join(prompt_parts)
-
-
-def _normalize_legacy_image_resolution_tier(request: VideoGenerationRequest) -> None:
-    if request.model.lower() not in GPT_IMAGE_25_TIERED_MODELS:
-        return
-    legacy_value = request.provider_options.get("quality")
-    if not isinstance(legacy_value, str) or legacy_value.lower() not in {"1k", "2k", "4k"}:
-        return
-    request.provider_options.pop("quality", None)
-    request.provider_options["resolution_tier"] = legacy_value.lower()
 
 
 def _delete_archived_assets(output_dir: Path, task_id: str) -> None:

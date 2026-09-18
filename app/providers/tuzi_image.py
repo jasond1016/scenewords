@@ -10,8 +10,7 @@ from app.config import ProviderConfig
 from app.providers.tuzi_image_models import (
     GPT_IMAGE_25_1K,
     GPT_IMAGE_25_1K_SIZES,
-    GPT_IMAGE_25_TIERED_MODELS,
-    GPT_IMAGE_25_TIERED_SIZES,
+    GPT_IMAGE_25_OFFICIAL_MODELS,
 )
 from app.providers.base import (
     Provider,
@@ -100,6 +99,7 @@ async def _generate_sync(
         images=images,
         raw_response={"submit_endpoint": endpoint, "submit": response_payload},
         requested_size=_string_or_none(payload.get("size")),
+        output_format=_string_or_none(payload.get("output_format")),
     )
 
 
@@ -147,6 +147,8 @@ async def _edit_sync(
         provider_job_id=_extract_task_id(response_payload),
         images=images,
         raw_response={"submit_endpoint": endpoint, "submit": response_payload},
+        requested_size=_string_or_none(request.resolution),
+        output_format=_string_or_none(request.provider_options.get("output_format")),
     )
 
 
@@ -273,34 +275,29 @@ async def _generate_async(
 
 def _build_generate_payload(request: VideoGenerationRequest) -> dict[str, Any]:
     model_name = _resolve_model_name(request=request)
+    is_official_gpt_image_25 = model_name.lower() in GPT_IMAGE_25_OFFICIAL_MODELS
     prompt = _require_prompt(request.prompt)
     payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
     }
 
-    legacy_tier = _legacy_resolution_tier(request, model_name)
-    resolution_tier = legacy_tier or _string_or_none(
-        request.provider_options.get("resolution_tier")
-    )
-
-    size = _sync_image_size(model_name, request.resolution, resolution_tier)
+    size = _sync_image_size(model_name, request.resolution)
     if size:
         payload["size"] = size
 
-    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
-        # Tuzi prices/routes these aliases by 1K/2K/4K while ``size`` is the
-        # concrete output request. Supplying both avoids a tier being treated
-        # as OpenAI's render-quality field and silently falling back in size.
-        quality = (resolution_tier or "1k").upper()
-    else:
-        quality = None if legacy_tier else _string_or_none(request.provider_options.get("quality"))
-        quality = quality or _quality_from_model(model_name)
+    quality = _string_or_none(request.provider_options.get("quality")) or _quality_from_model(
+        model_name
+    )
     if quality:
         payload["quality"] = quality
 
-    response_format = _string_or_none(request.provider_options.get("response_format")) or "url"
-    payload["response_format"] = response_format
+    if is_official_gpt_image_25:
+        payload.update(_official_image_options(request.provider_options))
+        _validate_official_image_options(payload)
+    else:
+        response_format = _string_or_none(request.provider_options.get("response_format")) or "url"
+        payload["response_format"] = response_format
 
     images = _normalize_string_list(
         request.provider_options.get("image", request.provider_options.get("images"))
@@ -360,6 +357,7 @@ def _resolved_files_as_data_urls(raw: Any) -> list[str]:
 
 def _build_edit_form(request: VideoGenerationRequest) -> list[tuple[str, Any]]:
     model_name = _resolve_model_name(request=request)
+    is_official_gpt_image_25 = model_name.lower() in GPT_IMAGE_25_OFFICIAL_MODELS
     prompt = _require_prompt(request.prompt)
     form_parts: list[tuple[str, Any]] = [
         ("model", (None, model_name)),
@@ -373,15 +371,24 @@ def _build_edit_form(request: VideoGenerationRequest) -> list[tuple[str, Any]]:
     quality = _string_or_none(request.provider_options.get("quality")) or _quality_from_model(
         model_name
     )
-    if quality:
+    if quality and not is_official_gpt_image_25:
         form_parts.append(("quality", (None, quality)))
 
-    response_format = _string_or_none(request.provider_options.get("response_format")) or "url"
-    form_parts.append(("response_format", (None, response_format)))
+    if is_official_gpt_image_25:
+        official_options = _official_image_options(
+            request.provider_options,
+            include_input_fidelity=True,
+        )
+        _validate_official_image_options(official_options)
+        for key, value in official_options.items():
+            form_parts.append((key, (None, _to_form_value(value))))
+    else:
+        response_format = _string_or_none(request.provider_options.get("response_format")) or "url"
+        form_parts.append(("response_format", (None, response_format)))
 
-    user_value = _string_or_none(request.provider_options.get("user"))
-    if user_value:
-        form_parts.append(("user", (None, user_value)))
+        user_value = _string_or_none(request.provider_options.get("user"))
+        if user_value:
+            form_parts.append(("user", (None, user_value)))
 
     image_file_parts = _collect_file_parts(
         provider_options=request.provider_options,
@@ -609,6 +616,7 @@ def _build_image_result(
     images: list[dict[str, str]],
     raw_response: dict[str, Any],
     requested_size: str | None = None,
+    output_format: str | None = None,
 ) -> dict[str, Any]:
     image_urls = [item["url"] for item in images if "url" in item]
     result = {
@@ -622,7 +630,40 @@ def _build_image_result(
     }
     if requested_size:
         result["requested_size"] = requested_size
+    if output_format:
+        result["output_format"] = output_format
     return result
+
+
+def _official_image_options(
+    provider_options: dict[str, Any],
+    *,
+    include_input_fidelity: bool = False,
+) -> dict[str, Any]:
+    keys = ["quality", "background", "output_format", "output_compression", "moderation", "n", "user"]
+    if include_input_fidelity:
+        keys.append("input_fidelity")
+    return {
+        key: value
+        for key in keys
+        if (value := provider_options.get(key)) is not None
+        and (not isinstance(value, str) or value.strip())
+    }
+
+
+def _validate_official_image_options(options: dict[str, Any]) -> None:
+    output_format = _string_or_none(options.get("output_format")) or "png"
+    background = _string_or_none(options.get("background"))
+    if background == "transparent" and output_format not in {"png", "webp"}:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="transparent background requires PNG or WebP output",
+        )
+    if options.get("output_compression") is not None and output_format not in {"jpeg", "webp"}:
+        raise ProviderError(
+            code="invalid_provider_option",
+            message="output_compression is only supported for JPEG or WebP output",
+        )
 
 
 def _collect_file_parts(
@@ -781,21 +822,7 @@ def _quality_from_model(model_name: str) -> str | None:
 def _sync_image_size(
     model_name: str,
     resolution: str | None,
-    resolution_tier: str | None = None,
 ) -> str | None:
-    if model_name.lower() in GPT_IMAGE_25_TIERED_MODELS:
-        ratio = _size_from_resolution(resolution or "16:9", style=":")
-        tier = (resolution_tier or "1k").lower()
-        size = GPT_IMAGE_25_TIERED_SIZES.get(tier, {}).get(ratio or "")
-        if size:
-            return size
-        explicit_size = _size_from_resolution(resolution, style="x")
-        if explicit_size:
-            return explicit_size
-        raise ProviderError(
-            code="invalid_resolution",
-            message=f"Unsupported {tier.upper()} resolution for {model_name}: {resolution}",
-        )
     if model_name.lower() != GPT_IMAGE_25_1K:
         return _size_from_resolution(resolution, style="x")
     normalized = _size_from_resolution(resolution or "16:9", style=":")
@@ -808,17 +835,6 @@ def _sync_image_size(
         code="invalid_resolution",
         message=f"Unsupported resolution for {GPT_IMAGE_25_1K}: {resolution}",
     )
-
-
-def _legacy_resolution_tier(
-    request: VideoGenerationRequest,
-    model_name: str,
-) -> str | None:
-    if model_name.lower() not in GPT_IMAGE_25_TIERED_MODELS:
-        return None
-    value = _string_or_none(request.provider_options.get("quality"))
-    return value.lower() if value and value.lower() in {"1k", "2k", "4k"} else None
-
 
 def _size_from_resolution(raw_resolution: str | None, *, style: str) -> str | None:
     normalized = _string_or_none(raw_resolution)

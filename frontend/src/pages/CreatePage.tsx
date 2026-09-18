@@ -271,6 +271,26 @@ export function CreatePage(props: Props) {
       ) ?? null,
     [selectedOperation],
   );
+  const backgroundField = useMemo(
+    () =>
+      selectedOperation?.fields.find(
+        (field) => field.target === "provider_options" && field.key === "background",
+      ) ?? null,
+    [selectedOperation],
+  );
+  const outputFormatField = useMemo(
+    () =>
+      selectedOperation?.fields.find(
+        (field) => field.target === "provider_options" && field.key === "output_format",
+      ) ?? null,
+    [selectedOperation],
+  );
+  const usesOfficialGptImage25Parameters = [
+    "gpt-image-2.5",
+    "gpt-image-2.5-vip",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+  ].includes(selectedModel?.name ?? "");
   const quickMediaFields = useMemo(() => {
     if (!selectedOperation) {
       return [];
@@ -320,6 +340,9 @@ export function CreatePage(props: Props) {
     if (qualityField) {
       excluded.add(fieldKey(qualityField));
     }
+    if (backgroundField && usesOfficialGptImage25Parameters) {
+      excluded.add(fieldKey(backgroundField));
+    }
     if (orientationField) {
       excluded.add(fieldKey(orientationField));
     }
@@ -340,6 +363,7 @@ export function CreatePage(props: Props) {
     }
     return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
   }, [
+    backgroundField,
     durationField,
     orientationField,
     promptField,
@@ -348,6 +372,7 @@ export function CreatePage(props: Props) {
     resolutionField,
     selectedProvider,
     selectedOperation,
+    usesOfficialGptImage25Parameters,
   ]);
   const advancedGroups = useMemo(
     () => groupAdvancedFields(advancedFields),
@@ -585,7 +610,16 @@ export function CreatePage(props: Props) {
   const resolutionValue = resolutionField ? values[fieldKey(resolutionField)] ?? "" : "";
   const orientationValue = orientationField ? values[fieldKey(orientationField)] ?? "" : "";
   const qualityValue = qualityField ? values[fieldKey(qualityField)] ?? "" : "";
+  const backgroundValue = backgroundField ? values[fieldKey(backgroundField)] ?? "" : "";
+  const outputFormatValue = outputFormatField ? values[fieldKey(outputFormatField)] ?? "" : "";
   const durationValue = durationField ? values[fieldKey(durationField)] ?? "" : "";
+  useEffect(() => {
+    if (backgroundValue !== "transparent" || outputFormatValue !== "jpeg" || !outputFormatField) {
+      return;
+    }
+    const key = fieldKey(outputFormatField);
+    setValues((current) => ({ ...current, [key]: "png" }));
+  }, [backgroundValue, outputFormatField, outputFormatValue]);
   const durationChoices = useMemo(
     () => (durationField ? durationOptionsFromField(durationField) : []),
     [durationField],
@@ -1803,8 +1837,8 @@ export function CreatePage(props: Props) {
   }
 
   const hasQuickParams = Boolean(
-    (resolutionField && (ratioChoices.length > 0 || resolutionValue)) ||
-    hasQuickSize ||
+    (!usesOfficialGptImage25Parameters &&
+      ((resolutionField && (ratioChoices.length > 0 || resolutionValue)) || hasQuickSize)) ||
     (orientationField && orientationChoices.length > 0) ||
     (durationField && durationChoices.length > 0),
   );
@@ -2096,7 +2130,7 @@ export function CreatePage(props: Props) {
           {/* Hint message */}
           {hint ? <p className="m-0 text-[11px] text-[var(--c-text-secondary)]">{hint}</p> : null}
 
-          <div className="composer-chip-row">
+          <div className={`composer-chip-row ${usesOfficialGptImage25Parameters ? "composer-chip-row-wrap" : ""}`}>
             <div className="composer-popover-anchor">
               <button
                 type="button"
@@ -2252,6 +2286,51 @@ export function CreatePage(props: Props) {
               ) : null}
             </div>
 
+            {usesOfficialGptImage25Parameters && resolutionField ? (
+              <select
+                className="chip max-w-[190px]"
+                value={resolutionValue}
+                aria-label={resolutionField.label}
+                title={resolutionField.label}
+                onChange={(event) => onFieldChanged(resolutionField, event.target.value)}
+              >
+                {resolutionField.options.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : null}
+
+            {usesOfficialGptImage25Parameters && qualityField ? (
+              <select
+                className="chip max-w-[140px]"
+                value={qualityValue}
+                aria-label={qualityField.label}
+                title={qualityField.label}
+                onChange={(event) => onFieldChanged(qualityField, event.target.value)}
+              >
+                {qualityField.options.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : null}
+
+            {usesOfficialGptImage25Parameters && backgroundField ? (
+              <label className="chip cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={backgroundValue === "transparent"}
+                  onChange={(event) => {
+                    const transparent = event.target.checked;
+                    onFieldChanged(backgroundField, transparent ? "transparent" : "auto");
+                    if (transparent && outputFormatField && outputFormatValue === "jpeg") {
+                      onFieldChanged(outputFormatField, "png");
+                    }
+                  }}
+                />
+                <span>{t("create.transparentBackground")}</span>
+              </label>
+            ) : null}
+
             {hasQuickParams ? (
               <div className="composer-popover-anchor">
                 <button
@@ -2398,6 +2477,20 @@ export function CreatePage(props: Props) {
                   </div>
                 ) : null}
               </div>
+            ) : null}
+
+            {advancedFields.length > 0 ? (
+              <button
+                type="button"
+                className="chip"
+                onClick={() => {
+                  setOpenPopover(null);
+                  setShowAdvanced(true);
+                }}
+              >
+                <Faders size={13} weight="bold" />
+                <span>{t("create.advancedLabel")}</span>
+              </button>
             ) : null}
 
             <kbd className="composer-shortcut">
@@ -3145,13 +3238,15 @@ function parseImageModelVariant(model: ProviderModelInfo): {
       ? "2k"
       : "1k";
   const resolutionLabel = resolutionKeyToLabel(resolutionKey);
-  const familyLabel = model.display_name
-    .replace(/\s*\(1k\)/i, "")
-    .replace(/\s+1k\b/gi, "")
-    .replace(/\s+2k\b/gi, "")
-    .replace(/\s+4k\b/gi, "")
-    .replace(/\s+async\b/gi, "")
-    .trim();
+  const familyLabel = normalizedName === "gpt-image-2.5-1k"
+    ? model.display_name
+    : model.display_name
+        .replace(/\s*\(1k\)/i, "")
+        .replace(/\s+1k\b/gi, "")
+        .replace(/\s+2k\b/gi, "")
+        .replace(/\s+4k\b/gi, "")
+        .replace(/\s+async\b/gi, "")
+        .trim();
   return {
     familyLabel: familyLabel || model.display_name,
     resolutionKey,
@@ -3541,6 +3636,12 @@ function renderField(
   const value = values[key] ?? "";
   const selectedFiles = files[key] ?? [];
   const reusedIds = reusedFileIds[key] ?? [];
+  const inputField =
+    field.target === "provider_options" &&
+    field.key === "output_format" &&
+    values["provider_options:background"] === "transparent"
+      ? { ...field, options: field.options.filter((option) => option.value !== "jpeg") }
+      : field;
   const className =
     variant === "compact"
       ? "flex flex-col gap-1"
@@ -3552,7 +3653,7 @@ function renderField(
     <Wrapper key={key} className={className}>
     <span className="text-label">{field.label}</span>
       <DynamicInput
-        field={field}
+        field={inputField}
         value={value}
         selectedFiles={selectedFiles}
         reusedFileIds={reusedIds}

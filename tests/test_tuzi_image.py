@@ -79,6 +79,59 @@ def test_build_generate_payload_infers_quality_from_model_when_missing() -> None
     assert payload["quality"] == "4k"
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-image-2.5",
+    "gpt-image-2.5-vip",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+])
+def test_official_gpt_image_25_generate_forwards_documented_parameters(model: str) -> None:
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model=model,
+        operation="generate",
+        prompt="transparent logo",
+        resolution="2048x2048",
+        provider_options={
+            "quality": "xhigh",
+            "background": "transparent",
+            "output_format": "webp",
+            "output_compression": 82,
+            "moderation": "low",
+            "n": 3,
+            "user": "customer-42",
+        },
+    )
+
+    payload = _build_generate_payload(request)
+
+    assert payload == {
+        "model": model,
+        "prompt": "transparent logo",
+        "size": "2048x2048",
+        "quality": "xhigh",
+        "background": "transparent",
+        "output_format": "webp",
+        "output_compression": 82,
+        "moderation": "low",
+        "n": 3,
+        "user": "customer-42",
+    }
+
+
+def test_official_gpt_image_25_rejects_compression_for_png() -> None:
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model="gpt-image-2.5-sunburst",
+        prompt="test",
+        resolution="auto",
+        provider_options={"output_format": "png", "output_compression": 80},
+    )
+
+    with pytest.raises(ProviderError, match="only supported for JPEG or WebP"):
+        _build_generate_payload(request)
+
+
 @pytest.mark.parametrize("model_name", ["gpt-image-2.5-1k"])
 def test_build_generate_payload_does_not_infer_quality_for_gpt_image_models(
     model_name: str,
@@ -135,6 +188,54 @@ def test_build_edit_form_accepts_uploaded_image_and_optional_mask(tmp_path: Path
     assert ("size", (None, "1x1")) in form
     assert any(part[0] == "image" for part in form)
     assert any(part[0] == "mask" for part in form)
+
+
+def test_official_gpt_image_25_edit_forwards_documented_parameters(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"fake-image")
+    request = VideoGenerationRequest(
+        provider="tuzi_image_demo",
+        model="gpt-image-2.5-sunburst",
+        operation="edit",
+        prompt="preserve the subject",
+        resolution="1536x1024",
+        provider_options={
+            "quality": "high",
+            "background": "opaque",
+            "output_format": "jpeg",
+            "output_compression": 75,
+            "moderation": "auto",
+            "n": 2,
+            "user": "customer-42",
+            "input_fidelity": "high",
+            "__resolved_image_file_ids": [
+                {
+                    "path": str(source),
+                    "original_name": "source.png",
+                    "mime_type": "image/png",
+                }
+            ],
+        },
+    )
+
+    form = _build_edit_form(request)
+    text_parts = {key: value[1] for key, value in form if value[0] is None}
+
+    assert text_parts == {
+        "model": "gpt-image-2.5-sunburst",
+        "prompt": "preserve the subject",
+        "size": "1536x1024",
+        "quality": "high",
+        "background": "opaque",
+        "output_format": "jpeg",
+        "output_compression": "75",
+        "moderation": "auto",
+        "n": "2",
+        "user": "customer-42",
+        "input_fidelity": "high",
+    }
+    assert any(key == "image" for key, _ in form)
+    assert not any(key == "response_format" for key, _ in form)
 
 
 def test_build_edit_form_requires_source_image() -> None:

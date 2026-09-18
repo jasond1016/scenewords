@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import Mapping
 import mimetypes
 from pathlib import Path
@@ -247,12 +249,24 @@ async def _archive_result_assets(
     normalized_asset_type = str(asset_type or "video").lower()
     if normalized_asset_type == "image":
         local_image_urls: list[str] = []
-        for index, source_url in enumerate(_extract_image_urls(archived)):
+        remote_image_urls = _extract_image_urls(archived)
+        for index, source_url in enumerate(remote_image_urls):
             local_url = await _download_media_to_local(
                 task_id=task_id,
                 source_url=source_url,
                 provider=provider,
                 kind="image",
+                index=index,
+            )
+            if local_url:
+                local_image_urls.append(local_url)
+        output_format = str(archived.get("output_format") or "png").lower()
+        for index, encoded in enumerate(_extract_base64_images(archived), start=len(remote_image_urls)):
+            local_url = _archive_base64_image(
+                task_id=task_id,
+                encoded=encoded,
+                output_format=output_format,
+                output_dir=provider.app_config.output_dir,
                 index=index,
             )
             if local_url:
@@ -523,3 +537,44 @@ def _extract_image_urls(result: dict[str, Any]) -> list[str]:
         seen.add(url)
         deduped.append(url)
     return deduped
+
+
+def _extract_base64_images(result: dict[str, Any]) -> list[str]:
+    images = result.get("images")
+    if not isinstance(images, list):
+        return []
+    return [
+        value.strip()
+        for item in images
+        if isinstance(item, dict)
+        and isinstance((value := item.get("b64_json")), str)
+        and value.strip()
+    ]
+
+
+def _archive_base64_image(
+    *,
+    task_id: str,
+    encoded: str,
+    output_format: str,
+    output_dir: Path,
+    index: int,
+) -> str | None:
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not content:
+        return None
+    extension = {"png": ".png", "jpeg": ".jpg", "webp": ".webp"}.get(
+        output_format,
+        ".png",
+    )
+    archive_dir = output_dir / "assets" / task_id
+    filename = f"image_{index + 1}{extension}"
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / filename).write_bytes(content)
+    except OSError:
+        return None
+    return f"/v1/assets/{task_id}/{filename}"

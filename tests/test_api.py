@@ -564,7 +564,7 @@ def test_list_image_tasks_supports_offset(client_factory) -> None:
     assert payload[0]["task_id"] != oldest
 
 
-def test_tiered_image_generation_normalizes_legacy_quality_to_resolution_tier(
+def test_gpt_image_25_generation_keeps_official_parameters(
     client_factory,
 ) -> None:
     with client_factory() as client:
@@ -578,16 +578,22 @@ def test_tiered_image_generation_normalizes_legacy_quality_to_resolution_tier(
                 "provider": "tuzi_image_demo",
                 "model": "gpt-image-2.5",
                 "operation": "generate",
-                "prompt": "legacy 4k request",
-                "resolution": "16:9",
-                "provider_options": {"quality": "4k"},
+                "prompt": "transparent image",
+                "resolution": "2048x1152",
+                "provider_options": {
+                    "quality": "xhigh",
+                    "background": "transparent",
+                    "output_format": "webp",
+                },
             },
         )
         task = client.app.state.store.get_task(response.json()["task_id"])
 
     assert response.status_code == 200
-    assert task["request"]["provider_options"]["resolution_tier"] == "4k"
-    assert "quality" not in task["request"]["provider_options"]
+    assert task["request"]["resolution"] == "2048x1152"
+    assert task["request"]["provider_options"]["quality"] == "xhigh"
+    assert task["request"]["provider_options"]["background"] == "transparent"
+    assert task["request"]["provider_options"]["output_format"] == "webp"
 
 
 def test_retry_video_task_keeps_seed_for_supported_provider(
@@ -1040,9 +1046,8 @@ def test_scene_finalize_requires_approved_version(client_factory) -> None:
             json={
                 "provider": "tuzi_image_demo",
                 "model": "gpt-image-2.5",
-                "operation": "generate",
-                "resolution": "16:9",
-                "resolution_tier": "2k",
+                "operation": "edit",
+                "resolution": "2048x2048",
             },
         )
 
@@ -1097,9 +1102,8 @@ def test_scene_finalize_keeps_final_history_outside_draft_versions(client_factor
             json={
                 "provider": "tuzi_image_demo",
                 "model": "gpt-image-2.5",
-                "operation": "generate",
-                "resolution": "16:9",
-                "resolution_tier": "2k",
+                "operation": "edit",
+                "resolution": "2048x2048",
             },
         )
         final = finalize_response.json()
@@ -1125,8 +1129,8 @@ def test_scene_finalize_keeps_final_history_outside_draft_versions(client_factor
     assert final["scene_id"] == scene_id
     assert final["generation_id"] is None
     assert final["version_number"] is None
-    assert stored_final["request"]["resolution"] == "16:9"
-    assert stored_final["request"]["provider_options"]["resolution_tier"] == "2k"
+    assert stored_final["request"]["resolution"] == "2048x2048"
+    assert stored_final["request"]["provider_options"]["quality"] == "auto"
     resolved = stored_final["request"]["provider_options"]["__resolved_image_file_ids"]
     assert len(resolved) == 2
     assert stored_final["request"]["subject_bindings"][0]["reference_file_ids"] == [

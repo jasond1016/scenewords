@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 from uuid import uuid4
 
@@ -251,6 +252,21 @@ def test_archives_image_results_with_stable_local_urls(tmp_path: Path) -> None:
             await http_client.aclose()
 
     asyncio.run(_run())
+
+
+def test_archives_base64_image_using_requested_output_format(tmp_path: Path) -> None:
+    content = b"RIFFfake-webp"
+
+    local_url = worker_module._archive_base64_image(
+        task_id="base64-task",
+        encoded=base64.b64encode(content).decode("ascii"),
+        output_format="webp",
+        output_dir=tmp_path,
+        index=0,
+    )
+
+    assert local_url == "/v1/assets/base64-task/image_1.webp"
+    assert (tmp_path / "assets/base64-task/image_1.webp").read_bytes() == content
 
 
 def test_image_resolution_validation_uses_archived_pixels(tmp_path: Path) -> None:
