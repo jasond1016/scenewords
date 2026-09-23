@@ -2,10 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
   Cube,
   IdentificationCard,
   MapPin,
-  PencilSimple,
   Plus,
   Sparkle,
   Star,
@@ -21,6 +21,7 @@ import {
   updateSubject,
   uploadFile,
 } from "../api";
+import { HeaderActions } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
@@ -46,7 +47,7 @@ const KIND_ICONS = {
 };
 
 export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const isZh = locale === "zh-CN";
   const token = useAppSettingsStore((state) => state.gatewayToken);
   const navigate = useNavigate();
@@ -55,6 +56,7 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
     queryKey: ["subjects", token],
     queryFn: () => fetchSubjects(token),
   });
+  const [kindFilter, setKindFilter] = useState<"all" | SubjectKind>("all");
   const [editing, setEditing] = useState<SubjectAsset | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [kind, setKind] = useState<SubjectKind>("character");
@@ -188,92 +190,118 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
     );
   };
 
+  const allSubjects = subjectsQuery.data ?? [];
+  const visibleSubjects =
+    kindFilter === "all" ? allSubjects : allSubjects.filter((subject) => subject.kind === kindFilter);
+  const kindFilters: Array<{ value: "all" | SubjectKind; label: string }> = [
+    { value: "all", label: t("subjects.filter.all") },
+    { value: "character", label: kindLabel("character", isZh) },
+    { value: "object", label: kindLabel("object", isZh) },
+    { value: "location", label: kindLabel("location", isZh) },
+  ];
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="m-0 text-label">{isZh ? "视觉资产" : "Visual assets"}</p>
-          <h1 className="m-0 mt-2 text-3xl font-semibold tracking-tight text-[var(--c-text)]">
-            {isZh ? "主体库" : "Subjects"}
-          </h1>
-          <p className="m-0 mt-2 max-w-2xl text-sm leading-6 text-[var(--c-text-secondary)]">
-            {isZh
-              ? "保存人物、物品和固定场景的身份描述与参考图，在创作时一键复用。"
-              : "Keep identity notes and approved references for recurring characters, objects, and locations."}
-          </p>
-        </div>
-        <button type="button" className="btn-primary" onClick={() => resetEditor()}>
-          <Plus size={16} />
-          {isZh ? "新建主体" : "New subject"}
+    <div className="flex w-full flex-col">
+      <HeaderActions>
+        <button type="button" className="btn-outline" onClick={() => resetEditor()}>
+          <Plus size={13} weight="regular" />
+          {t("subjects.create")}
         </button>
+      </HeaderActions>
+
+      <header className="page-header mb-10">
+        <div>
+          <h1 className="page-title">{t("subjects.title")}</h1>
+          <p className="page-subtitle">{t("subjects.subtitle")}</p>
+        </div>
+        <div className="mb-1 flex flex-wrap items-center gap-2" role="tablist">
+          {kindFilters.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              role="tab"
+              aria-selected={kindFilter === filter.value}
+              className={`filter-pill ${kindFilter === filter.value ? "filter-pill-active" : ""}`}
+              onClick={() => setKindFilter(filter.value)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       {subjectsQuery.isLoading ? (
-        <div className="card p-10 text-center text-sm text-[var(--c-text-secondary)]">
-          {isZh ? "正在加载主体库…" : "Loading subjects…"}
+        <div className="subject-grid" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-3">
+              <div className="skeleton aspect-square w-full" />
+              <div className="skeleton h-3 w-1/3" />
+            </div>
+          ))}
         </div>
-      ) : (subjectsQuery.data?.length ?? 0) === 0 ? (
+      ) : allSubjects.length === 0 ? (
         <button
           type="button"
-          className="card flex min-h-64 flex-col items-center justify-center gap-3 border-dashed text-center"
+          className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-[var(--radius-lg)] border border-dashed border-[var(--c-border-strong)] bg-transparent text-center"
           onClick={() => resetEditor()}
         >
-          <IdentificationCard size={32} className="text-[var(--c-text-tertiary)]" />
-          <strong className="text-[var(--c-text)]">{isZh ? "建立第一个固定主体" : "Create your first subject"}</strong>
-          <span className="max-w-md text-sm leading-6 text-[var(--c-text-secondary)]">
-            {isZh ? "先添加一张身份锚点，之后可继续补充正面、侧面或细节参考。" : "Start with one identity anchor, then add useful angles and details."}
+          <IdentificationCard size={30} weight="light" className="text-[var(--c-text-tertiary)]" />
+          <strong className="text-sm font-medium text-[var(--c-text)]">{t("subjects.emptyTitle")}</strong>
+          <span className="max-w-md text-xs leading-6 text-[var(--c-text-secondary)]">
+            {t("subjects.emptyBody")}
           </span>
         </button>
+      ) : visibleSubjects.length === 0 ? (
+        <p className="py-16 text-center text-sm text-[var(--c-text-secondary)]">{t("subjects.emptyFiltered")}</p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {subjectsQuery.data?.map((subject) => {
+        <div className="subject-grid">
+          {visibleSubjects.map((subject) => {
             const Icon = KIND_ICONS[subject.kind];
             const primary = subject.references.find((item) => item.is_primary) ?? subject.references[0];
             return (
-              <article key={subject.subject_id} className="card overflow-hidden p-0">
-                <div className="aspect-[4/3] bg-[var(--c-surface-inset)]">
-                  {primary ? (
-                    <UploadedImage
-                      fileId={primary.file_id}
-                      token={token}
-                      alt={subject.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-[var(--c-text-tertiary)]">
-                      <Icon size={36} />
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Icon size={15} />
-                        <span className="text-xs text-[var(--c-text-secondary)]">{kindLabel(subject.kind, isZh)}</span>
+              <div
+                key={subject.subject_id}
+                role="button"
+                tabIndex={0}
+                className="subject-card"
+                onClick={() => resetEditor(subject)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    resetEditor(subject);
+                  }
+                }}
+                aria-label={subject.name}
+              >
+                <div className="subject-card-media media-ring">
+                  <div className="subject-card-media-inner">
+                    {primary ? (
+                      <UploadedImage
+                        fileId={primary.file_id}
+                        token={token}
+                        alt={subject.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-[var(--c-text-tertiary)]">
+                        <Icon size={32} weight="light" />
                       </div>
-                      <h2 className="m-0 mt-1 text-base font-semibold text-[var(--c-text)]">{subject.name}</h2>
-                    </div>
-                    <button type="button" className="btn-ghost" onClick={() => resetEditor(subject)} aria-label={isZh ? "编辑" : "Edit"}>
-                      <PencilSimple size={16} />
-                    </button>
+                    )}
                   </div>
-                  <p
-                    className="m-0 min-h-10 text-sm leading-5 text-[var(--c-text-secondary)]"
-                    style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
+                  <button
+                    type="button"
+                    className="subject-use-pill"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      navigate(`/create?useSubject=${encodeURIComponent(subject.subject_id)}`);
+                    }}
                   >
-                    {subject.description || (isZh ? "尚未填写身份描述" : "No identity description yet")}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {subject.fixed_traits.slice(0, 3).map((trait) => <span key={trait} className="tag">{trait}</span>)}
-                    <span className="tag">{isZh ? `${subject.references.length} 张参考` : `${subject.references.length} refs`}</span>
-                  </div>
-                  <button type="button" className="btn-secondary w-full text-xs" onClick={() => resetEditor(subject)}>
-                    <Sparkle size={15} />
-                    {isZh ? "AI 建立参考集" : "Build references with AI"}
+                    {t("subjects.useForCreate")}
+                    <ArrowRight size={13} weight="regular" />
                   </button>
                 </div>
-              </article>
+                <span className="subject-card-name">{subject.name}</span>
+              </div>
             );
           })}
         </div>
@@ -547,6 +575,6 @@ function splitTraits(value: string): string[] {
 
 function kindLabel(kind: SubjectKind, isZh: boolean): string {
   if (kind === "character") return isZh ? "人物" : "Character";
-  if (kind === "object") return isZh ? "物品" : "Object";
+  if (kind === "object") return isZh ? "物体" : "Object";
   return isZh ? "场景" : "Location";
 }

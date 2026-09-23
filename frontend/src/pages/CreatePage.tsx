@@ -10,14 +10,18 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
   CaretLeft,
   CaretRight,
+  Check,
+  CircleNotch,
   CloudArrowUp,
   Faders,
   ImageSquare,
-  PaperPlaneTilt,
   Plus,
+  UploadSimple,
   VideoCamera,
+  WarningCircle,
   X,
   CaretDown,
   Shapes,
@@ -42,16 +46,18 @@ import type {
   ProviderModelInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
+  Scene,
   SubjectAsset,
   VideoGenerationRequest,
   VideoTaskDetail,
 } from "../types";
+import { extractVideoPoster } from "../lightbox";
 import {
   durationOptionsFromField,
+  extractImageUrls,
   fieldKey,
   fieldStorageKey,
   findField,
-  formatTime,
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
@@ -59,9 +65,8 @@ import {
   saveSession,
   valueToStoredString,
 } from "../utils";
+import { CreateTopBar } from "../components/AppTopBar";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
-import { SkeletonForm } from "../components/Skeletons";
-import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { UploadedImage } from "../components/UploadedImage";
 
 interface Props {
@@ -72,8 +77,8 @@ interface Props {
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
 const MAX_RECENT_PROMPTS = 20;
-const COMPOSER_PROMPT_MIN_ROWS = 4;
-const COMPOSER_PROMPT_MAX_ROWS = 9;
+const COMPOSER_PROMPT_MIN_ROWS = 1;
+const COMPOSER_PROMPT_MAX_ROWS = 8;
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const LAST_GENERATION_KIND_KEY = "scenewords_last_generation_kind_v1";
@@ -171,7 +176,7 @@ export function CreatePage(props: Props) {
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
-  const [openPopover, setOpenPopover] = useState<"kind" | "model" | "format" | null>(null);
+  const [openPopover, setOpenPopover] = useState<"add" | "settings" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState("");
@@ -472,19 +477,6 @@ export function CreatePage(props: Props) {
           )
         : [],
     [currentVideoFamily],
-  );
-  const imageFamilySupportsModeSwitchIds = useMemo(
-    () =>
-      new Set(
-        imageModelFamilies
-          .filter((family) => {
-            const hasAsyncVariant = family.variants.some((variant) => variant.asyncEnabled);
-            const hasSyncVariant = family.variants.some((variant) => !variant.asyncEnabled);
-            return hasAsyncVariant && hasSyncVariant;
-          })
-          .map((family) => family.id),
-      ),
-    [imageModelFamilies],
   );
   const imageResolutionChoices = useMemo(
     () =>
@@ -1067,6 +1059,16 @@ export function CreatePage(props: Props) {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const subjectId = params.get("useSubject")?.trim() ?? "";
+    if (!subjectId || !subjectsQuery.data?.some((item) => item.subject_id === subjectId)) {
+      return;
+    }
+    setSelectedSubjectIds((ids) => (ids.includes(subjectId) ? ids : [...ids, subjectId]));
+    navigate("/create", { replace: true });
+  }, [location.search, navigate, subjectsQuery.data]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
     const launchSceneId = params.get("sceneId")?.trim() ?? "";
     if (!launchSceneId || !scenesQuery.data?.some((scene) => scene.scene_id === launchSceneId)) {
       return;
@@ -1641,7 +1643,7 @@ export function CreatePage(props: Props) {
     if (!picked.length) return;
     const key = fieldKey(primaryFileField);
     const isMulti = primaryFileField.input_type === "file_list";
-    const current = files[key] ?? [];
+    const current = uiFiles[key] ?? [];
     const next = isMulti ? [...current, ...picked] : [picked[0]];
     onFileFieldChanged(primaryFileField, next);
     event.currentTarget.value = "";
@@ -1819,21 +1821,79 @@ export function CreatePage(props: Props) {
     }
     return "muted";
   };
-  const showRecentStatusBadge = (task: VideoTaskDetail): boolean =>
-    task.status === "queued" || task.status === "running" || task.status === "canceled";
+  const orderedScenes = [...(scenesQuery.data ?? [])].sort(
+    (left, right) => Date.parse(left.created_at) - Date.parse(right.created_at),
+  );
+  const selectedScene = orderedScenes.find((scene) => scene.scene_id === sceneId) ?? null;
+  const sceneOrdinal =
+    sceneId === "__new__"
+      ? orderedScenes.length + 1
+      : selectedScene
+        ? orderedScenes.indexOf(selectedScene) + 1
+        : 0;
+  const crumbTitle =
+    sceneId === "__new__"
+      ? newSceneTitle.trim() || t("create.scene.untitled")
+      : selectedScene?.title ?? t("create.scene.standalone");
+  const sceneStatusNote = !sceneId
+    ? ""
+    : generationId
+      ? parentVersionId
+        ? t("create.scene.editBase")
+        : t("create.scene.nextVersion")
+      : parentVersionId
+        ? t("create.scene.branching")
+        : t("create.scene.firstSubmit");
+  const selectScene = (nextSceneId: string) => {
+    setSceneId(nextSceneId);
+    setGenerationId(null);
+    setParentVersionId(null);
+    setVersionEditBasePrompt(null);
+    setModificationInstruction("");
+  };
+  const topBar = (
+    <CreateTopBar
+      inProgressCount={inProgressCount}
+      onBack={() =>
+        navigate(selectedScene ? `/scenes/${selectedScene.scene_id}` : "/scenes")
+      }
+      breadcrumb={
+        <ScenePicker
+          scenes={orderedScenes}
+          sceneId={sceneId}
+          newSceneTitle={newSceneTitle}
+          crumbTitle={crumbTitle}
+          sceneOrdinal={sceneOrdinal}
+          statusNote={sceneStatusNote}
+          onSelect={selectScene}
+          onNewSceneTitleChange={setNewSceneTitle}
+          onManage={() => navigate("/scenes")}
+        />
+      }
+    />
+  );
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-32">
-        <SkeletonForm />
+      <div>
+        {topBar}
+        <div className="create-stage">
+          <div className="composer">
+            <div className="skeleton h-[90px] w-full rounded-[var(--radius-lg)]" />
+          </div>
+        </div>
       </div>
     );
   }
   if (!selectedProvider || !selectedModel || !selectedOperation) {
-      return (
-        <div className="flex flex-col items-center justify-center gap-3 py-32">
+    return (
+      <div>
+        {topBar}
+        <div className="create-stage">
           <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>
         </div>
-      );
+      </div>
+    );
   }
 
   const hasQuickParams = Boolean(
@@ -1842,196 +1902,32 @@ export function CreatePage(props: Props) {
     (orientationField && orientationChoices.length > 0) ||
     (durationField && durationChoices.length > 0),
   );
+  const subjectReferenceIdSet = new Set(activeSubjectReferenceFileIds);
+  const attachmentPreviews = inlineFilePreviews.filter(
+    (item) =>
+      !(
+        item.source === "reused" &&
+        item.fieldKey === fieldKey(sharedImageSourceField) &&
+        item.fileId &&
+        subjectReferenceIdSet.has(item.fileId)
+      ),
+  );
+  const subjectReferencesSupported =
+    currentGenerationKind === "image" &&
+    Boolean(currentImageVariant?.editOperation || supportsInlineImageInput);
+  const toggleSubject = (subjectId: string) =>
+    setSelectedSubjectIds((ids) =>
+      ids.includes(subjectId) ? ids.filter((id) => id !== subjectId) : [...ids, subjectId],
+    );
+  const recentStrip = recentTasks.slice(0, 6);
 
   return (
-    <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 60px)" }}>
-      {/* ── Canvas Area (above composer) ─────────────── */}
-      <div className="create-canvas">
-        <div className="flex w-full min-w-0 flex-col gap-6 sm:gap-8">
-          <section className="card flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-[var(--c-text)]">
-                  {locale === "zh-CN" ? "场景与版本" : "Scene & versions"}
-                </div>
-                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
-                  {locale === "zh-CN"
-                    ? "选择场景后，本次生成及后续修改会保留为连续版本。"
-                    : "Choose a scene to keep this generation and later edits in one version history."}
-                </p>
-              </div>
-              {generationId ? (
-                <span className="tag tag-warning">
-                  {parentVersionId
-                    ? locale === "zh-CN" ? "所选版本为编辑底图" : "Selected version is the edit base"
-                    : locale === "zh-CN" ? "继续当前生成链" : "Continuing generation"}
-                </span>
-              ) : parentVersionId ? (
-                <span className="tag tag-warning">
-                  {locale === "zh-CN" ? "从所选版本建立新分支" : "Branching from selected version"}
-                </span>
-              ) : null}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <select
-                className="input-base"
-                value={sceneId}
-                onChange={(event) => {
-                  setSceneId(event.target.value);
-                  setGenerationId(null);
-                  setParentVersionId(null);
-                  setVersionEditBasePrompt(null);
-                  setModificationInstruction("");
-                }}
-              >
-                <option value="">{locale === "zh-CN" ? "独立生成（不归入场景）" : "Standalone generation"}</option>
-                <option value="__new__">{locale === "zh-CN" ? "+ 新建场景" : "+ New scene"}</option>
-                {scenesQuery.data?.map((scene) => (
-                  <option key={scene.scene_id} value={scene.scene_id}>
-                    {scene.title} · {scene.version_count} {locale === "zh-CN" ? "个版本" : "versions"}
-                  </option>
-                ))}
-              </select>
-              {sceneId === "__new__" ? (
-                <input
-                  className="input-base"
-                  value={newSceneTitle}
-                  maxLength={160}
-                  onChange={(event) => setNewSceneTitle(event.target.value)}
-                  placeholder={locale === "zh-CN" ? "例如：小明的雨夜车站" : "e.g. Ming at the rainy station"}
-                />
-              ) : (
-                <div className="flex items-center rounded-xl bg-[var(--c-surface-raised)] px-3 text-xs text-[var(--c-text-secondary)]">
-                  {generationId
-                    ? locale === "zh-CN"
-                      ? "提交后会创建下一个版本。"
-                      : "Submitting creates the next version."
-                    : locale === "zh-CN"
-                      ? "首次提交会建立一个新的生成分支。"
-                      : "The first submission starts a generation branch."}
-                </div>
-              )}
-            </div>
-          </section>
-          <section className="card flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--c-text)]">
-                  <Shapes size={17} />
-                  <span>{locale === "zh-CN" ? "本次场景的主体" : "Subjects in this scene"}</span>
-                </div>
-                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">
-                  {locale === "zh-CN"
-                    ? currentGenerationKind === "image" && (currentImageVariant?.editOperation || supportsInlineImageInput)
-                      ? "选择后会自动补充身份描述，并带入每个主体最多 3 张参考图。"
-                      : "选择后会自动补充身份描述；当前模型不支持直接带入主体参考图。"
-                    : currentGenerationKind === "image" && (currentImageVariant?.editOperation || supportsInlineImageInput)
-                      ? "Selection adds identity notes and up to three references per subject."
-                      : "Selection adds identity notes; this model cannot attach subject references directly."}
-                </p>
-              </div>
-              <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/subjects")}>
-                {locale === "zh-CN" ? "管理主体库" : "Manage subjects"}
-              </button>
-            </div>
-            {(subjectsQuery.data?.length ?? 0) > 0 ? (
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {subjectsQuery.data?.map((subject) => {
-                  const selected = selectedSubjectIds.includes(subject.subject_id);
-                  const primary = subject.references.find((item) => item.is_primary) ?? subject.references[0];
-                  return (
-                    <button
-                      key={subject.subject_id}
-                      type="button"
-                      aria-pressed={selected}
-                      className={`flex min-w-40 items-center gap-3 rounded-2xl border p-2.5 text-left transition ${
-                        selected
-                          ? "border-[var(--c-cta)] bg-[var(--c-cta-subtle)]"
-                          : "border-border bg-[var(--c-surface-raised)] hover:border-[var(--c-border-strong)]"
-                      }`}
-                      onClick={() =>
-                        setSelectedSubjectIds((ids) =>
-                          selected
-                            ? ids.filter((id) => id !== subject.subject_id)
-                            : [...ids, subject.subject_id],
-                        )
-                      }
-                    >
-                      {primary ? (
-                        <UploadedImage
-                          fileId={primary.file_id}
-                          token={settings.gatewayToken}
-                          alt=""
-                          className="h-12 w-12 shrink-0 rounded-xl bg-[var(--c-surface-inset)] object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--c-surface-inset)]">
-                          <Shapes size={20} />
-                        </span>
-                      )}
-                      <span className="min-w-0">
-                        <strong className="block truncate text-sm text-[var(--c-text)]">{subject.name}</strong>
-                        <span className="mt-1 block text-xs text-[var(--c-text-secondary)]">
-                          {subjectKindLabel(subject, locale === "zh-CN")} · {subject.references.length}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <button type="button" className="rounded-2xl border border-dashed border-border px-5 py-6 text-sm text-[var(--c-text-secondary)]" onClick={() => navigate("/subjects")}>
-                {locale === "zh-CN" ? "主体库还是空的，先创建一个固定人物或物品。" : "Your subject library is empty. Create a recurring character or object first."}
-              </button>
-            )}
-          </section>
-          <section className="card flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-label">{t("create.recentTasks")}</span>
-              <button type="button" className="btn-ghost text-xs" onClick={() => navigate("/works")}>
-                {t("create.viewAll")}
-              </button>
-            </div>
-
-            {recentTasks.length > 0 ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {recentTasks.map((task) => {
-                  return (
-                    <TaskPreviewCard
-                      key={task.task_id}
-                      task={task}
-                      className="media-card p-2"
-                      modelLabel={task.model || task.provider}
-                      timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                      statusBadge={
-                        showRecentStatusBadge(task)
-                          ? {
-                              label: statusLabel(task),
-                              tone: statusTone(task),
-                            }
-                          : null
-                      }
-                      onClick={() => setRecentOverlayTaskId(task.task_id)}
-                    />
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-surface-raised px-6 py-12 text-center">
-                <p className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("create.recentEmptyTitle")}</p>
-                <p className="m-0 mt-2 text-sm leading-relaxed text-[var(--c-text-secondary)]">
-                  {t("create.recentEmptyBody")}
-                </p>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {/* ── Composer Bar ────────────────────────────── */}
+    <div>
+      {topBar}
+      <div className="create-stage">
       <form
         ref={formRef}
-        className="composer-bar"
+        className="composer"
         onSubmit={(event) => {
           event.preventDefault();
           void submitMutation.mutateAsync();
@@ -2042,47 +1938,56 @@ export function CreatePage(props: Props) {
         ) : null}
 
         <div className="composer-card">
-          {/* Input row: thumbnails + textarea + submit */}
-          <div className="composer-input-row">
-            {/* Inline file thumbnails */}
-            {composerMediaFields.length > 0 ? (
-              <div className="composer-thumbs">
-                {inlineFilePreviews.map((item) => (
+          <button
+            type="button"
+            className={`composer-add ${openPopover === "add" ? "composer-add-open" : ""}`}
+            onClick={() => setOpenPopover(openPopover === "add" ? null : "add")}
+            aria-label={t("create.add.title")}
+            aria-expanded={openPopover === "add"}
+          >
+            <Plus size={18} weight="light" />
+          </button>
+          {primaryFileField ? (
+            <input
+              ref={inlineFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple={primaryFileField.input_type === "file_list"}
+              className="hidden"
+              onChange={handleInlineFilePick}
+            />
+          ) : null}
+
+          <div className="composer-body">
+            {selectedSubjects.length > 0 || attachmentPreviews.length > 0 ? (
+              <div className="composer-refs">
+                {selectedSubjects.map((subject) => (
+                  <SubjectRefChip
+                    key={subject.subject_id}
+                    subject={subject}
+                    token={settings.gatewayToken}
+                    removeLabel={t("create.removeRef")}
+                    onRemove={() => toggleSubject(subject.subject_id)}
+                  />
+                ))}
+                {attachmentPreviews.map((item) => (
                   <InlineThumb
                     key={`${item.fieldKey}_${item.source}_${item.index}`}
                     item={item}
+                    removeLabel={t("create.removeRef")}
                     onRemove={() => removeInlineFile(item)}
                   />
                 ))}
-                <button
-                  type="button"
-                  className="composer-add-btn"
-                  onClick={() => inlineFileInputRef.current?.click()}
-                  title={t("create.fileUploadImage")}
-                >
-                  <Plus size={16} weight="bold" />
-                </button>
-                <input
-                  ref={inlineFileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple={primaryFileField?.input_type === "file_list"}
-                  className="hidden"
-                  onChange={handleInlineFilePick}
-                />
               </div>
             ) : null}
 
-            {/* Prompt textarea */}
             {promptField && versionEditBasePrompt !== null ? (
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
-                <div className="rounded-xl border border-border bg-[var(--c-surface-raised)] px-3 py-2.5">
-                  <p className="m-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--c-text-tertiary)]">
-                    {locale === "zh-CN" ? "原始场景（保留）" : "Original scene (preserved)"}
-                  </p>
-                  <p className="m-0 mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-[var(--c-text-secondary)]">
-                    {versionEditBasePrompt}
-                  </p>
+              <>
+                <div className="composer-base-prompt">
+                  <span className="text-[var(--c-text-tertiary)]">
+                    {locale === "zh-CN" ? "原始场景（保留）：" : "Original scene (preserved): "}
+                  </span>
+                  <span className="line-clamp-2 whitespace-pre-wrap">{versionEditBasePrompt}</span>
                 </div>
                 <textarea
                   ref={textareaRef}
@@ -2096,7 +2001,7 @@ export function CreatePage(props: Props) {
                   }}
                   onInput={autoResizeTextarea}
                 />
-              </div>
+              </>
             ) : promptField ? (
               <textarea
                 ref={textareaRef}
@@ -2104,6 +2009,7 @@ export function CreatePage(props: Props) {
                 rows={COMPOSER_PROMPT_MIN_ROWS}
                 value={promptValue}
                 placeholder={promptPlaceholder}
+                aria-label={promptField.label}
                 onChange={(e) => {
                   onFieldChanged(promptField, e.target.value);
                   autoResizeTextarea();
@@ -2111,403 +2017,486 @@ export function CreatePage(props: Props) {
                 onInput={autoResizeTextarea}
               />
             ) : (
-              <div className="flex-1 py-2 text-sm text-[var(--c-text-tertiary)]">
+              <div className="py-1 text-[13px] text-[var(--c-text-tertiary)]">
                 {t("create.promptNotSupported")}
               </div>
             )}
+          </div>
 
-            {/* Submit button */}
+          <div className="composer-side">
+            <span className="composer-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className={`composer-mode ${openPopover === "settings" ? "composer-mode-open" : ""}`}
+              onClick={() => setOpenPopover(openPopover === "settings" ? null : "settings")}
+              aria-expanded={openPopover === "settings"}
+              title={`${currentGenerationKind === "image" ? t("create.quickImage") : t("create.quickVideo")} · ${modelChipLabel} · ${formatChipLabel}`}
+            >
+              <span className="truncate">{modelChipLabel}</span>
+              <CaretDown size={11} className="shrink-0" />
+            </button>
             <button
               type="submit"
               className="composer-submit"
               disabled={submitMutation.isPending}
-              title={submitMutation.isPending ? t("create.submitting") : submitLabel}
+              aria-label={submitMutation.isPending ? t("create.submitting") : submitLabel}
+              title={`${submitMutation.isPending ? t("create.submitting") : submitLabel} (${keyboardShortcutLabel})`}
             >
-              <PaperPlaneTilt size={16} weight="fill" />
+              {submitMutation.isPending ? (
+                <CircleNotch size={16} className="animate-spin" />
+              ) : (
+                <ArrowRight size={17} weight="regular" />
+              )}
             </button>
           </div>
+        </div>
 
-          {/* Hint message */}
-          {hint ? <p className="m-0 text-[11px] text-[var(--c-text-secondary)]">{hint}</p> : null}
-
-          <div className={`composer-chip-row ${usesOfficialGptImage25Parameters ? "composer-chip-row-wrap" : ""}`}>
-            <div className="composer-popover-anchor">
-              <button
-                type="button"
-                className={`chip ${openPopover === "kind" ? "chip-active" : ""}`}
-                onClick={() => setOpenPopover(openPopover === "kind" ? null : "kind")}
-              >
-                {currentGenerationKind === "image" ? <ImageSquare size={13} weight="fill" /> : <VideoCamera size={13} weight="fill" />}
-                <span>{currentGenerationKind === "image" ? t("create.quickImage") : t("create.quickVideo")}</span>
-                <CaretDown size={10} />
-              </button>
-
-              {openPopover === "kind" ? (
-                <div className="composer-popover">
-                  <p className="m-0 mb-3 text-label">{t("create.quickType")}</p>
-                  <div className="composer-menu-list">
-                    <button
-                      type="button"
-                      className={`composer-menu-item ${currentGenerationKind === "image" ? "composer-menu-item-active" : ""}`}
-                      onClick={() => {
-                        onGenerationKindChanged("image");
-                        setOpenPopover(null);
-                      }}
-                      disabled={!imageProviders.length}
-                    >
-                      <div className="composer-menu-item__content">
-                        <ImageSquare size={16} weight={currentGenerationKind === "image" ? "fill" : "regular"} />
-                        <span>{t("create.quickImage")}</span>
-                      </div>
-                      {currentGenerationKind === "image" ? <span className="composer-menu-check">✓</span> : null}
-                    </button>
-                    <button
-                      type="button"
-                      className={`composer-menu-item ${currentGenerationKind === "video" ? "composer-menu-item-active" : ""}`}
-                      onClick={() => {
-                        onGenerationKindChanged("video");
-                        setOpenPopover(null);
-                      }}
-                      disabled={!videoProviders.length}
-                    >
-                      <div className="composer-menu-item__content">
-                        <VideoCamera size={16} weight={currentGenerationKind === "video" ? "fill" : "regular"} />
-                        <span>{t("create.quickVideo")}</span>
-                      </div>
-                      {currentGenerationKind === "video" ? <span className="composer-menu-check">✓</span> : null}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="composer-popover-anchor">
-              <button
-                type="button"
-                className={`chip ${openPopover === "model" ? "chip-active" : ""}`}
-                onClick={() => setOpenPopover(openPopover === "model" ? null : "model")}
-              >
-                <span className="max-w-[180px] truncate">{modelChipLabel}</span>
-                <CaretDown size={10} />
-              </button>
-
-              {openPopover === "model" ? (
-                <div className="composer-popover">
-                  <p className="m-0 mb-3 text-label">{t("create.model")}</p>
-                  <div className="composer-menu-list">
-                    {modelChoices.map((choice) => {
-                      const isSelected = activeModelChoiceKey === choice.key;
-                      return (
-                        <button
-                          type="button"
-                          key={choice.key}
-                          className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
-                          onClick={() => {
-                            if (currentGenerationKind === "image" && choice.familyId) {
-                              selectImageVariant(choice.familyId);
-                              if (!imageFamilySupportsModeSwitchIds.has(choice.familyId)) {
-                                setOpenPopover(null);
-                              }
-                            } else if (
-                              currentGenerationKind === "video" &&
-                              choice.familyId &&
-                              videoModelFamilies.some((family) => family.id === choice.familyId)
-                            ) {
-                              selectVideoVariant(choice.familyId);
-                              setOpenPopover(null);
-                            } else {
-                              setProviderId(choice.providerId);
-                              setModelName(choice.modelName);
-                              if (choice.operationId) {
-                                setOperationId(choice.operationId);
-                              }
-                              setOpenPopover(null);
-                            }
-                          }}
-                        >
-                          <div className="composer-menu-item__content composer-menu-item__content-stack">
-                            <span>{choice.label}</span>
-                            {choice.meta ? (
-                              <span className="composer-menu-item__meta">{choice.meta}</span>
-                            ) : null}
-                          </div>
-                          {isSelected ? <span className="composer-menu-check">✓</span> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {currentGenerationKind === "image" &&
-                  currentImageFamily &&
-                  currentImageFamilySupportsModeSwitch ? (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="m-0 text-label">{t("create.quickMode")}</p>
-                        {hasImageSourceAttachments ? (
-                          <span className="text-[11px] text-[var(--c-text-tertiary)]">
-                            {t("create.imageModeAutoEdit")}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="segment-group w-full">
-                        <button
-                          type="button"
-                          className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
-                          onClick={() => {
-                            selectImageVariant(currentImageFamily.id, { asyncEnabled: false });
-                            setOpenPopover(null);
-                          }}
-                        >
-                          {t("create.imageAsyncOff")}
-                        </button>
-                        <button
-                          type="button"
-                          className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
-                          onClick={() => {
-                            if (hasImageSourceAttachments) {
-                              return;
-                            }
-                            selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
-                            setOpenPopover(null);
-                          }}
-                          disabled={hasImageSourceAttachments}
-                        >
-                          {t("create.imageAsyncOn")}
-                        </button>
-                      </div>
-                      <p className="m-0 text-[11px] leading-5 text-[var(--c-text-secondary)]">
-                        {currentImageAsyncEnabled
-                          ? t("create.imageModeBudgetDesc")
-                          : t("create.imageModeFastDesc")}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            {usesOfficialGptImage25Parameters && resolutionField ? (
-              <select
-                className="chip max-w-[190px]"
-                value={resolutionValue}
-                aria-label={resolutionField.label}
-                title={resolutionField.label}
-                onChange={(event) => onFieldChanged(resolutionField, event.target.value)}
-              >
-                {resolutionField.options.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            ) : null}
-
-            {usesOfficialGptImage25Parameters && qualityField ? (
-              <select
-                className="chip max-w-[140px]"
-                value={qualityValue}
-                aria-label={qualityField.label}
-                title={qualityField.label}
-                onChange={(event) => onFieldChanged(qualityField, event.target.value)}
-              >
-                {qualityField.options.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            ) : null}
-
-            {usesOfficialGptImage25Parameters && backgroundField ? (
-              <label className="chip cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={backgroundValue === "transparent"}
-                  onChange={(event) => {
-                    const transparent = event.target.checked;
-                    onFieldChanged(backgroundField, transparent ? "transparent" : "auto");
-                    if (transparent && outputFormatField && outputFormatValue === "jpeg") {
-                      onFieldChanged(outputFormatField, "png");
-                    }
-                  }}
-                />
-                <span>{t("create.transparentBackground")}</span>
-              </label>
-            ) : null}
-
-            {hasQuickParams ? (
-              <div className="composer-popover-anchor">
+        {openPopover === "add" ? (
+          <div className="composer-popover composer-popover-start">
+            {primaryFileField ? (
+              <div className="composer-popover-section">
                 <button
                   type="button"
-                  className={`chip ${openPopover === "format" ? "chip-active" : ""}`}
-                  onClick={() => setOpenPopover(openPopover === "format" ? null : "format")}
+                  className="composer-menu-item"
+                  onClick={() => {
+                    inlineFileInputRef.current?.click();
+                    setOpenPopover(null);
+                  }}
                 >
-                  <Faders size={13} weight="bold" />
-                  <span className="max-w-[180px] truncate">{formatChipLabel}</span>
-                  <CaretDown size={10} />
+                  <span className="composer-menu-item__content">
+                    <UploadSimple size={15} />
+                    <span>{t("create.add.upload")}</span>
+                  </span>
+                  <span className="composer-menu-item__meta">JPG · PNG · WEBP</span>
                 </button>
+              </div>
+            ) : null}
+            <div className="composer-popover-section">
+              <p className="composer-popover-heading">
+                <span>{t("create.add.subjects")}</span>
+                <button
+                  type="button"
+                  className="border-0 bg-transparent p-0 text-[11px] text-[var(--c-accent-text)]"
+                  onClick={() => navigate("/subjects")}
+                >
+                  {t("create.add.manageSubjects")}
+                </button>
+              </p>
+              {(subjectsQuery.data?.length ?? 0) > 0 ? (
+                <div className="composer-subject-grid">
+                  {subjectsQuery.data?.map((subject) => {
+                    const selected = selectedSubjectIds.includes(subject.subject_id);
+                    const primary = subject.references.find((item) => item.is_primary) ?? subject.references[0];
+                    return (
+                      <button
+                        key={subject.subject_id}
+                        type="button"
+                        className="composer-subject"
+                        aria-pressed={selected}
+                        onClick={() => toggleSubject(subject.subject_id)}
+                        title={`${subject.name} · ${subjectKindLabel(subject, locale === "zh-CN")}`}
+                      >
+                        <span className={`composer-subject-thumb media-ring ${selected ? "media-ring-active" : ""}`}>
+                          {primary ? (
+                            <UploadedImage
+                              fileId={primary.file_id}
+                              token={settings.gatewayToken}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center text-[var(--c-text-tertiary)]">
+                              <Shapes size={18} weight="light" />
+                            </span>
+                          )}
+                          {selected ? (
+                            <span className="asset-tile-check asset-tile-check-on !left-1 !top-1 !h-4 !w-4">
+                              <Check size={9} weight="bold" />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="composer-subject-name">{subject.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="w-full rounded-[var(--radius-sm)] border border-dashed border-[var(--c-border-strong)] bg-transparent px-4 py-5 text-xs text-[var(--c-text-secondary)]"
+                  onClick={() => navigate("/subjects")}
+                >
+                  {t("create.add.emptySubjects")}
+                </button>
+              )}
+              <p className="m-0 mt-2.5 px-1 text-[11px] leading-5 text-[var(--c-text-tertiary)]">
+                {subjectReferencesSupported
+                  ? t("create.add.subjectsWithRefs")
+                  : t("create.add.subjectsTextOnly")}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
-                {openPopover === "format" ? (
-                  <div className="composer-popover composer-popover-wide">
-                    <div className="flex flex-col gap-4">
-                      {!hideVideoRatioSelector &&
-                      Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
-                        <div className="space-y-2">
-                          <p className="m-0 text-label">{t("create.quickRatio")}</p>
-                          <div
-                            className="composer-ratio-grid"
-                            style={{
-                              gridTemplateColumns: `repeat(${(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).length}, minmax(0, 1fr))`,
-                            }}
-                          >
-                            {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
+        {openPopover === "settings" ? (
+          <div className="composer-popover composer-popover-end">
+            <div className="composer-popover-section">
+              <p className="composer-popover-heading">{t("create.quickType")}</p>
+              <div className="segment-group w-full">
+                <button
+                  type="button"
+                  className={`segment-item flex-1 ${currentGenerationKind === "image" ? "segment-active" : ""}`}
+                  onClick={() => onGenerationKindChanged("image")}
+                  disabled={!imageProviders.length}
+                >
+                  <ImageSquare size={14} />
+                  {t("create.quickImage")}
+                </button>
+                <button
+                  type="button"
+                  className={`segment-item flex-1 ${currentGenerationKind === "video" ? "segment-active" : ""}`}
+                  onClick={() => onGenerationKindChanged("video")}
+                  disabled={!videoProviders.length}
+                >
+                  <VideoCamera size={14} />
+                  {t("create.quickVideo")}
+                </button>
+              </div>
+            </div>
+
+            <div className="composer-popover-section">
+              <p className="composer-popover-heading">{t("create.model")}</p>
+              <div className="composer-menu-list">
+                {modelChoices.map((choice) => {
+                  const isSelected = activeModelChoiceKey === choice.key;
+                  return (
+                    <button
+                      type="button"
+                      key={choice.key}
+                      className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
+                      onClick={() => {
+                        if (currentGenerationKind === "image" && choice.familyId) {
+                          selectImageVariant(choice.familyId);
+                        } else if (
+                          currentGenerationKind === "video" &&
+                          choice.familyId &&
+                          videoModelFamilies.some((family) => family.id === choice.familyId)
+                        ) {
+                          selectVideoVariant(choice.familyId);
+                        } else {
+                          setProviderId(choice.providerId);
+                          setModelName(choice.modelName);
+                          if (choice.operationId) {
+                            setOperationId(choice.operationId);
+                          }
+                        }
+                      }}
+                    >
+                      <div className="composer-menu-item__content composer-menu-item__content-stack">
+                        <span>{choice.label}</span>
+                        {choice.meta ? (
+                          <span className="composer-menu-item__meta">{choice.meta}</span>
+                        ) : null}
+                      </div>
+                      {isSelected ? <Check size={13} weight="bold" className="composer-menu-check" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {currentGenerationKind === "image" &&
+              currentImageFamily &&
+              currentImageFamilySupportsModeSwitch ? (
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="m-0 text-label">{t("create.quickMode")}</p>
+                    {hasImageSourceAttachments ? (
+                      <span className="text-[11px] text-[var(--c-text-tertiary)]">
+                        {t("create.imageModeAutoEdit")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="segment-group w-full">
+                    <button
+                      type="button"
+                      className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
+                      onClick={() => selectImageVariant(currentImageFamily.id, { asyncEnabled: false })}
+                    >
+                      {t("create.imageAsyncOff")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
+                      onClick={() => {
+                        if (hasImageSourceAttachments) {
+                          return;
+                        }
+                        selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
+                      }}
+                      disabled={hasImageSourceAttachments}
+                    >
+                      {t("create.imageAsyncOn")}
+                    </button>
+                  </div>
+                  <p className="m-0 px-1 text-[11px] leading-5 text-[var(--c-text-secondary)]">
+                    {currentImageAsyncEnabled
+                      ? t("create.imageModeBudgetDesc")
+                      : t("create.imageModeFastDesc")}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            {hasQuickParams ? (
+              <div className="composer-popover-section flex flex-col gap-3.5">
+                {!hideVideoRatioSelector &&
+                Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
+                  <div>
+                    <p className="composer-popover-heading">{t("create.quickRatio")}</p>
+                    <div
+                      className="composer-ratio-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).length}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
+                        <button
+                          type="button"
+                          key={`ratio_${ratio}`}
+                          className={`composer-ratio-card ${currentRatioDisplay === ratio ? "composer-ratio-card-active" : ""}`}
+                          onClick={() => onRatioChanged(ratio)}
+                        >
+                          <span className="composer-ratio-card__preview">
+                            <span
+                              className="composer-ratio-card__frame"
+                              style={buildRatioPreviewStyle(ratio)}
+                            />
+                          </span>
+                          <span className="composer-ratio-card__label">{ratio}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {(currentGenerationKind === "image"
+                  ? imageResolutionChoices.length > 0
+                  : selectedProvider?.type === "tuzi_veo"
+                    ? videoResolutionChoices.length > 0
+                    : hasQuickSize) ? (
+                  <div>
+                    <p className="composer-popover-heading">
+                      {currentGenerationKind === "image"
+                        ? t("create.imageResolutionLabel")
+                        : t("create.quickSize")}
+                    </p>
+                    <div className="composer-resolution-grid">
+                      {currentGenerationKind === "image"
+                        ? imageResolutionChoices.map((resolution) => (
+                            <button
+                              type="button"
+                              key={resolution}
+                              className={`composer-resolution-card ${currentImageResolutionLabel === resolution ? "composer-resolution-card-active" : ""}`}
+                              onClick={() => {
+                                if (!currentImageFamily) {
+                                  return;
+                                }
+                                selectImageVariant(currentImageFamily.id, {
+                                  resolutionLabel: resolution,
+                                });
+                              }}
+                            >
+                              <span className="composer-resolution-card__eyebrow">
+                                {describeResolutionChoice(resolution, locale)}
+                              </span>
+                              <span className="composer-resolution-card__label">{resolution}</span>
+                            </button>
+                          ))
+                        : (selectedProvider?.type === "tuzi_veo"
+                            ? videoResolutionChoices
+                            : qualityField
+                              ? qualityChoices
+                              : sizeChoices).map((size) => {
+                            const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
+                            const isTuziVeo = selectedProvider?.type === "tuzi_veo";
+                            const resolvedActive = isTuziVeo
+                              ? currentVideoVariant?.resolutionLabel === size
+                              : active;
+                            const label = qualityField
+                              ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                              : size;
+                            return (
                               <button
                                 type="button"
-                                key={`ratio_${ratio}`}
-                                className={`composer-ratio-card ${currentRatioDisplay === ratio ? "composer-ratio-card-active" : ""}`}
-                                onClick={() => onRatioChanged(ratio)}
+                                key={`size_${size}`}
+                                className={`composer-resolution-card ${resolvedActive ? "composer-resolution-card-active" : ""}`}
+                                onClick={() => onSizeChanged(size)}
                               >
-                                <span className="composer-ratio-card__preview">
-                                  <span
-                                    className="composer-ratio-card__frame"
-                                    style={buildRatioPreviewStyle(ratio)}
-                                  />
-                                </span>
-                                <span className="composer-ratio-card__label">{ratio}</span>
+                                <span className="composer-resolution-card__eyebrow">{t("create.quickSize")}</span>
+                                <span className="composer-resolution-card__label">{label}</span>
                               </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
+                            );
+                          })}
+                    </div>
+                  </div>
+                ) : null}
 
-                      {(currentGenerationKind === "image"
-                        ? imageResolutionChoices.length > 0
-                        : selectedProvider?.type === "tuzi_veo"
-                          ? videoResolutionChoices.length > 0
-                          : hasQuickSize) ? (
-                        <div className="space-y-2">
-                          <p className="m-0 text-label">
-                            {currentGenerationKind === "image"
-                              ? t("create.imageResolutionLabel")
-                              : t("create.quickSize")}
-                          </p>
-                          <div className="composer-resolution-grid">
-                            {currentGenerationKind === "image"
-                              ? imageResolutionChoices.map((resolution) => (
-                                  <button
-                                    type="button"
-                                    key={resolution}
-                                    className={`composer-resolution-card ${currentImageResolutionLabel === resolution ? "composer-resolution-card-active" : ""}`}
-                                    onClick={() => {
-                                      if (!currentImageFamily) {
-                                        return;
-                                      }
-                                      selectImageVariant(currentImageFamily.id, {
-                                        resolutionLabel: resolution,
-                                      });
-                                    }}
-                                  >
-                                    <span className="composer-resolution-card__eyebrow">
-                                      {describeResolutionChoice(resolution, locale)}
-                                    </span>
-                                    <span className="composer-resolution-card__label">{resolution}</span>
-                                  </button>
-                                ))
-                              : (selectedProvider?.type === "tuzi_veo"
-                                  ? videoResolutionChoices
-                                  : qualityField
-                                    ? qualityChoices
-                                    : sizeChoices).map((size) => {
-                                  const active = qualityField ? qualityValue === size : currentSizeDisplay === size;
-                                  const isTuziVeo = selectedProvider?.type === "tuzi_veo";
-                                  const resolvedActive = isTuziVeo
-                                    ? currentVideoVariant?.resolutionLabel === size
-                                    : active;
-                                  const label = qualityField
-                                    ? qualityField.options.find((option) => option.value === size)?.label ?? size
-                                    : size;
-                                  return (
-                                    <button
-                                      type="button"
-                                      key={`size_${size}`}
-                                      className={`composer-resolution-card ${resolvedActive ? "composer-resolution-card-active" : ""}`}
-                                      onClick={() => onSizeChanged(size)}
-                                    >
-                                      <span className="composer-resolution-card__eyebrow">{t("create.quickSize")}</span>
-                                      <span className="composer-resolution-card__label">{label}</span>
-                                    </button>
-                                  );
-                                })}
-                          </div>
-                        </div>
-                      ) : null}
+                {orientationField && orientationChoices.length > 0 ? (
+                  <div>
+                    <p className="composer-popover-heading">{t("create.quickOrientation")}</p>
+                    <div className="composer-choice-grid">
+                      {orientationChoices.map((option) => (
+                        <button
+                          type="button"
+                          key={`o_${option.value}`}
+                          className={`composer-choice-pill ${orientationValue === option.value ? "composer-choice-pill-active" : ""}`}
+                          onClick={() => onOrientationChanged(option.value)}
+                        >
+                          <span className="composer-choice-pill__label">{option.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
-                      {orientationField && orientationChoices.length > 0 ? (
-                        <div className="space-y-2">
-                          <p className="m-0 text-label">{t("create.quickOrientation")}</p>
-                          <div className="composer-choice-grid composer-choice-grid-3">
-                            {orientationChoices.map((option) => (
-                              <button
-                                type="button"
-                                key={`o_${option.value}`}
-                                className={`composer-choice-pill ${orientationValue === option.value ? "composer-choice-pill-active" : ""}`}
-                                onClick={() => onOrientationChanged(option.value)}
-                              >
-                                <span className="composer-choice-pill__label">{option.label}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {durationField && durationChoices.length > 0 ? (
-                        <div className="space-y-2">
-                          <p className="m-0 text-label">{t("create.quickDuration")}</p>
-                          <div className="composer-choice-strip">
-                            {durationChoices.map((seconds) => (
-                              <button
-                                type="button"
-                                key={`d_${seconds}`}
-                                className={`composer-choice-pill ${durationValue === String(seconds) ? "composer-choice-pill-active" : ""}`}
-                                onClick={() => onFieldChanged(durationField!, String(seconds))}
-                              >
-                                <span className="composer-choice-pill__label">{seconds}s</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
+                {durationField && durationChoices.length > 0 ? (
+                  <div>
+                    <p className="composer-popover-heading">{t("create.quickDuration")}</p>
+                    <div className="composer-choice-strip">
+                      {durationChoices.map((seconds) => (
+                        <button
+                          type="button"
+                          key={`d_${seconds}`}
+                          className={`composer-choice-pill ${durationValue === String(seconds) ? "composer-choice-pill-active" : ""}`}
+                          onClick={() => onFieldChanged(durationField!, String(seconds))}
+                        >
+                          <span className="composer-choice-pill__label">{seconds}s</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ) : null}
               </div>
             ) : null}
 
-            {advancedFields.length > 0 ? (
-              <button
-                type="button"
-                className="chip"
-                onClick={() => {
-                  setOpenPopover(null);
-                  setShowAdvanced(true);
-                }}
-              >
-                <Faders size={13} weight="bold" />
-                <span>{t("create.advancedLabel")}</span>
-              </button>
+            {usesOfficialGptImage25Parameters && (resolutionField || qualityField || backgroundField) ? (
+              <div className="composer-popover-section">
+                <p className="composer-popover-heading">{t("create.quickFormat")}</p>
+                <div className="flex flex-col gap-2">
+                  {resolutionField ? (
+                    <select
+                      className="input-base py-1.5 text-xs"
+                      value={resolutionValue}
+                      aria-label={resolutionField.label}
+                      title={resolutionField.label}
+                      onChange={(event) => onFieldChanged(resolutionField, event.target.value)}
+                    >
+                      {resolutionField.options.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {qualityField ? (
+                    <select
+                      className="input-base py-1.5 text-xs"
+                      value={qualityValue}
+                      aria-label={qualityField.label}
+                      title={qualityField.label}
+                      onChange={(event) => onFieldChanged(qualityField, event.target.value)}
+                    >
+                      {qualityField.options.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {backgroundField ? (
+                    <label className="flex cursor-pointer select-none items-center gap-2 px-1 text-xs text-[var(--c-text)]">
+                      <input
+                        type="checkbox"
+                        className="accent-[var(--c-accent)]"
+                        checked={backgroundValue === "transparent"}
+                        onChange={(event) => {
+                          const transparent = event.target.checked;
+                          onFieldChanged(backgroundField, transparent ? "transparent" : "auto");
+                          if (transparent && outputFormatField && outputFormatValue === "jpeg") {
+                            onFieldChanged(outputFormatField, "png");
+                          }
+                        }}
+                      />
+                      <span>{t("create.transparentBackground")}</span>
+                    </label>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
 
-            <kbd className="composer-shortcut">
-              {keyboardShortcutLabel}
-            </kbd>
-
-            {inProgressCount > 0 ? (
-              <span className="tag tag-warning font-mono tabular-nums text-[10px]">
-                {t("app.topbar.queue", { count: inProgressCount })}
-              </span>
+            {advancedFields.length > 0 || composerMediaFields.length > 0 ? (
+              <div className="composer-popover-section">
+                <button
+                  type="button"
+                  className="btn-secondary w-full"
+                  onClick={() => {
+                    setOpenPopover(null);
+                    setShowAdvanced(true);
+                  }}
+                >
+                  <Faders size={13} />
+                  {t("create.advancedLabel")}
+                </button>
+              </div>
             ) : null}
           </div>
-        </div>
+        ) : null}
+
+        {hint ? <p className="composer-hint">{hint}</p> : null}
       </form>
 
+      {recentStrip.length > 0 ? (
+        <div className="recent-row" aria-label={t("create.recentTasks")}>
+          {recentStrip.map((task) => {
+            const tone = statusTone(task);
+            const thumb =
+              (task.asset_type === "video" ? extractVideoPoster(task) : null) ??
+              extractImageUrls(task)[0] ??
+              null;
+            return (
+              <button
+                key={task.task_id}
+                type="button"
+                className="recent-thumb"
+                title={`${statusLabel(task)} · ${task.prompt?.slice(0, 60) ?? ""}`}
+                onClick={() => setRecentOverlayTaskId(task.task_id)}
+              >
+                {thumb && tone === "ok" ? <img src={thumb} alt="" loading="lazy" /> : null}
+                {tone === "warn" ? (
+                  <span className="recent-thumb-state">
+                    <CircleNotch size={14} className="animate-spin text-[var(--c-accent)]" />
+                  </span>
+                ) : tone === "danger" ? (
+                  <span className="recent-thumb-state bg-[var(--c-error-bg)] text-[var(--c-error-text)]">
+                    <WarningCircle size={14} />
+                  </span>
+                ) : !thumb ? (
+                  <span className="recent-thumb-state">
+                    {task.asset_type === "video" ? <VideoCamera size={14} /> : <ImageSquare size={14} />}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className="topbar-text-link ml-1 text-[11px] text-[var(--c-text-secondary)]"
+            onClick={() => navigate("/works")}
+          >
+            {t("create.viewAll")}
+          </button>
+        </div>
+      ) : null}
+      </div>
+
       {/* ── Advanced Panel (slide-up overlay) ────────── */}
-      {showAdvanced && advancedFields.length > 0 ? (
+      {showAdvanced && (advancedFields.length > 0 || composerMediaFields.length > 0) ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-overlay"
           onClick={() => setShowAdvanced(false)}
@@ -2565,9 +2554,11 @@ export function CreatePage(props: Props) {
 /* ── Inline Thumbnail Component ─────────────────────── */
 function InlineThumb({
   item,
+  removeLabel,
   onRemove,
 }: {
   item: { source: "local" | "reused"; file?: File; fileId?: string };
+  removeLabel: string;
   onRemove: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -2591,13 +2582,186 @@ function InlineThumb({
   }, [item.source, item.file, item.fileId, gatewayToken]);
 
   return (
-    <div className="composer-thumb">
-      {url ? <img src={url} alt="" /> : <div className="h-full w-full bg-[var(--c-surface-inset)]" />}
-      <button type="button" className="composer-thumb-remove" onClick={onRemove}>
-        <X size={10} weight="bold" />
+    <span className="ref-chip">
+      {url ? <img src={url} alt="" className="ref-chip-thumb" /> : <span className="ref-chip-thumb" />}
+      <button type="button" className="ref-chip-remove" onClick={onRemove} aria-label={removeLabel}>
+        <X size={10} weight="regular" />
       </button>
+    </span>
+  );
+}
+
+function SubjectRefChip({
+  subject,
+  token,
+  removeLabel,
+  onRemove,
+}: {
+  subject: SubjectAsset;
+  token: string;
+  removeLabel: string;
+  onRemove: () => void;
+}) {
+  const primary = subject.references.find((item) => item.is_primary) ?? subject.references[0];
+  return (
+    <span className="ref-chip" title={subject.name}>
+      <span className="ref-chip-name">{subject.name}</span>
+      {primary ? (
+        <UploadedImage fileId={primary.file_id} token={token} alt="" className="ref-chip-thumb" />
+      ) : null}
+      <button type="button" className="ref-chip-remove" onClick={onRemove} aria-label={removeLabel}>
+        <X size={10} weight="regular" />
+      </button>
+    </span>
+  );
+}
+
+function ScenePicker({
+  scenes,
+  sceneId,
+  newSceneTitle,
+  crumbTitle,
+  sceneOrdinal,
+  statusNote,
+  onSelect,
+  onNewSceneTitleChange,
+  onManage,
+}: {
+  scenes: Scene[];
+  sceneId: string;
+  newSceneTitle: string;
+  crumbTitle: string;
+  sceneOrdinal: number;
+  statusNote: string;
+  onSelect: (sceneId: string) => void;
+  onNewSceneTitleChange: (title: string) => void;
+  onManage: () => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!anchorRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const pick = (nextSceneId: string) => {
+    onSelect(nextSceneId);
+    if (nextSceneId !== "__new__") {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="dropdown-anchor min-w-0" ref={anchorRef}>
+      <button
+        type="button"
+        className="crumb-label"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="crumb-title">{crumbTitle}</span>
+        {sceneOrdinal > 0 ? (
+          <>
+            <span className="crumb-sep">/</span>
+            <span className="tabular-nums">{formatSceneOrdinal(sceneOrdinal)}</span>
+          </>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="menu-popover menu-popover-left w-[280px] max-w-[calc(100vw-32px)]" role="menu">
+          <p className="menu-section-label">{t("create.scene.menuTitle")}</p>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={!sceneId}
+            className={`menu-item ${!sceneId ? "menu-item-active" : ""}`}
+            onClick={() => pick("")}
+          >
+            <span className="menu-item-label">{t("create.scene.standalone")}</span>
+            {!sceneId ? <Check size={12} weight="bold" /> : null}
+          </button>
+          {scenes.map((scene, index) => (
+            <button
+              key={scene.scene_id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={sceneId === scene.scene_id}
+              className={`menu-item ${sceneId === scene.scene_id ? "menu-item-active" : ""}`}
+              onClick={() => pick(scene.scene_id)}
+            >
+              <span className="menu-item-label">{scene.title}</span>
+              {sceneId === scene.scene_id ? (
+                <Check size={12} weight="bold" />
+              ) : (
+                <span className="menu-item-meta tabular-nums">{formatSceneOrdinal(index + 1)}</span>
+              )}
+            </button>
+          ))}
+          <div className="menu-divider" />
+          {sceneId === "__new__" ? (
+            <div className="px-1.5 pb-1">
+              <input
+                className="input-base py-1.5 text-xs"
+                value={newSceneTitle}
+                maxLength={160}
+                autoFocus
+                onChange={(event) => onNewSceneTitleChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setOpen(false);
+                  }
+                }}
+                placeholder={t("create.scene.newPlaceholder")}
+              />
+            </div>
+          ) : (
+            <button type="button" className="menu-item" onClick={() => pick("__new__")}>
+              <span className="menu-item-label">{t("create.scene.new")}</span>
+              <Plus size={12} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => {
+              setOpen(false);
+              onManage();
+            }}
+          >
+            <span className="menu-item-label text-[var(--c-text-secondary)]">{t("create.scene.manage")}</span>
+          </button>
+          {statusNote ? (
+            <p className="m-0 px-2.5 pb-1.5 pt-1 text-[11px] leading-5 text-[var(--c-text-tertiary)]">{statusNote}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function formatSceneOrdinal(ordinal: number): string {
+  return `Scene ${String(ordinal).padStart(2, "0")}`;
 }
 
 function DynamicInput(props: {

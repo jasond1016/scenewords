@@ -21,6 +21,7 @@ import {
   fetchScenes,
   finalizeScene,
 } from "../api";
+import { HeaderActions } from "../components/AppTopBar";
 import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n } from "../i18n";
 import { buildReuseDraft } from "../overlayTaskActions";
@@ -54,22 +55,21 @@ function SceneIndex() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex w-full flex-col gap-2">
+      <HeaderActions>
+        <button type="button" className="btn-outline" onClick={() => navigate("/create")}>
+          <Plus size={13} /> {isZh ? "创建场景" : "Create scene"}
+        </button>
+      </HeaderActions>
+      <header className="page-header">
         <div>
-          <p className="m-0 text-label">{isZh ? "创作工作台" : "Creation workspace"}</p>
-          <h1 className="m-0 mt-2 text-3xl font-semibold tracking-tight text-[var(--c-text)]">
-            {isZh ? "场景" : "Scenes"}
-          </h1>
-          <p className="m-0 mt-2 max-w-2xl text-sm leading-6 text-[var(--c-text-secondary)]">
+          <h1 className="page-title">{isZh ? "场景" : "Scenes"}</h1>
+          <p className="page-subtitle">
             {isZh
               ? "在一个场景里比较不同创作方向，选定候选，再沿版本链继续精修。"
               : "Compare creative directions, choose a candidate, and refine it through versions."}
           </p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => navigate("/create") }>
-          <Plus size={16} /> {isZh ? "创建场景" : "Create scene"}
-        </button>
       </header>
 
       {scenesQuery.isLoading ? (
@@ -259,7 +259,7 @@ function SceneWorkspace({ sceneId, catalog }: { sceneId: string; catalog?: Provi
             <ArrowLeft size={16} /> {isZh ? "全部场景" : "All scenes"}
           </button>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="m-0 text-3xl font-semibold tracking-tight text-[var(--c-text)]">{scene.title}</h1>
+            <h1 className="page-title">{scene.title}</h1>
             <span className={scene.current_final_id ? "tag tag-success" : scene.approved_version_id ? "tag tag-warning" : "tag"}>
               {scene.current_final_id
                 ? isZh ? "已定稿" : "Final ready"

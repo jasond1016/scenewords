@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Check,
+  CircleNotch,
   MagnifyingGlass,
+  Play,
+  WarningCircle,
 } from "@phosphor-icons/react";
-import { adoptGenerationVersion, fetchTaskCostSummary, fetchTaskDetail, fetchTaskPage } from "../api";
+import { adoptGenerationVersion, fetchTaskDetail, fetchTaskPage } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
-import { SkeletonGrid, EmptyStateWorks } from "../components/Skeletons";
+import { HeaderActions } from "../components/AppTopBar";
+import { Dropdown, DropdownOption } from "../components/Dropdown";
+import { EmptyStateWorks } from "../components/Skeletons";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
-import { TaskPreviewCard } from "../components/TaskPreviewCard";
 import { useI18n, type TranslateFn } from "../i18n";
 import {
   buildLightboxItems,
-  inferTaskPortrait,
+  extractVideoPoster,
+  inferTaskAspectRatio,
   inferTaskOrientation,
   type LightboxKind,
 } from "../lightbox";
@@ -44,14 +50,11 @@ import {
   useEscapeToClose,
   useOverlayScrollLock,
 } from "../useMediaOverlay";
-import { useScrollEntry } from "../useScrollEntry";
 import type { VideoTaskDetail, VideoTaskResponse } from "../types";
 import {
   errorMessage,
-  formatCostAmount,
+  extractImageUrls,
   formatTime,
-  resolveTaskCostState,
-  summarizeTaskCosts,
 } from "../utils";
 
 interface Props {
@@ -61,7 +64,11 @@ interface Props {
 
 type BrowseFilter = "all" | "image" | "video";
 type StageFilter = "all" | "draft" | "final";
+type SortOrder = "recent" | "oldest";
 const TASK_PAGE_SIZE = 50;
+const ALL_PROJECTS = "__all__";
+const STANDALONE_PROJECT = "__standalone__";
+const GRID_GAP = 8;
 
 export function WorksPage(props: Props) {
   const { tasks, loading } = props;
@@ -71,14 +78,18 @@ export function WorksPage(props: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const handledTaskDeepLinkRef = useRef<string>("");
-  const inProgressSectionRef = useRef<HTMLElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
+  const [projectFilter, setProjectFilter] = useState(ALL_PROJECTS);
   const [searchQuery, setSearchQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set());
+  const [measuredRatios, setMeasuredRatios] = useState<Record<string, number>>({});
   const [hint, setHint] = useState("");
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
   const [isMediaExpanded, setIsMediaExpanded] = useState(false);
@@ -104,29 +115,20 @@ export function WorksPage(props: Props) {
     }
   }, [nextOffset, tasks]);
 
-  const inProgressTasks = useMemo(
-    () => allTasks.filter((task) => task.status === "queued" || task.status === "running"),
-    [allTasks],
-  );
-  const taskCostSummaryQuery = useQuery({
-    queryKey: ["task-cost-summary", settings.gatewayToken],
-    queryFn: () => fetchTaskCostSummary(settings.gatewayToken),
-    staleTime: 30_000,
-    refetchInterval: inProgressTasks.length > 0 ? 4_000 : 20_000,
-  });
+  useEffect(() => {
+    if (!hint) {
+      return;
+    }
+    const timer = window.setTimeout(() => setHint(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [hint]);
+
   const completedTasks = useMemo(
     () =>
       allTasks
         .filter((task) => task.status !== "queued" && task.status !== "running")
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)),
     [allTasks],
-  );
-  const inProgressBreakdown = useMemo(
-    () => ({
-      imageCount: inProgressTasks.filter((task) => task.asset_type === "image").length,
-      videoCount: inProgressTasks.filter((task) => task.asset_type === "video").length,
-    }),
-    [inProgressTasks],
   );
 
   const providerOptions = useMemo(
@@ -140,6 +142,34 @@ export function WorksPage(props: Props) {
       ).sort((left, right) => left.localeCompare(right)),
     [completedTasks],
   );
+  const projectOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; title: string; count: number }>();
+    for (const task of allTasks) {
+      if (!task.scene_id) {
+        continue;
+      }
+      const current = byId.get(task.scene_id);
+      if (current) {
+        current.count += 1;
+      } else {
+        byId.set(task.scene_id, {
+          id: task.scene_id,
+          title: task.scene_title || task.scene_id.slice(0, 8),
+          count: 1,
+        });
+      }
+    }
+    return Array.from(byId.values()).sort((left, right) => left.title.localeCompare(right.title));
+  }, [allTasks]);
+  const kindCounts = useMemo(
+    () => ({
+      all: completedTasks.length,
+      image: completedTasks.filter((task) => task.asset_type === "image").length,
+      video: completedTasks.filter((task) => task.asset_type === "video").length,
+    }),
+    [completedTasks],
+  );
+
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredTasks = useMemo(() => {
     let nextList = allTasks;
@@ -149,34 +179,42 @@ export function WorksPage(props: Props) {
     if (stageFilter !== "all") {
       nextList = nextList.filter((task) => task.task_stage === stageFilter);
     }
-
+    if (projectFilter === STANDALONE_PROJECT) {
+      nextList = nextList.filter((task) => !task.scene_id);
+    } else if (projectFilter !== ALL_PROJECTS) {
+      nextList = nextList.filter((task) => task.scene_id === projectFilter);
+    }
     if (providerFilter !== "all") {
       nextList = nextList.filter((task) => task.provider === providerFilter);
     }
-    if (!normalizedSearchQuery) {
-      return nextList;
+    if (normalizedSearchQuery) {
+      nextList = nextList.filter((task) => {
+        const searchable = [
+          task.task_id,
+          task.provider,
+          task.model,
+          task.scene_title ?? "",
+          task.prompt ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return searchable.includes(normalizedSearchQuery);
+      });
     }
-    return nextList.filter((task) => {
-      const searchable = [
-        task.task_id,
-        task.provider,
-        task.model,
-        task.prompt ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(normalizedSearchQuery);
-    });
-  }, [allTasks, browseFilter, normalizedSearchQuery, providerFilter, stageFilter]);
+    const direction = sortOrder === "recent" ? -1 : 1;
+    return [...nextList].sort(
+      (left, right) => direction * (Date.parse(left.created_at) - Date.parse(right.created_at)),
+    );
+  }, [allTasks, browseFilter, normalizedSearchQuery, projectFilter, providerFilter, sortOrder, stageFilter]);
   const assetList = useMemo(
     () => filteredTasks.filter((task) => task.status !== "queued" && task.status !== "running"),
     [filteredTasks],
   );
-  const visibleCostSummary = useMemo(
-    () => summarizeTaskCosts(filteredTasks),
+  const inProgressList = useMemo(
+    () => filteredTasks.filter((task) => task.status === "queued" || task.status === "running"),
     [filteredTasks],
   );
-  const summaryCurrency = taskCostSummaryQuery.data?.currency || settings.currency;
+  const gridTasks = useMemo(() => [...inProgressList, ...assetList], [assetList, inProgressList]);
 
   useEffect(() => {
     if (!assetList.length) {
@@ -187,6 +225,17 @@ export function WorksPage(props: Props) {
       setSelectedTaskId(assetList[0].task_id);
     }
   }, [assetList, selectedTaskId]);
+
+  useEffect(() => {
+    setCheckedIds((current) => {
+      if (!current.size) {
+        return current;
+      }
+      const visible = new Set(assetList.map((task) => task.task_id));
+      const next = new Set(Array.from(current).filter((id) => visible.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [assetList]);
 
   const imageLightboxItems = useMemo(() => buildLightboxItems(assetList, "image"), [assetList]);
   const videoLightboxItems = useMemo(() => buildLightboxItems(assetList, "video"), [assetList]);
@@ -281,6 +330,7 @@ export function WorksPage(props: Props) {
 
   useEscapeToClose(lightboxIndex != null && !isMediaExpanded, () => setLightboxState(null));
   useEscapeToClose(isMediaExpanded, () => setIsMediaExpanded(false));
+  useEscapeToClose(selectMode && !isLightboxOpen, () => exitSelectMode());
 
   const openImageLightbox = (taskId: string, imageUrl?: string) => {
     const index = imageLightboxItems.findIndex(
@@ -316,6 +366,10 @@ export function WorksPage(props: Props) {
 
     handledTaskDeepLinkRef.current = taskId;
     setBrowseFilter("all");
+    setStageFilter("all");
+    setProjectFilter(ALL_PROJECTS);
+    setProviderFilter("all");
+    setSearchQuery("");
     setSelectedTaskId(taskId);
 
     if (targetTask.asset_type === "video") {
@@ -342,6 +396,33 @@ export function WorksPage(props: Props) {
     },
     onError: (error: Error, payload) => {
       setHint(formatTaskActionErrorMessage(payload, error, t));
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (targets: VideoTaskDetail[]) => {
+      let deleted = 0;
+      for (const task of targets) {
+        await runTaskAction(
+          { taskId: task.task_id, assetType: task.asset_type, action: "delete" },
+          settings.gatewayToken,
+        );
+        deleted += 1;
+      }
+      return deleted;
+    },
+    onSuccess: async (deleted, targets) => {
+      const removed = new Set(targets.map((task) => task.task_id));
+      setExtraTasks((current) => current.filter((task) => !removed.has(task.task_id)));
+      setHint(t("works.deletedCount", { count: deleted }));
+      exitSelectMode();
+    },
+    onError: (error: Error) => {
+      setHint(t("works.deleteFailed", { message: error.message }));
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
+      await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
     },
   });
 
@@ -412,9 +493,36 @@ export function WorksPage(props: Props) {
     return () => observer.disconnect();
   }, [hasMorePages, loadMoreMutation, nextOffset]);
 
-  const worksCount = completedTasks.length;
-  const imageCount = completedTasks.filter((task) => task.asset_type === "image").length;
-  const videoCount = completedTasks.filter((task) => task.asset_type === "video").length;
+  function exitSelectMode() {
+    setSelectMode(false);
+    setCheckedIds(new Set());
+  }
+
+  const toggleChecked = (taskId: string) => {
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const recordRatio = (taskId: string, ratio: number) => {
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+      return;
+    }
+    setMeasuredRatios((current) => {
+      const previous = current[taskId];
+      if (previous != null && Math.abs(previous - ratio) < 0.01) {
+        return current;
+      }
+      return { ...current, [taskId]: ratio };
+    });
+  };
+
   const sidebarActions = currentLightboxTask
     ? buildMediaSidebarActions({
         task: currentLightboxTask,
@@ -455,176 +563,278 @@ export function WorksPage(props: Props) {
         }
       : sidebarActions?.retryActions;
 
-  if (loading) {
-    return (
-      <div className="flex w-full flex-col gap-6">
-        <SkeletonGrid count={6} />
-      </div>
-    );
-  }
-
-  const filterPills: Array<{ value: BrowseFilter; label: string; count: number }> = [
-    { value: "all", label: t("works.kindAll"), count: worksCount },
-    { value: "image", label: t("works.kindImage"), count: imageCount },
-    { value: "video", label: t("works.kindVideo"), count: videoCount },
-  ];
+  const kindLabels: Record<BrowseFilter, string> = {
+    all: t("works.filter.all"),
+    image: t("works.kindImage"),
+    video: t("works.kindVideo"),
+  };
+  const stageLabels: Record<StageFilter, string> = {
+    all: t("works.filter.allStages"),
+    draft: t("works.filter.draft"),
+    final: t("works.filter.final"),
+  };
+  const kindTriggerLabel =
+    browseFilter !== "all"
+      ? kindLabels[browseFilter]
+      : stageFilter !== "all"
+        ? stageLabels[stageFilter]
+        : kindLabels.all;
+  const projectTriggerLabel =
+    projectFilter === ALL_PROJECTS
+      ? providerFilter !== "all"
+        ? providerFilter
+        : t("works.filter.project")
+      : projectFilter === STANDALONE_PROJECT
+        ? t("works.filter.standalone")
+        : projectOptions.find((option) => option.id === projectFilter)?.title ?? t("works.filter.project");
+  const checkedTasks = assetList.filter((task) => checkedIds.has(task.task_id));
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <section className="card">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <div className="segment-group">
-              {filterPills.map((pill) => {
-                const isActive = browseFilter === pill.value;
-                return (
-                  <button
-                    type="button"
-                    key={pill.value}
-                    onClick={() => setBrowseFilter(pill.value)}
-                    className={`segment-item ${isActive ? "segment-active" : ""}`}
-                  >
-                    {pill.label} {pill.count}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="segment-group">
-              {([
-                { value: "all", label: locale === "zh-CN" ? "全部阶段" : "All stages" },
-                { value: "draft", label: locale === "zh-CN" ? "草稿" : "Draft" },
-                { value: "final", label: locale === "zh-CN" ? "定稿" : "Final" },
-              ] as Array<{ value: StageFilter; label: string }>).map((pill) => (
-                <button
-                  type="button"
-                  key={pill.value}
-                  onClick={() => setStageFilter(pill.value)}
-                  className={`segment-item ${stageFilter === pill.value ? "segment-active" : ""}`}
-                >
-                  {pill.label}
-                </button>
-              ))}
-            </div>
-          </div>
+    <div className="flex w-full flex-col">
+      <HeaderActions>
+        <button
+          type="button"
+          className={`btn-outline ${selectMode ? "btn-outline-active" : ""}`}
+          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+          disabled={!selectMode && !assetList.length}
+        >
+          {selectMode ? t("works.selectDone") : t("works.select")}
+        </button>
+      </HeaderActions>
 
-          <div className="grid gap-2 sm:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)] sm:items-center xl:grid-cols-[minmax(280px,360px)_minmax(220px,1fr)_auto]">
-            <label className="flex h-10 w-full min-w-0 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-3 shadow-[var(--shadow-xs)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--c-border-focus)] focus-within:shadow-[0_0_0_3px_rgba(161,161,170,0.12)]">
-              <MagnifyingGlass
-                size={14}
-                weight="regular"
-                className="shrink-0 text-[var(--c-text-tertiary)]"
-              />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={t("works.searchPlaceholder")}
-                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-tertiary)]"
-                aria-label={t("works.searchPlaceholder")}
-              />
-            </label>
-            <select
-              value={providerFilter}
-              onChange={(event) => setProviderFilter(event.target.value)}
-              className="input-base h-10 w-full min-w-0"
-              aria-label={t("works.allProviders")}
-            >
-              <option value="all">{t("works.allProviders")}</option>
-              {providerOptions.map((provider) => (
-                <option key={provider} value={provider}>
-                  {provider}
-                </option>
-              ))}
-            </select>
-            {!!inProgressTasks.length && (
-              <span className="tag tag-warning font-mono tabular-nums">
-                {t("works.inProgressBreakdown", { imageCount: inProgressBreakdown.imageCount, videoCount: inProgressBreakdown.videoCount })}
-              </span>
-            )}
-          </div>
+      <header className="page-header">
+        <div>
+          <h1 className="page-title">{t("works.title")}</h1>
+          <p className="page-subtitle">{t("works.subtitle")}</p>
         </div>
-      </section>
+      </header>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <CostSummaryTile
-          label={t("works.totalCharged")}
-          value={formatSummaryCost(
-            taskCostSummaryQuery.data?.charged_cost_total ?? 0,
-            summaryCurrency,
-            locale,
-          )}
-        />
-        <CostSummaryTile
-          label={t("works.visibleCharged")}
-          value={formatSummaryCost(
-            visibleCostSummary.chargedCostTotal,
-            summaryCurrency,
-            locale,
-          )}
-        />
-        <CostSummaryTile
-          label={t("works.pendingEstimated")}
-          value={formatSummaryCost(
-            visibleCostSummary.pendingEstimatedCostTotal,
-            summaryCurrency,
-            locale,
-            t("works.estimatedSuffix"),
-          )}
-        />
-      </section>
-
-      {!!inProgressTasks.length && (
-        <section ref={inProgressSectionRef} className="card-flat space-y-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-1">
-              <span className="text-label">{t("works.statsInProgress", { count: inProgressTasks.length })}</span>
-            </div>
-          </div>
-
-          <InProgressStrip
-            tasks={inProgressTasks}
-            locale={locale}
-            t={t}
-            onCancel={(task) =>
-              deleteMutation.mutate({
-                taskId: task.task_id,
-                assetType: task.asset_type,
-                action: "cancel",
-              })
-            }
-            cancelDisabled={deleteMutation.isPending}
+      <div className="asset-toolbar">
+        <label className="search-field flex-1">
+          <MagnifyingGlass size={13} weight="regular" className="shrink-0" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t("works.searchPlaceholder")}
+            aria-label={t("works.searchPlaceholder")}
           />
-        </section>
+        </label>
+        <Dropdown label={kindTriggerLabel} highlighted={browseFilter !== "all" || stageFilter !== "all"}>
+          {(close) => (
+            <>
+              <p className="menu-section-label">{t("works.filter.kind")}</p>
+              {(["all", "image", "video"] as BrowseFilter[]).map((value) => (
+                <DropdownOption
+                  key={value}
+                  label={kindLabels[value]}
+                  meta={kindCounts[value]}
+                  selected={browseFilter === value}
+                  onSelect={() => {
+                    setBrowseFilter(value);
+                    close();
+                  }}
+                />
+              ))}
+              <div className="menu-divider" />
+              <p className="menu-section-label">{t("works.filter.stage")}</p>
+              {(["all", "draft", "final"] as StageFilter[]).map((value) => (
+                <DropdownOption
+                  key={value}
+                  label={stageLabels[value]}
+                  selected={stageFilter === value}
+                  onSelect={() => {
+                    setStageFilter(value);
+                    close();
+                  }}
+                />
+              ))}
+            </>
+          )}
+        </Dropdown>
+        <Dropdown label={sortOrder === "recent" ? t("works.filter.recent") : t("works.filter.oldest")}>
+          {(close) => (
+            <>
+              <p className="menu-section-label">{t("works.filter.sort")}</p>
+              {(["recent", "oldest"] as SortOrder[]).map((value) => (
+                <DropdownOption
+                  key={value}
+                  label={value === "recent" ? t("works.filter.recent") : t("works.filter.oldest")}
+                  selected={sortOrder === value}
+                  onSelect={() => {
+                    setSortOrder(value);
+                    close();
+                  }}
+                />
+              ))}
+            </>
+          )}
+        </Dropdown>
+        <Dropdown
+          label={projectTriggerLabel}
+          highlighted={projectFilter !== ALL_PROJECTS || providerFilter !== "all"}
+        >
+          {(close) => (
+            <>
+              <p className="menu-section-label">{t("works.filter.project")}</p>
+              <DropdownOption
+                label={t("works.filter.allProjects")}
+                selected={projectFilter === ALL_PROJECTS}
+                onSelect={() => {
+                  setProjectFilter(ALL_PROJECTS);
+                  close();
+                }}
+              />
+              <DropdownOption
+                label={t("works.filter.standalone")}
+                selected={projectFilter === STANDALONE_PROJECT}
+                onSelect={() => {
+                  setProjectFilter(STANDALONE_PROJECT);
+                  close();
+                }}
+              />
+              {projectOptions.map((option) => (
+                <DropdownOption
+                  key={option.id}
+                  label={option.title}
+                  meta={option.count}
+                  selected={projectFilter === option.id}
+                  onSelect={() => {
+                    setProjectFilter(option.id);
+                    close();
+                  }}
+                />
+              ))}
+              {providerOptions.length > 1 ? (
+                <>
+                  <div className="menu-divider" />
+                  <p className="menu-section-label">{t("works.filter.model")}</p>
+                  <DropdownOption
+                    label={t("works.allProviders")}
+                    selected={providerFilter === "all"}
+                    onSelect={() => {
+                      setProviderFilter("all");
+                      close();
+                    }}
+                  />
+                  {providerOptions.map((provider) => (
+                    <DropdownOption
+                      key={provider}
+                      label={provider}
+                      selected={providerFilter === provider}
+                      onSelect={() => {
+                        setProviderFilter(provider);
+                        close();
+                      }}
+                    />
+                  ))}
+                </>
+              ) : null}
+            </>
+          )}
+        </Dropdown>
+      </div>
+
+      {loading ? (
+        <MosaicSkeleton />
+      ) : gridTasks.length ? (
+        <JustifiedGrid
+          items={gridTasks}
+          getKey={(task) => task.task_id}
+          getRatio={(task) => measuredRatios[task.task_id] ?? inferTaskAspectRatio(task)}
+          renderItem={(task, width, height, grow) => {
+            const inProgress = task.status === "queued" || task.status === "running";
+            return (
+              <AssetTile
+                key={task.task_id}
+                task={task}
+                width={width}
+                height={height}
+                grow={grow}
+                t={t}
+                ringed={selectMode ? checkedIds.has(task.task_id) : task.task_id === selectedTaskId}
+                selectMode={selectMode && !inProgress}
+                checked={checkedIds.has(task.task_id)}
+                onMeasure={(ratio) => recordRatio(task.task_id, ratio)}
+                cancelDisabled={deleteMutation.isPending}
+                onCancel={() =>
+                  deleteMutation.mutate({
+                    taskId: task.task_id,
+                    assetType: task.asset_type,
+                    action: "cancel",
+                  })
+                }
+                onClick={() => {
+                  if (inProgress) {
+                    return;
+                  }
+                  if (selectMode) {
+                    toggleChecked(task.task_id);
+                    return;
+                  }
+                  setSelectedTaskId(task.task_id);
+                  if (task.asset_type === "video") {
+                    openVideoLightbox(task.task_id);
+                  } else {
+                    openImageLightbox(task.task_id);
+                  }
+                }}
+              />
+            );
+          }}
+        />
+      ) : (
+        <EmptyStateWorks locale={locale} />
       )}
 
-      <section className="card">
-        <div className="space-y-5">
-          <MasonryGrid
-            items={assetList}
-            selectedTaskId={selectedTaskId}
-            setSelectedTaskId={setSelectedTaskId}
-            openImageLightbox={openImageLightbox}
-            openVideoLightbox={openVideoLightbox}
-            formatTime={formatTime}
-            locale={locale}
-          />
-          {hasMorePages ? (
-            <div className="flex justify-center">
-              <div ref={loadMoreSentinelRef} className="flex justify-center">
-                <button
-                  type="button"
-                  className="btn-secondary text-sm"
-                  onClick={() => loadMoreMutation.mutate()}
-                  disabled={loadMoreMutation.isPending}
-                >
-                  {loadMoreMutation.isPending ? t("works.loadingMore") : t("works.loadMore")}
-                </button>
-              </div>
-            </div>
-          ) : null}
+      {hasMorePages && !loading ? (
+        <div ref={loadMoreSentinelRef} className="mt-6 flex justify-center">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => loadMoreMutation.mutate()}
+            disabled={loadMoreMutation.isPending}
+          >
+            {loadMoreMutation.isPending ? t("works.loadingMore") : t("works.loadMore")}
+          </button>
         </div>
-      </section>
+      ) : null}
 
-      {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
+      {selectMode ? (
+        <div className="select-bar" role="toolbar">
+          <span className="tabular-nums text-[var(--c-text-secondary)]">
+            {t("works.selectedCount", { count: checkedTasks.length })}
+          </span>
+          <button
+            type="button"
+            className="btn-ghost text-xs"
+            onClick={() =>
+              setCheckedIds(
+                checkedTasks.length === assetList.length
+                  ? new Set()
+                  : new Set(assetList.map((task) => task.task_id)),
+              )
+            }
+          >
+            {checkedTasks.length === assetList.length ? t("works.selectNone") : t("works.selectAll")}
+          </button>
+          <button
+            type="button"
+            className="btn-danger text-xs"
+            disabled={!checkedTasks.length || bulkDeleteMutation.isPending}
+            onClick={() => {
+              if (window.confirm(t("works.deleteSelectedConfirm", { count: checkedTasks.length }))) {
+                bulkDeleteMutation.mutate(checkedTasks);
+              }
+            }}
+          >
+            {bulkDeleteMutation.isPending ? t("works.deleting") : t("works.deleteSelected")}
+          </button>
+        </div>
+      ) : hint ? (
+        <div className="select-bar pr-[18px]" role="status">
+          <span className="text-[var(--c-text-secondary)]">{hint}</span>
+        </div>
+      ) : null}
 
       {lightboxItem && currentLightboxTask ? (
         <>
@@ -719,7 +929,7 @@ export function WorksPage(props: Props) {
           />
           {isMediaExpanded ? (
             <div
-              className="fixed inset-0 z-[60] bg-[rgba(9,9,11,0.8)] p-4 backdrop-blur-[4px]"
+              className="fixed inset-0 z-[60] bg-[var(--c-overlay)] p-4 backdrop-blur-[4px]"
               role="dialog"
               aria-modal="true"
               onClick={() => setIsMediaExpanded(false)}
@@ -730,14 +940,14 @@ export function WorksPage(props: Props) {
               >
                 <button
                   type="button"
-                  className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(24,24,27,0.82)] text-white shadow-[var(--shadow-lg)] transition-colors hover:bg-[rgba(39,39,42,0.92)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                  className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--c-overlay-chip)] text-[var(--c-on-media)] shadow-[var(--shadow-lg)]"
                   onClick={() => setIsMediaExpanded(false)}
                   aria-label={t("common.close")}
                   title={t("common.close")}
                 >
                   ×
                 </button>
-                <div className="h-full w-full overflow-hidden rounded-[28px] bg-[rgba(10,10,14,0.9)] p-3 shadow-[var(--shadow-overlay)] md:p-4">
+                <div className="h-full w-full overflow-hidden rounded-2xl bg-[var(--c-overlay-panel)] p-3 shadow-[var(--shadow-overlay)] md:p-4">
                   <AppLightboxStage
                     items={lightboxItems}
                     index={lightboxIndex ?? 0}
@@ -758,109 +968,246 @@ export function WorksPage(props: Props) {
   );
 }
 
-function InProgressStrip({
-  tasks,
-  locale,
-  t,
-  onCancel,
-  cancelDisabled,
+/* ── Justified mosaic ───────────────────────────────── */
+
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+    setWidth(element.clientWidth);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) {
+        setWidth(Math.floor(entry.contentRect.width));
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, width] as const;
+}
+
+function targetRowHeight(width: number): number {
+  if (width >= 1200) return 230;
+  if (width >= 880) return 200;
+  if (width >= 600) return 170;
+  return 130;
+}
+
+function JustifiedGrid<T>({
+  items,
+  getKey,
+  getRatio,
+  renderItem,
 }: {
-  tasks: VideoTaskDetail[];
-  locale: string;
-  t: TranslateFn;
-  onCancel: (task: VideoTaskDetail) => void;
-  cancelDisabled?: boolean;
+  items: T[];
+  getKey: (item: T) => string;
+  getRatio: (item: T) => number;
+  renderItem: (item: T, width: number, height: number, grow: boolean) => ReactNode;
 }) {
-  const sortedTasks = [...tasks].sort(
-    (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
-  );
+  const [containerRef, width] = useElementWidth<HTMLDivElement>();
+
+  const rows = useMemo(() => {
+    if (!width) {
+      return [];
+    }
+    const target = targetRowHeight(width);
+    const result: Array<{ key: string; height: number; full: boolean; cells: Array<{ item: T; width: number }> }> = [];
+    let pending: Array<{ item: T; ratio: number }> = [];
+    let ratioSum = 0;
+
+    const flush = (full: boolean) => {
+      if (!pending.length) {
+        return;
+      }
+      const gaps = GRID_GAP * (pending.length - 1);
+      const height = full ? (width - gaps) / ratioSum : Math.min(target, (width - gaps) / ratioSum);
+      result.push({
+        key: getKey(pending[0].item),
+        height,
+        full,
+        cells: pending.map(({ item, ratio }) => ({ item, width: Math.floor(ratio * height) })),
+      });
+      pending = [];
+      ratioSum = 0;
+    };
+
+    for (const item of items) {
+      const ratio = Math.min(Math.max(getRatio(item), 0.5), 2.6);
+      pending.push({ item, ratio });
+      ratioSum += ratio;
+      if (ratioSum * target + GRID_GAP * (pending.length - 1) >= width) {
+        flush(true);
+      }
+    }
+    flush(false);
+    return result;
+  }, [getKey, getRatio, items, width]);
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex min-w-max gap-3">
-        {sortedTasks.map((task) => (
-          <article
-            key={task.task_id}
-            className="flex w-[280px] flex-col gap-3 rounded-2xl border border-border bg-surface px-4 py-4 shadow-[var(--shadow-xs)]"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="tag tag-warning">{t("works.inProgressCardStatus")}</span>
-              <span className="text-[10px] text-[var(--c-text-tertiary)]">
-                {task.asset_type === "image" ? t("works.kindImage") : t("works.kindVideo")}
-              </span>
-            </div>
-            <p className="m-0 line-clamp-3 text-sm font-semibold leading-6 text-[var(--c-text)]">
-              {task.prompt || t("works.emptyPrompt")}
-            </p>
-            <div className="space-y-1 text-[11px] text-[var(--c-text-secondary)]">
-              <p className="m-0 truncate">{task.provider || task.model}</p>
-              <p className="m-0">{formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}</p>
-              <p className="m-0">
-                {renderTaskCostLabel(task, t, locale)}
-              </p>
-            </div>
-            <div className="pt-1">
-              <button
-                type="button"
-                className="btn-danger text-xs"
-                onClick={() => onCancel(task)}
-                disabled={cancelDisabled}
-              >
-                {t("works.cancelInProgress")}
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
+    <div ref={containerRef} className="w-full">
+      {rows.map((row) => (
+        <div key={row.key} className="asset-row" style={{ height: row.height }}>
+          {row.cells.map((cell, index) =>
+            renderItem(cell.item, cell.width, row.height, row.full && index === row.cells.length - 1),
+          )}
+        </div>
+      ))}
     </div>
   );
 }
 
-function CostSummaryTile({
-  label,
-  value,
+function AssetTile({
+  task,
+  width,
+  height,
+  grow,
+  t,
+  ringed,
+  selectMode,
+  checked,
+  onClick,
+  onMeasure,
+  onCancel,
+  cancelDisabled,
 }: {
-  label: string;
-  value: string;
+  task: VideoTaskDetail;
+  width: number;
+  height: number;
+  grow: boolean;
+  t: TranslateFn;
+  ringed: boolean;
+  selectMode: boolean;
+  checked: boolean;
+  onClick: () => void;
+  onMeasure: (ratio: number) => void;
+  onCancel: () => void;
+  cancelDisabled: boolean;
 }) {
+  const [hasError, setHasError] = useState(false);
+  const inProgress = task.status === "queued" || task.status === "running";
+  const isVideo = task.asset_type === "video";
+  const thumb = extractImageUrls(task)[0] ?? null;
+  const poster = isVideo ? extractVideoPoster(task) ?? thumb : thumb;
+
+  let content: ReactNode;
+  if (inProgress) {
+    content = (
+      <div className="asset-tile-state">
+        <CircleNotch size={18} className="animate-spin text-[var(--c-accent)]" />
+        <span>
+          {task.status === "queued"
+            ? task.queue_position
+              ? t("works.queuedTileWithPosition", { position: task.queue_position })
+              : t("works.queuedTile")
+            : t("works.runningTile")}
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
+          className={`btn-outline mt-1 ${cancelDisabled ? "pointer-events-none opacity-40" : ""}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onCancel();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              onCancel();
+            }
+          }}
+        >
+          {t("works.cancelInProgress")}
+        </span>
+      </div>
+    );
+  } else if (task.status === "failed") {
+    content = (
+      <div className="asset-tile-state bg-[var(--c-error-bg)] text-[var(--c-error-text)]">
+        <WarningCircle size={18} />
+        <span>{t("works.generationFailed")}</span>
+      </div>
+    );
+  } else if (poster && !hasError) {
+    content = (
+      <img
+        src={poster}
+        alt={task.prompt?.slice(0, 80) || task.task_id}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          if (image.naturalWidth && image.naturalHeight) {
+            onMeasure(image.naturalWidth / image.naturalHeight);
+          }
+        }}
+        onError={() => setHasError(true)}
+      />
+    );
+  } else if (isVideo) {
+    content = (
+      <div className="asset-tile-state">
+        <Play size={18} weight="fill" />
+        <span>{t("works.kindVideo")}</span>
+      </div>
+    );
+  } else {
+    content = (
+      <div className="asset-tile-state bg-[var(--c-warning-bg)] text-[var(--c-warning-text)]">
+        <WarningCircle size={18} />
+        <span>{t("works.resourceExpired")}</span>
+      </div>
+    );
+  }
+
   return (
-    <article className="card-flat flex min-h-[108px] flex-col justify-between gap-3">
-      <span className="text-label">{label}</span>
-      <strong className="text-2xl font-semibold tracking-tight text-[var(--c-text)]">
-        {value}
-      </strong>
-    </article>
+    <button
+      type="button"
+      className={`asset-tile media-ring ${ringed ? "media-ring-active" : ""} ${inProgress ? "cursor-default" : ""}`}
+      style={grow ? { flex: "1 1 0", minWidth: 0, height } : { width, height }}
+      onClick={onClick}
+      aria-label={task.prompt?.slice(0, 80) || task.task_id}
+      aria-pressed={selectMode ? checked : undefined}
+    >
+      <div className="asset-tile-media">{content}</div>
+      {isVideo && !inProgress && task.status !== "failed" ? (
+        <span className="asset-tile-badge">
+          <Play size={11} weight="fill" />
+        </span>
+      ) : null}
+      {selectMode ? (
+        <span className={`asset-tile-check ${checked ? "asset-tile-check-on" : ""}`}>
+          {checked ? <Check size={11} weight="bold" /> : null}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
-function formatSummaryCost(
-  amount: number,
-  currency: string | null,
-  locale: string,
-  suffix?: string,
-): string {
-  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
-  const base = formatCostAmount(amount, currency, normalizedLocale);
-  return suffix ? `${base} ${suffix}` : base;
-}
-
-function renderTaskCostLabel(
-  task: VideoTaskDetail,
-  t: TranslateFn,
-  locale: string,
-): string {
-  const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
-  const costState = resolveTaskCostState(task);
-  if (costState.kind === "charged" && typeof costState.amount === "number") {
-    return `${t("works.cost")}: ${formatCostAmount(costState.amount, costState.currency, normalizedLocale)}`;
-  }
-  if (costState.kind === "estimated" && typeof costState.amount === "number") {
-    return `${t("works.cost")}: ${formatCostAmount(costState.amount, costState.currency, normalizedLocale)} ${t("works.estimatedSuffix")}`;
-  }
-  if (costState.kind === "not_charged") {
-    return `${t("works.cost")}: ${t("works.notCharged")}`;
-  }
-  return `${t("works.cost")}: ${t("common.na")}`;
+function MosaicSkeleton() {
+  const rows = [
+    [1.7, 1.4, 1.45],
+    [1.1, 1.3, 0.8, 1.6],
+    [1.4, 1.1, 1.2],
+  ];
+  return (
+    <div className="flex flex-col gap-2" aria-hidden="true">
+      {rows.map((row, rowIndex) => (
+        <div key={rowIndex} className="flex h-[180px] gap-2">
+          {row.map((grow, index) => (
+            <div key={index} className="skeleton h-full" style={{ flex: `${grow} 1 0` }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function mergeTaskLists(
@@ -880,173 +1227,4 @@ function inferHasMorePages(tasks: VideoTaskDetail[]): boolean {
   const imageCount = tasks.filter((task) => task.asset_type === "image").length;
   const videoCount = tasks.filter((task) => task.asset_type === "video").length;
   return imageCount >= TASK_PAGE_SIZE || videoCount >= TASK_PAGE_SIZE;
-}
-
-function useWindowWidth() {
-  const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1280);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const handleResize = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  return width;
-}
-
-function estimateCardWeight(task: VideoTaskDetail): number {
-  const portrait = inferTaskOrientation(task) === "portrait";
-  if (task.asset_type === "video") {
-    return portrait ? 1.55 : 1.1;
-  }
-  return portrait ? 1.42 : 0.98;
-}
-
-function MasonryGrid({
-  items,
-  selectedTaskId,
-  setSelectedTaskId,
-  openImageLightbox,
-  openVideoLightbox,
-  formatTime,
-  locale,
-}: {
-  items: VideoTaskDetail[];
-  selectedTaskId: string | null;
-  setSelectedTaskId: (id: string | null) => void;
-  openImageLightbox: (id: string, url?: string) => void;
-  openVideoLightbox: (id: string, url?: string) => void;
-  formatTime: (date: string, locale?: string) => string;
-  locale: string;
-}) {
-  const width = useWindowWidth();
-  const columnCount = width >= 1280 ? 4 : width >= 980 ? 3 : width >= 640 ? 2 : 1;
-
-  const columns = useMemo(() => {
-    const cols: VideoTaskDetail[][] = Array.from({ length: columnCount }, () => []);
-    const columnHeights = Array.from({ length: columnCount }, () => 0);
-    items.forEach((item) => {
-      const weight = estimateCardWeight(item);
-      let shortestIndex = 0;
-      for (let index = 1; index < columnCount; index += 1) {
-        if (columnHeights[index] < columnHeights[shortestIndex]) {
-          shortestIndex = index;
-        }
-      }
-      cols[shortestIndex].push(item);
-      columnHeights[shortestIndex] += weight;
-    });
-    return cols;
-  }, [columnCount, items]);
-  const eagerTaskIds = useMemo(
-    () => new Set(items.slice(0, Math.max(columnCount * 2, 6)).map((task) => task.task_id)),
-    [columnCount, items],
-  );
-
-  if (!items.length) {
-    return <EmptyStateWorks locale={locale} />;
-  }
-
-  return (
-    <div className="flex w-full items-start gap-4">
-      {columns.map((columnItems, columnIndex) => (
-        <div key={columnIndex} className="flex flex-1 flex-col gap-4">
-          {columnItems.map((task) => {
-            return (
-              <DeferredTaskPreviewCard
-                key={task.task_id}
-                task={task}
-                className="media-card p-2"
-                selected={task.task_id === selectedTaskId}
-                forceRender={task.task_id === selectedTaskId || eagerTaskIds.has(task.task_id)}
-                mediaLoading={eagerTaskIds.has(task.task_id) ? "eager" : "lazy"}
-                mediaFetchPriority={eagerTaskIds.has(task.task_id) ? "high" : "auto"}
-                timestampLabel={formatTime(task.created_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
-                modelLabel={task.model || task.provider}
-                statusBadge={{
-                  label: task.task_stage === "final"
-                    ? locale === "zh-CN" ? "定稿" : "Final"
-                    : locale === "zh-CN" ? "草稿" : "Draft",
-                  tone: task.task_stage === "final" ? "ok" : "muted",
-                }}
-                onClick={() => {
-                  setSelectedTaskId(task.task_id);
-                  if (task.asset_type === "video") {
-                    openVideoLightbox(task.task_id);
-                  } else {
-                    openImageLightbox(task.task_id);
-                  }
-                }}
-              />
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DeferredTaskPreviewCard(
-  props: ComponentProps<typeof TaskPreviewCard> & {
-    forceRender?: boolean;
-  },
-) {
-  const { task, forceRender = false } = props;
-  const [entryRef, visible] = useScrollEntry<HTMLDivElement>({
-    rootMargin: "800px 0px",
-    threshold: 0.01,
-  });
-  const shouldRender = forceRender || visible;
-  const aspectClassName = inferTaskPortrait(task) ? "aspect-[3/4]" : "aspect-video";
-
-  return (
-    <div
-      ref={entryRef as RefObject<HTMLDivElement>}
-      className="w-full"
-    >
-      {shouldRender ? (
-        <TaskPreviewCard {...props} />
-      ) : (
-        <DeferredTaskPreviewCardPlaceholder
-          task={task}
-          className={props.className}
-          aspectClassName={aspectClassName}
-        />
-      )}
-    </div>
-  );
-}
-
-function DeferredTaskPreviewCardPlaceholder({
-  task,
-  className,
-  aspectClassName,
-}: {
-  task: VideoTaskDetail;
-  className: string;
-  aspectClassName: string;
-}) {
-  const mediaToneClass =
-    task.asset_type === "video"
-      ? "bg-gradient-to-br from-[var(--c-surface)] via-[var(--c-surface-elevated)] to-[var(--c-canvas)]"
-      : "bg-surface";
-
-  return (
-    <div className={className} aria-hidden="true">
-      <div className={`relative ${aspectClassName} w-full overflow-hidden rounded-xl border border-border ${mediaToneClass}`}>
-        <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-      </div>
-      <div className="mt-2.5 flex flex-col gap-1 px-1 pb-1">
-        <div className="h-3.5 w-[88%] rounded-full bg-[var(--c-surface)]" />
-        <div className="h-3.5 w-[72%] rounded-full bg-[var(--c-surface)]" />
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <div className="h-2.5 w-20 rounded-full bg-[var(--c-surface)]" />
-          <div className="h-2.5 w-14 rounded-full bg-[var(--c-surface)]" />
-        </div>
-      </div>
-    </div>
-  );
 }

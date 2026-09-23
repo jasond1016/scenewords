@@ -236,6 +236,21 @@ export function inferTaskOrientation(task: VideoTaskDetail): MediaOrientation {
   return "landscape";
 }
 
+export function inferTaskAspectRatio(task: VideoTaskDetail): number {
+  const providerWidth = readNumber(task.provider_options ?? {}, "width");
+  const providerHeight = readNumber(task.provider_options ?? {}, "height");
+  if (providerWidth != null && providerHeight != null && providerWidth > 0 && providerHeight > 0) {
+    return providerWidth / providerHeight;
+  }
+  const ratio =
+    parseResolutionRatio(task.resolution) ??
+    readAspectRatio(task.provider_options ?? {}, "aspect_ratio");
+  if (ratio != null && ratio > 0) {
+    return ratio;
+  }
+  return task.asset_type === "video" ? 16 / 9 : 4 / 3;
+}
+
 function resolveMediaDimensions(
   task: VideoTaskDetail,
   isPortraitMode: boolean,

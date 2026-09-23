@@ -8,15 +8,16 @@
 - **后端:** FastAPI (Python) + SQLite + 20 并发 async TaskWorker
 - **前端:** React 18 + TypeScript + Vite + Tailwind CSS v4
 - **图标:** @phosphor-icons/react（weight: regular）
-- **字体:** Geist Sans / Geist Mono
+- **字体:** Noto Serif SC（正文与标题）/ Geist Mono
 - **状态:** Zustand (persist → localStorage) + @tanstack/react-query
 - **Lightbox:** yet-another-react-lightbox
 - **包管理:** pnpm (前端) / uv (后端)
 
-## 设计系统: Studio Glass
+## 设计系统: Paper Studio
 
-- **风格:** Soft Structuralism — 通透、漂浮、高级感
-- **配色:** Cool Zinc Neutral + 单一暖琥珀强调色 (#D97706)
+- **风格:** 纸感留白 — 暖灰画布、细边框、衬线字、克制的阴影
+- **配色:** Warm Paper Neutral + 单一焦糖强调色 (#B5864F)
+- **布局:** 顶栏 wordmark + 创作/资产/主体导航；页面右上操作通过 `HeaderActions` portal 注入（`components/AppTopBar.tsx`）；创作页使用独立 `CreateTopBar` + 居中 composer
 - **Token 命名:** `--c-*`(颜色) / `--shadow-*`(阴影) / `--radius-*`(圆角)
 - **暗色模式:** `:root.dark` class toggle，Zustand 持久化 `theme` 偏好
 - **动效:** `--ease-out-expo` / `--ease-spring`，支持 `prefers-reduced-motion`
@@ -27,7 +28,7 @@
 | 文件 | 职责 |
 |------|------|
 | `docs/architecture-overview.md` | 详尽架构全文（后端 + 前端 + 数据流） |
-| `frontend/src/styles.css` | Studio Glass 设计 token + 全局样式 |
+| `frontend/src/styles.css` | Paper Studio 设计 token + 全局样式（组件类位于 `@layer components`） |
 | `frontend/src/api.ts` | 所有后端 API 调用封装 |
 | `frontend/src/types.ts` | TypeScript 类型（与后端 Pydantic schema 对应） |
 | `frontend/src/state.ts` | Zustand 全局状态（持久化 key: `scenewords_gateway_settings_v1`） |

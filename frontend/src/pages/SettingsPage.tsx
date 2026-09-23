@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
+import { fetchTaskCostSummary } from "../api";
 import { useI18n } from "../i18n";
 import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
-import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY } from "../utils";
+import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY, formatCostAmount } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
 
 interface Props {
@@ -27,6 +29,11 @@ export function SettingsPage(props: Props) {
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("language_gateway");
   const [cacheRevision, setCacheRevision] = useState(0);
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const costSummaryQuery = useQuery({
+    queryKey: ["task-cost-summary", settings.gatewayToken],
+    queryFn: () => fetchTaskCostSummary(settings.gatewayToken),
+    staleTime: 30_000,
+  });
 
   const imageProviders = useMemo(
     () => props.providers.filter((provider) => isImageProviderType(provider.type)),
@@ -115,8 +122,36 @@ export function SettingsPage(props: Props) {
     setHint(t("settings.clearedLocalCache"));
   };
 
+  const costCurrency = costSummaryQuery.data?.currency || settings.currency;
+  const costLocale = isZh ? "zh-CN" : "en-US";
+
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <header className="page-header mb-0">
+        <div>
+          <h1 className="page-title">{t("settings.title")}</h1>
+          <p className="page-subtitle">{t("settings.subtitle")}</p>
+        </div>
+      </header>
+
+      <section className="card grid gap-4 sm:grid-cols-[auto_1fr_1fr] sm:items-center">
+        <h3 className="m-0 text-heading">{t("settings.costs")}</h3>
+        <div className="flex flex-col gap-1">
+          <span className="text-label">{t("works.totalCharged")}</span>
+          <strong className="text-xl font-semibold tabular-nums text-[var(--c-text)]">
+            {formatCostAmount(costSummaryQuery.data?.charged_cost_total ?? 0, costCurrency, costLocale)}
+          </strong>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-label">{t("works.pendingEstimated")}</span>
+          <strong className="text-xl font-semibold tabular-nums text-[var(--c-text-secondary)]">
+            {formatCostAmount(costSummaryQuery.data?.pending_estimated_cost_total ?? 0, costCurrency, costLocale)}
+            {" "}
+            <span className="text-xs font-normal">{t("works.estimatedSuffix")}</span>
+          </strong>
+        </div>
+      </section>
+
       {/* Category pills + restore defaults */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="segment-group flex-wrap">
