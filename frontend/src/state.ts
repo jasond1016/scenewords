@@ -48,11 +48,18 @@ export interface AppSettingsState {
   language: LanguagePreference;
   theme: "light" | "dark" | "system";
   pendingReuseDraft: CreateDraft | null;
+  pendingReuseLoading: boolean;
+  pendingReuseError: string | null;
   setSettings: (partial: Partial<AppSettingsState>) => void;
   setPendingReuseDraft: (draft: CreateDraft | null) => void;
+  setPendingReuseLoading: (loading: boolean) => void;
+  setPendingReuseError: (error: string | null) => void;
 }
 
-const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> = {
+const defaults: Omit<
+  AppSettingsState,
+  "setSettings" | "setPendingReuseDraft" | "setPendingReuseLoading" | "setPendingReuseError"
+> = {
   gatewayToken: "",
   defaultImageProvider: "",
   defaultVideoProvider: "",
@@ -70,6 +77,8 @@ const defaults: Omit<AppSettingsState, "setSettings" | "setPendingReuseDraft"> =
   language: "system",
   theme: "system",
   pendingReuseDraft: null,
+  pendingReuseLoading: false,
+  pendingReuseError: null,
 };
 
 const SETTINGS_STORAGE_VERSION = 3;
@@ -99,6 +108,8 @@ export const useAppSettingsStore = create<AppSettingsState>()(
           ...partial,
         })),
       setPendingReuseDraft: (draft) => set(() => ({ pendingReuseDraft: draft })),
+      setPendingReuseLoading: (loading) => set(() => ({ pendingReuseLoading: loading })),
+      setPendingReuseError: (error) => set(() => ({ pendingReuseError: error })),
     }),
     {
       name: "scenewords_gateway_settings_v1",

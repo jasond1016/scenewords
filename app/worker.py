@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-from collections.abc import Mapping
+import logging
 import mimetypes
+from collections.abc import Mapping
 from pathlib import Path
 import shutil
+from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
@@ -17,6 +19,9 @@ from app.db import TaskStore
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider, ProviderError
 from app.schemas import VideoGenerationRequest
+
+
+ARCHIVE_LOGGER = logging.getLogger("uvicorn.error")
 
 
 class TaskWorker:
@@ -245,6 +250,7 @@ async def _archive_result_assets(
     if not isinstance(result, dict):
         return result
 
+    archive_started = perf_counter()
     archived = dict(result)
     normalized_asset_type = str(asset_type or "video").lower()
     if normalized_asset_type == "image":
@@ -277,6 +283,15 @@ async def _archive_result_assets(
             task_id=task_id,
             result=archived,
             output_dir=provider.app_config.output_dir,
+        )
+        ARCHIVE_LOGGER.info(
+            "image_archive_summary task_id=%s remote_count=%d base64_count=%d "
+            "archived_count=%d total_ms=%.2f",
+            task_id,
+            len(remote_image_urls),
+            len(_extract_base64_images(archived)),
+            len(local_image_urls),
+            (perf_counter() - archive_started) * 1000,
         )
         return archived
 
@@ -388,7 +403,14 @@ async def _download_media_to_local(
     index: int,
 ) -> str | None:
     if not _is_http_url(source_url):
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_fetch task_id=%s index=%d outcome=skipped reason=non_http_url",
+                task_id,
+                index,
+            )
         return None
+    fetch_started = perf_counter()
     try:
         response = await provider.http_client.get(
             source_url,
@@ -396,17 +418,52 @@ async def _download_media_to_local(
             follow_redirects=True,
         )
     except Exception:
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_fetch task_id=%s index=%d outcome=failed reason=request_error "
+                "fetch_ms=%.2f",
+                task_id,
+                index,
+                (perf_counter() - fetch_started) * 1000,
+            )
         return None
     if response.status_code >= 400:
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_fetch task_id=%s index=%d outcome=failed reason=http_status "
+                "status=%d fetch_ms=%.2f",
+                task_id,
+                index,
+                response.status_code,
+                (perf_counter() - fetch_started) * 1000,
+            )
         return None
     content = response.content
+    fetch_ms = (perf_counter() - fetch_started) * 1000
     if not content:
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_fetch task_id=%s index=%d outcome=failed reason=empty_body "
+                "fetch_ms=%.2f",
+                task_id,
+                index,
+                fetch_ms,
+            )
         return None
 
     archive_dir = provider.app_config.output_dir / "assets" / task_id
     try:
         archive_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_write task_id=%s index=%d outcome=failed reason=mkdir "
+                "fetch_ms=%.2f bytes=%d",
+                task_id,
+                index,
+                fetch_ms,
+                len(content),
+            )
         return None
 
     extension = _resolve_media_extension(
@@ -416,10 +473,31 @@ async def _download_media_to_local(
     )
     filename = f"{kind}_{index + 1}{extension}"
     target_path = archive_dir / filename
+    write_started = perf_counter()
     try:
         target_path.write_bytes(content)
     except OSError:
+        if kind == "image":
+            ARCHIVE_LOGGER.info(
+                "image_archive_write task_id=%s index=%d outcome=failed reason=write "
+                "fetch_ms=%.2f write_ms=%.2f bytes=%d",
+                task_id,
+                index,
+                fetch_ms,
+                (perf_counter() - write_started) * 1000,
+                len(content),
+            )
         return None
+    if kind == "image":
+        ARCHIVE_LOGGER.info(
+            "image_archive_item task_id=%s index=%d source=remote_url outcome=archived "
+            "fetch_ms=%.2f write_ms=%.2f bytes=%d",
+            task_id,
+            index,
+            fetch_ms,
+            (perf_counter() - write_started) * 1000,
+            len(content),
+        )
     return f"/v1/assets/{task_id}/{filename}"
 
 
@@ -560,11 +638,27 @@ def _archive_base64_image(
     output_dir: Path,
     index: int,
 ) -> str | None:
+    decode_started = perf_counter()
     try:
         content = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError):
+        ARCHIVE_LOGGER.info(
+            "image_archive_item task_id=%s index=%d source=base64 outcome=failed "
+            "reason=decode decode_ms=%.2f",
+            task_id,
+            index,
+            (perf_counter() - decode_started) * 1000,
+        )
         return None
+    decode_ms = (perf_counter() - decode_started) * 1000
     if not content:
+        ARCHIVE_LOGGER.info(
+            "image_archive_item task_id=%s index=%d source=base64 outcome=failed "
+            "reason=empty_content decode_ms=%.2f",
+            task_id,
+            index,
+            decode_ms,
+        )
         return None
     extension = {"png": ".png", "jpeg": ".jpg", "webp": ".webp"}.get(
         output_format,
@@ -572,9 +666,28 @@ def _archive_base64_image(
     )
     archive_dir = output_dir / "assets" / task_id
     filename = f"image_{index + 1}{extension}"
+    write_started = perf_counter()
     try:
         archive_dir.mkdir(parents=True, exist_ok=True)
         (archive_dir / filename).write_bytes(content)
     except OSError:
+        ARCHIVE_LOGGER.info(
+            "image_archive_item task_id=%s index=%d source=base64 outcome=failed "
+            "reason=write decode_ms=%.2f write_ms=%.2f bytes=%d",
+            task_id,
+            index,
+            decode_ms,
+            (perf_counter() - write_started) * 1000,
+            len(content),
+        )
         return None
+    ARCHIVE_LOGGER.info(
+        "image_archive_item task_id=%s index=%d source=base64 outcome=archived "
+        "decode_ms=%.2f write_ms=%.2f bytes=%d",
+        task_id,
+        index,
+        decode_ms,
+        (perf_counter() - write_started) * 1000,
+        len(content),
+    )
     return f"/v1/assets/{task_id}/{filename}"

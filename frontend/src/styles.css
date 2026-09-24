@@ -202,7 +202,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible {
+:focus-visible:not(.composer-textarea) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -1416,6 +1416,8 @@ select.input-base {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  min-width: 0;
   min-height: calc(100dvh - 56px);
   padding: 24px clamp(16px, 11vw, 116px) 40px;
   box-sizing: border-box;
@@ -1423,16 +1425,21 @@ select.input-base {
 
 .composer {
   position: relative;
-  width: 100%;
+  width: min(100%, 880px);
+  min-width: 0;
   max-width: 880px;
 }
 
 .composer-card {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 22px;
-  min-height: 90px;
-  padding: 10px 13px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 18px 12px;
   box-sizing: border-box;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
@@ -1470,11 +1477,39 @@ select.input-base {
 
 .composer-body {
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   flex-direction: column;
   gap: 8px;
-  padding: 6px 0;
+  padding: 6px 2px 12px;
+}
+
+.composer-clear {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 1;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--c-text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out-expo),
+    color var(--duration-fast) var(--ease-out-expo);
+}
+
+.composer-clear:hover {
+  background: var(--c-surface-hover);
+  color: var(--c-accent-text);
+}
+
+.composer-refs-clearable {
+  padding-right: 56px;
 }
 
 .composer-refs {
@@ -1531,7 +1566,7 @@ select.input-base {
 
 .composer-textarea {
   width: 100%;
-  min-height: 24px;
+  min-height: calc(1.7em * 1);
   max-height: calc(1.7em * 8);
   resize: none;
   overflow-y: hidden;
@@ -1549,7 +1584,15 @@ select.input-base {
   color: var(--c-text-tertiary);
 }
 
+.composer-textarea-clearable {
+  padding-right: 56px;
+}
+
 .composer-base-prompt {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   background: var(--c-surface-inset);
@@ -1558,18 +1601,43 @@ select.input-base {
   color: var(--c-text-secondary);
 }
 
+.composer-base-prompt__content {
+  min-width: 0;
+}
+
+.composer-base-prompt-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  width: 22px;
+  height: 22px;
+  margin: 0 -5px -3px 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--c-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out-expo),
+    color var(--duration-fast) var(--ease-out-expo);
+}
+
+.composer-base-prompt-remove:hover {
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+}
+
 .composer-side {
   display: flex;
   align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-border);
   flex-shrink: 0;
-  align-self: center;
-}
-
-.composer-divider {
-  width: 1px;
-  height: 20px;
-  margin-right: 12px;
-  background: var(--c-border);
 }
 
 .composer-mode {
@@ -1578,6 +1646,7 @@ select.input-base {
   gap: 8px;
   max-width: 180px;
   height: 32px;
+  margin-left: auto;
   padding: 0 12px;
   border: none;
   border-radius: var(--radius-sm);
@@ -1599,7 +1668,6 @@ select.input-base {
   justify-content: center;
   width: 38px;
   height: 38px;
-  margin-left: 10px;
   flex-shrink: 0;
   border: none;
   border-radius: var(--radius-full);
@@ -1633,14 +1701,33 @@ select.input-base {
   color: var(--c-text-secondary);
 }
 
+.composer-clear-toast {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 12px 0 0;
+  font-size: 0.75rem;
+  color: var(--c-text-secondary);
+}
+
+.composer-clear-toast button {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--c-accent-text);
+  cursor: pointer;
+}
+
 /* ── Composer popovers ──────────────────────────────── */
 .composer-popover {
-  position: absolute;
-  bottom: calc(100% + 10px);
+  position: fixed;
+  top: 0;
+  left: 0;
   z-index: 35;
   width: 340px;
   max-width: calc(100vw - 32px);
-  max-height: min(460px, calc(50dvh - 110px));
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 10px;
@@ -1652,12 +1739,7 @@ select.input-base {
   animation: popoverIn 200ms var(--ease-spring) both;
 }
 
-.composer-popover-start {
-  left: 0;
-}
-
 .composer-popover-end {
-  right: 0;
   width: 380px;
 }
 
@@ -1975,22 +2057,32 @@ select.input-base {
 }
 
 @media (max-width: 640px) {
+  .create-stage {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
   .composer-card {
-    flex-wrap: wrap;
-    gap: 12px;
+    min-height: 0;
+    padding: 12px 14px 10px;
+  }
+
+  .composer-clear {
+    top: 9px;
+    right: 14px;
+  }
+
+  .composer-refs-clearable,
+  .composer-textarea-clearable {
+    padding-right: 48px;
   }
 
   .composer-body {
-    flex-basis: calc(100% - 60px);
+    padding: 4px 2px 10px;
   }
 
   .composer-side {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .composer-divider {
-    display: none;
+    padding-top: 8px;
   }
 
   .composer-popover,

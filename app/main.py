@@ -10,6 +10,7 @@ from datetime import datetime
 import mimetypes
 from pathlib import Path
 import shutil
+from time import perf_counter
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -69,6 +70,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 FRONTEND_BUILD_HINT = "Frontend assets not found. Run: pnpm --dir frontend build"
 LOGGER = logging.getLogger("scenewords.shutdown")
 ASYNCIO_LOGGER = logging.getLogger("scenewords.asyncio")
+ARCHIVE_LOGGER = logging.getLogger("uvicorn.error")
 ALLOWED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
@@ -712,15 +714,23 @@ def create_app() -> FastAPI:
     async def _archive_image_output_as_file(
         task_id: str, image_index: int
     ) -> UploadedFileResponse:
+        import_started = perf_counter()
+        task_lookup_started = perf_counter()
         try:
             task = app.state.store.get_task(task_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Task not found") from error
+        task_lookup_ms = (perf_counter() - task_lookup_started) * 1000
         if task.get("asset_type") != "image" or task.get("status") != "succeeded":
             raise HTTPException(status_code=409, detail="Task has no completed image result")
         result = task.get("result") or {}
         file_bytes: bytes | None = None
         mime_type: str | None = None
+        source_kind = "remote_url"
+        source_elapsed_ms = 0.0
+        local_resolve_ms = 0.0
+        mime_guess_ms = 0.0
+        local_resolve_started = perf_counter()
         local_image_urls = result.get("local_image_urls")
         if isinstance(local_image_urls, list) and image_index < len(local_image_urls):
             image_url = local_image_urls[image_index]
@@ -730,8 +740,12 @@ def create_app() -> FastAPI:
                 if Path(filename).name == filename:
                     source_path = app.state.config.output_dir / "assets" / task_id / filename
                     if source_path.is_file():
+                        mime_started = perf_counter()
                         guessed_mime_type, _ = mimetypes.guess_type(filename)
+                        mime_guess_ms = (perf_counter() - mime_started) * 1000
                         if guessed_mime_type in ALLOWED_IMAGE_MIME_TYPES:
+                            local_resolve_ms = (perf_counter() - local_resolve_started) * 1000
+                            source_started = perf_counter()
                             try:
                                 file_bytes = source_path.read_bytes()
                             except OSError as error:
@@ -740,12 +754,16 @@ def create_app() -> FastAPI:
                                     detail="Failed to read archived generated image",
                                 ) from error
                             mime_type = guessed_mime_type
+                            source_kind = "local_archive"
+                            source_elapsed_ms = (perf_counter() - source_started) * 1000
 
         if file_bytes is None or mime_type is None:
+            local_resolve_ms = (perf_counter() - local_resolve_started) * 1000
             remote_image_urls = _extract_result_image_urls(result)
             if image_index >= len(remote_image_urls):
                 raise HTTPException(status_code=400, detail="Image result not found")
             source_url = remote_image_urls[image_index]
+            source_started = perf_counter()
             response: httpx.Response | None = None
             for attempt in range(2):
                 try:
@@ -762,6 +780,14 @@ def create_app() -> FastAPI:
                         task_id,
                         error,
                     )
+                    ARCHIVE_LOGGER.info(
+                        "reuse_file_import task_id=%s image_index=%d source=remote_url "
+                        "outcome=failed stage=fetch source_ms=%.2f total_ms=%.2f",
+                        task_id,
+                        image_index,
+                        (perf_counter() - source_started) * 1000,
+                        (perf_counter() - import_started) * 1000,
+                    )
                     raise HTTPException(
                         status_code=502,
                         detail="Failed to download generated image from provider",
@@ -769,11 +795,28 @@ def create_app() -> FastAPI:
                 if response.status_code != 429 and response.status_code < 500:
                     break
             if response is None:
+                ARCHIVE_LOGGER.info(
+                    "reuse_file_import task_id=%s image_index=%d source=remote_url "
+                    "outcome=failed stage=fetch source_ms=%.2f total_ms=%.2f",
+                    task_id,
+                    image_index,
+                    (perf_counter() - source_started) * 1000,
+                    (perf_counter() - import_started) * 1000,
+                )
                 raise HTTPException(
                     status_code=502,
                     detail="Failed to download generated image from provider",
                 )
             if response.status_code >= 400 or not response.content:
+                ARCHIVE_LOGGER.info(
+                    "reuse_file_import task_id=%s image_index=%d source=remote_url "
+                    "outcome=failed stage=fetch status=%d source_ms=%.2f total_ms=%.2f",
+                    task_id,
+                    image_index,
+                    response.status_code,
+                    (perf_counter() - source_started) * 1000,
+                    (perf_counter() - import_started) * 1000,
+                )
                 raise HTTPException(
                     status_code=502,
                     detail="Failed to download generated image from provider",
@@ -784,12 +827,22 @@ def create_app() -> FastAPI:
                     Path(urlparse(source_url).path).name,
                 )
             except HTTPException as error:
+                ARCHIVE_LOGGER.info(
+                    "reuse_file_import task_id=%s image_index=%d source=remote_url "
+                    "outcome=failed stage=mime source_ms=%.2f total_ms=%.2f",
+                    task_id,
+                    image_index,
+                    (perf_counter() - source_started) * 1000,
+                    (perf_counter() - import_started) * 1000,
+                )
                 raise HTTPException(
                     status_code=502,
                     detail="Provider result is not a supported image",
                 ) from error
             file_bytes = response.content
+            source_elapsed_ms = (perf_counter() - source_started) * 1000
 
+        write_started = perf_counter()
         try:
             file_id = str(uuid4())
             extension = MIME_TO_EXTENSION[mime_type]
@@ -797,13 +850,49 @@ def create_app() -> FastAPI:
             (app.state.config.upload_dir / stored_name).write_bytes(file_bytes)
         except OSError as error:
             raise HTTPException(status_code=500, detail="Failed to persist generated image") from error
+        file_write_ms = (perf_counter() - write_started) * 1000
+        file_hash_started = perf_counter()
+        file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+        file_hash_ms = (perf_counter() - file_hash_started) * 1000
+        record_started = perf_counter()
         file_record = app.state.store.create_file(
             file_id=file_id,
             original_name=f"generated-{task_id[:8]}-{image_index}{extension}",
             stored_name=stored_name,
             mime_type=mime_type,
             size_bytes=len(file_bytes),
-            sha256=hashlib.sha256(file_bytes).hexdigest(),
+            sha256=file_sha256,
+        )
+        file_record_ms = (perf_counter() - record_started) * 1000
+        total_ms = (perf_counter() - import_started) * 1000
+        other_ms = max(
+            0.0,
+            total_ms
+            - task_lookup_ms
+            - local_resolve_ms
+            - source_elapsed_ms
+            - file_write_ms
+            - file_hash_ms
+            - file_record_ms,
+        )
+        ARCHIVE_LOGGER.info(
+            "reuse_file_import task_id=%s image_index=%d source=%s bytes=%d "
+            "task_lookup_ms=%.2f local_resolve_ms=%.2f mime_guess_ms=%.2f source_ms=%.2f "
+            "file_write_ms=%.2f file_hash_ms=%.2f file_record_ms=%.2f "
+            "other_ms=%.2f total_ms=%.2f",
+            task_id,
+            image_index,
+            source_kind,
+            len(file_bytes),
+            task_lookup_ms,
+            local_resolve_ms,
+            mime_guess_ms,
+            source_elapsed_ms,
+            file_write_ms,
+            file_hash_ms,
+            file_record_ms,
+            other_ms,
+            total_ms,
         )
         return UploadedFileResponse(
             file_id=file_record["file_id"],

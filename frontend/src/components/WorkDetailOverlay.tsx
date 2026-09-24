@@ -197,13 +197,20 @@ export function WorkDetailOverlay(props: Props) {
 
   const reuseMutation = useMutation({
     mutationFn: (payload: ReuseTaskPayload) => buildReuseDraft(payload, settings.gatewayToken),
-    onSuccess: (draft) => {
-      settings.setPendingReuseDraft(draft);
+    onMutate: () => {
+      settings.setPendingReuseDraft(null);
+      settings.setPendingReuseError(null);
+      settings.setPendingReuseLoading(true);
       navigate("/create");
       onClose();
     },
+    onSuccess: (draft) => {
+      settings.setPendingReuseDraft(draft);
+      settings.setPendingReuseLoading(false);
+    },
     onError: (error: Error) => {
-      onHint?.(locale === "zh-CN" ? `无法准备编辑：${error.message}` : `Could not prepare edit: ${error.message}`);
+      settings.setPendingReuseLoading(false);
+      settings.setPendingReuseError(error.message);
     },
   });
 

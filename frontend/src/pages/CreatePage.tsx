@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -7,6 +8,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -137,6 +139,20 @@ interface AdvancedGroup {
   fields: ProviderOperationField[];
 }
 
+interface ComposerClearSnapshot {
+  promptField: ProviderOperationField | null;
+  promptValue: string | null;
+  versionEditBasePrompt: string | null;
+  modificationInstruction: string;
+  selectedSubjectIds: string[];
+  files: Record<string, File[]>;
+  reusedFileIds: Record<string, string[]>;
+  imageSourceFiles: File[];
+  imageSourceReusedFileIds: string[];
+  imageMaskFiles: File[];
+  imageMaskReusedFileIds: string[];
+}
+
 interface ModelSelectorChoice {
   key: string;
   label: string;
@@ -176,8 +192,15 @@ export function CreatePage(props: Props) {
   const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const addPopoverRef = useRef<HTMLDivElement | null>(null);
+  const settingsPopoverRef = useRef<HTMLDivElement | null>(null);
   const [openPopover, setOpenPopover] = useState<"add" | "settings" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [composerClearSnapshot, setComposerClearSnapshot] = useState<ComposerClearSnapshot | null>(null);
+  const composerClearTimerRef = useRef<number | null>(null);
+  const applyingComposerClearRef = useRef(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState("");
   const [newSceneTitle, setNewSceneTitle] = useState("");
@@ -187,6 +210,28 @@ export function CreatePage(props: Props) {
   const [modificationInstruction, setModificationInstruction] = useState("");
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dismissComposerClear = () => {
+    if (composerClearTimerRef.current !== null) {
+      window.clearTimeout(composerClearTimerRef.current);
+      composerClearTimerRef.current = null;
+    }
+    setComposerClearSnapshot(null);
+  };
+  useEffect(
+    () => () => {
+      if (composerClearTimerRef.current !== null) {
+        window.clearTimeout(composerClearTimerRef.current);
+      }
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!settings.pendingReuseError) {
+      return;
+    }
+    setHint(t("create.hintReuseFailed", { message: settings.pendingReuseError }));
+    settings.setPendingReuseError(null);
+  }, [settings.pendingReuseError, settings.setPendingReuseError, t]);
   const subjectsQuery = useQuery({
     queryKey: ["subjects", settings.gatewayToken],
     queryFn: () => fetchSubjects(settings.gatewayToken),
@@ -563,6 +608,56 @@ export function CreatePage(props: Props) {
       ),
     );
   }, [currentGenerationKind, imageModelFamilies, providerChoices]);
+  useLayoutEffect(() => {
+    if (!openPopover) {
+      return;
+    }
+
+    const anchor = openPopover === "add" ? addButtonRef.current : settingsButtonRef.current;
+    const popover = openPopover === "add" ? addPopoverRef.current : settingsPopoverRef.current;
+    if (!anchor || !popover) {
+      return;
+    }
+
+    const positionPopover = () => {
+      const anchorRect = anchor.getBoundingClientRect();
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = window.innerHeight;
+      const margin = 16;
+      const gap = 10;
+      const width = Math.min(popover.offsetWidth, viewportWidth - margin * 2);
+      const desiredHeight = Math.min(popover.scrollHeight, 460);
+      const spaceAbove = Math.max(0, anchorRect.top - gap - margin);
+      const spaceBelow = Math.max(0, viewportHeight - anchorRect.bottom - gap - margin);
+      const openAbove = desiredHeight <= spaceAbove || spaceAbove >= spaceBelow;
+      const availableHeight = openAbove ? spaceAbove : spaceBelow;
+      const maxHeight = Math.max(80, Math.min(460, availableHeight));
+      const height = Math.min(desiredHeight, maxHeight);
+      const preferredLeft =
+        openPopover === "add" ? anchorRect.left : anchorRect.right - width;
+      const left = Math.max(margin, Math.min(preferredLeft, viewportWidth - width - margin));
+      const top = openAbove
+        ? anchorRect.top - gap - height
+        : anchorRect.bottom + gap;
+
+      popover.style.left = `${left}px`;
+      popover.style.top = `${Math.max(margin, top)}px`;
+      popover.style.maxHeight = `${maxHeight}px`;
+    };
+
+    positionPopover();
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    const resizeObserver = new ResizeObserver(positionPopover);
+    resizeObserver.observe(anchor);
+    resizeObserver.observe(popover);
+
+    return () => {
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+      resizeObserver.disconnect();
+    };
+  }, [modelChoices.length, openPopover, subjectsQuery.data?.length]);
   const activeModelChoiceKey = useMemo(() => {
     if (currentGenerationKind === "image") {
       return currentImageFamily?.id ?? "";
@@ -1524,6 +1619,9 @@ export function CreatePage(props: Props) {
   });
 
   const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
+    if (!applyingComposerClearRef.current) {
+      dismissComposerClear();
+    }
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
       setImageSourceFiles(nextFiles);
       if (nextFiles.length) {
@@ -1553,6 +1651,9 @@ export function CreatePage(props: Props) {
   };
 
   const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
+    if (!applyingComposerClearRef.current) {
+      dismissComposerClear();
+    }
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
       setImageSourceReusedFileIds(nextFileIds);
       if (nextFileIds.length) {
@@ -1585,6 +1686,13 @@ export function CreatePage(props: Props) {
     field: ProviderOperationField,
     nextValue: string,
   ) => {
+    if (
+      !applyingComposerClearRef.current &&
+      promptField &&
+      fieldKey(field) === fieldKey(promptField)
+    ) {
+      dismissComposerClear();
+    }
     const key = fieldKey(field);
     setValues((current) => ({ ...current, [key]: nextValue }));
     if (field.input_type === "password" || field.input_type === "file" || field.input_type === "file_list") {
@@ -1615,12 +1723,89 @@ export function CreatePage(props: Props) {
       el.scrollTop = el.scrollHeight;
     }
   };
+  const removeVersionEditBasePrompt = () => {
+    if (!promptField) {
+      return;
+    }
+
+    onFieldChanged(promptField, modificationInstruction);
+    setVersionEditBasePrompt(null);
+    setModificationInstruction("");
+    requestAnimationFrame(autoResizeTextarea);
+  };
+  const clearComposer = () => {
+    const snapshot: ComposerClearSnapshot = {
+      promptField,
+      promptValue: promptField ? promptValue : null,
+      versionEditBasePrompt,
+      modificationInstruction,
+      selectedSubjectIds,
+      files,
+      reusedFileIds,
+      imageSourceFiles,
+      imageSourceReusedFileIds,
+      imageMaskFiles,
+      imageMaskReusedFileIds,
+    };
+
+    dismissComposerClear();
+    applyingComposerClearRef.current = true;
+    try {
+      setHint("");
+      if (promptField) {
+        onFieldChanged(promptField, "");
+      }
+      setVersionEditBasePrompt(null);
+      setModificationInstruction("");
+      for (const field of composerMediaFields) {
+        onFileFieldChanged(field, []);
+        onReusedFileIdsChanged(field, []);
+      }
+      setSelectedSubjectIds([]);
+      setOpenPopover(null);
+    } finally {
+      applyingComposerClearRef.current = false;
+    }
+
+    setComposerClearSnapshot(snapshot);
+    composerClearTimerRef.current = window.setTimeout(() => {
+      composerClearTimerRef.current = null;
+      setComposerClearSnapshot(null);
+    }, 5000);
+    requestAnimationFrame(autoResizeTextarea);
+  };
+  const undoComposerClear = () => {
+    const snapshot = composerClearSnapshot;
+    if (!snapshot) {
+      return;
+    }
+
+    dismissComposerClear();
+    applyingComposerClearRef.current = true;
+    try {
+      if (snapshot.promptField && snapshot.promptValue !== null) {
+        onFieldChanged(snapshot.promptField, snapshot.promptValue);
+      }
+      setVersionEditBasePrompt(snapshot.versionEditBasePrompt);
+      setModificationInstruction(snapshot.modificationInstruction);
+      setSelectedSubjectIds(snapshot.selectedSubjectIds);
+      setFiles(snapshot.files);
+      setReusedFileIds(snapshot.reusedFileIds);
+      setImageSourceFiles(snapshot.imageSourceFiles);
+      setImageSourceReusedFileIds(snapshot.imageSourceReusedFileIds);
+      setImageMaskFiles(snapshot.imageMaskFiles);
+      setImageMaskReusedFileIds(snapshot.imageMaskReusedFileIds);
+    } finally {
+      applyingComposerClearRef.current = false;
+    }
+    requestAnimationFrame(autoResizeTextarea);
+  };
 
   // Restore textarea height when the prompt changes on mount / route return.
   useEffect(() => {
     // Defer to next frame so the DOM has rendered the value.
     requestAnimationFrame(autoResizeTextarea);
-  }, [promptValue]);
+  }, [modificationInstruction, promptValue]);
   const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
     const key = item.fieldKey;
     if (item.source === "reused" && item.fileId) {
@@ -1652,6 +1837,7 @@ export function CreatePage(props: Props) {
     if (nextKind === currentGenerationKind) {
       return;
     }
+    dismissComposerClear();
     setCurrentGenerationKind(nextKind);
     const restoredSession = restoreSession(settings.restoreLastSession, nextKind);
     if (restoredSession) {
@@ -1696,6 +1882,7 @@ export function CreatePage(props: Props) {
     if (!nextVariant) {
       return;
     }
+    dismissComposerClear();
     if (providerId !== nextVariant.provider.id) {
       setProviderId(nextVariant.provider.id);
     }
@@ -1719,6 +1906,7 @@ export function CreatePage(props: Props) {
     if (!nextVariant) {
       return;
     }
+    dismissComposerClear();
     if (providerId !== nextVariant.provider.id) {
       setProviderId(nextVariant.provider.id);
     }
@@ -1873,13 +2061,25 @@ export function CreatePage(props: Props) {
     />
   );
 
-  if (loading) {
+  const isPreparingReuse = settings.pendingReuseLoading || Boolean(settings.pendingReuseDraft);
+  if (loading || isPreparingReuse) {
     return (
       <div>
         {topBar}
         <div className="create-stage">
           <div className="composer">
-            <div className="skeleton h-[90px] w-full rounded-[var(--radius-lg)]" />
+            {isPreparingReuse ? (
+              <div
+                className="flex min-h-24 items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[var(--c-border)] bg-[var(--c-surface)] text-sm text-[var(--c-text-secondary)] shadow-[var(--shadow-composer)]"
+                role="status"
+                aria-live="polite"
+              >
+                <CircleNotch size={16} className="animate-spin" />
+                {t("create.preparingReuse")}
+              </div>
+            ) : (
+              <div className="skeleton h-[90px] w-full rounded-[var(--radius-lg)]" />
+            )}
           </div>
         </div>
       </div>
@@ -1915,10 +2115,17 @@ export function CreatePage(props: Props) {
   const subjectReferencesSupported =
     currentGenerationKind === "image" &&
     Boolean(currentImageVariant?.editOperation || supportsInlineImageInput);
-  const toggleSubject = (subjectId: string) =>
+  const hasComposerContent = Boolean(
+    (versionEditBasePrompt !== null ? modificationInstruction : promptValue) ||
+      selectedSubjectIds.length > 0 ||
+      inlineFilePreviews.length > 0,
+  );
+  const toggleSubject = (subjectId: string) => {
+    dismissComposerClear();
     setSelectedSubjectIds((ids) =>
       ids.includes(subjectId) ? ids.filter((id) => id !== subjectId) : [...ids, subjectId],
     );
+  };
   const recentStrip = recentTasks.slice(0, 6);
 
   return (
@@ -1938,15 +2145,16 @@ export function CreatePage(props: Props) {
         ) : null}
 
         <div className="composer-card">
-          <button
-            type="button"
-            className={`composer-add ${openPopover === "add" ? "composer-add-open" : ""}`}
-            onClick={() => setOpenPopover(openPopover === "add" ? null : "add")}
-            aria-label={t("create.add.title")}
-            aria-expanded={openPopover === "add"}
-          >
-            <Plus size={18} weight="light" />
-          </button>
+          {hasComposerContent ? (
+            <button
+              type="button"
+              className="composer-clear"
+              aria-label={t("common.clear")}
+              onClick={clearComposer}
+            >
+              {t("common.clear")}
+            </button>
+          ) : null}
           {primaryFileField ? (
             <input
               ref={inlineFileInputRef}
@@ -1960,7 +2168,7 @@ export function CreatePage(props: Props) {
 
           <div className="composer-body">
             {selectedSubjects.length > 0 || attachmentPreviews.length > 0 ? (
-              <div className="composer-refs">
+              <div className={`composer-refs ${hasComposerContent ? "composer-refs-clearable" : ""}`}>
                 {selectedSubjects.map((subject) => (
                   <SubjectRefChip
                     key={subject.subject_id}
@@ -1984,18 +2192,30 @@ export function CreatePage(props: Props) {
             {promptField && versionEditBasePrompt !== null ? (
               <>
                 <div className="composer-base-prompt">
-                  <span className="text-[var(--c-text-tertiary)]">
-                    {locale === "zh-CN" ? "原始场景（保留）：" : "Original scene (preserved): "}
-                  </span>
-                  <span className="line-clamp-2 whitespace-pre-wrap">{versionEditBasePrompt}</span>
+                  <div className="composer-base-prompt__content">
+                    <span className="text-[var(--c-text-tertiary)]">
+                      {locale === "zh-CN" ? "原始场景（保留）：" : "Original scene (preserved): "}
+                    </span>
+                    <span className="line-clamp-2 whitespace-pre-wrap">{versionEditBasePrompt}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="composer-base-prompt-remove"
+                    aria-label={t("create.removeRef")}
+                    title={t("create.removeRef")}
+                    onClick={removeVersionEditBasePrompt}
+                  >
+                    <X size={12} weight="regular" />
+                  </button>
                 </div>
                 <textarea
                   ref={textareaRef}
-                  className="composer-textarea"
+                  className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
                   rows={COMPOSER_PROMPT_MIN_ROWS}
                   value={modificationInstruction}
                   placeholder={locale === "zh-CN" ? "只描述这次要改什么，例如：把外套改成琥珀色，人物和构图保持不变" : "Describe only the change, e.g. Make the coat amber; keep the person and composition unchanged"}
                   onChange={(event) => {
+                    dismissComposerClear();
                     setModificationInstruction(event.target.value);
                     autoResizeTextarea();
                   }}
@@ -2005,7 +2225,7 @@ export function CreatePage(props: Props) {
             ) : promptField ? (
               <textarea
                 ref={textareaRef}
-                className="composer-textarea"
+                className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
                 rows={COMPOSER_PROMPT_MIN_ROWS}
                 value={promptValue}
                 placeholder={promptPlaceholder}
@@ -2024,8 +2244,18 @@ export function CreatePage(props: Props) {
           </div>
 
           <div className="composer-side">
-            <span className="composer-divider" aria-hidden="true" />
             <button
+              ref={addButtonRef}
+              type="button"
+              className={`composer-add ${openPopover === "add" ? "composer-add-open" : ""}`}
+              onClick={() => setOpenPopover(openPopover === "add" ? null : "add")}
+              aria-label={t("create.add.title")}
+              aria-expanded={openPopover === "add"}
+            >
+              <Plus size={18} weight="light" />
+            </button>
+            <button
+              ref={settingsButtonRef}
               type="button"
               className={`composer-mode ${openPopover === "settings" ? "composer-mode-open" : ""}`}
               onClick={() => setOpenPopover(openPopover === "settings" ? null : "settings")}
@@ -2051,8 +2281,14 @@ export function CreatePage(props: Props) {
           </div>
         </div>
 
-        {openPopover === "add" ? (
-          <div className="composer-popover composer-popover-start">
+        {openPopover === "add"
+          ? createPortal(
+          <div
+            ref={addPopoverRef}
+            className="composer-popover"
+            role="dialog"
+            aria-label={t("create.add.title")}
+          >
             {primaryFileField ? (
               <div className="composer-popover-section">
                 <button
@@ -2135,11 +2371,19 @@ export function CreatePage(props: Props) {
                   : t("create.add.subjectsTextOnly")}
               </p>
             </div>
-          </div>
-        ) : null}
+          </div>,
+          document.body,
+          )
+          : null}
 
-        {openPopover === "settings" ? (
-          <div className="composer-popover composer-popover-end">
+        {openPopover === "settings"
+          ? createPortal(
+          <div
+            ref={settingsPopoverRef}
+            className="composer-popover composer-popover-end"
+            role="dialog"
+            aria-label={t("create.quickType")}
+          >
             <div className="composer-popover-section">
               <p className="composer-popover-heading">{t("create.quickType")}</p>
               <div className="segment-group w-full">
@@ -2175,6 +2419,7 @@ export function CreatePage(props: Props) {
                       key={choice.key}
                       className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
                       onClick={() => {
+                        dismissComposerClear();
                         if (currentGenerationKind === "image" && choice.familyId) {
                           selectImageVariant(choice.familyId);
                         } else if (
@@ -2445,10 +2690,20 @@ export function CreatePage(props: Props) {
                 </button>
               </div>
             ) : null}
-          </div>
-        ) : null}
+          </div>,
+          document.body,
+          )
+          : null}
 
         {hint ? <p className="composer-hint">{hint}</p> : null}
+        {composerClearSnapshot ? (
+          <div className="composer-clear-toast" role="status" aria-live="polite">
+            <span>{t("create.composerCleared")}</span>
+            <button type="button" onClick={undoComposerClear}>
+              {t("create.undo")}
+            </button>
+          </div>
+        ) : null}
       </form>
 
       {recentStrip.length > 0 ? (
