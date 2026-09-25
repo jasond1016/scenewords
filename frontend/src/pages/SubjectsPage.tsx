@@ -6,11 +6,11 @@ import {
   Cube,
   IdentificationCard,
   MapPin,
-  Plus,
   Sparkle,
   Star,
   Trash,
   UploadSimple,
+  UserPlus,
   X,
 } from "@phosphor-icons/react";
 import {
@@ -203,9 +203,14 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
   return (
     <div className="flex w-full flex-col">
       <HeaderActions>
-        <button type="button" className="btn-outline" onClick={() => resetEditor()}>
-          <Plus size={13} weight="regular" />
-          {t("subjects.create")}
+        <button
+          type="button"
+          className="topbar-icon-btn"
+          aria-label={t("subjects.create")}
+          title={t("subjects.create")}
+          onClick={() => resetEditor()}
+        >
+          <UserPlus size={19} weight="regular" />
         </button>
       </HeaderActions>
 

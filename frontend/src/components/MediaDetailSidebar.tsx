@@ -289,9 +289,9 @@ export function MediaDetailSidebar(props: Props) {
         <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="m-0 text-label">{locale === "zh-CN" ? "场景 · 生成链" : "Scene · generation"}</p>
+              <p className="m-0 text-label">{locale === "zh-CN" ? "会话 · 生成记录" : "Chat · generation"}</p>
               <p className="m-0 mt-1 text-sm font-semibold text-[var(--c-text)]">
-                {task.scene_title ?? (locale === "zh-CN" ? "未命名场景" : "Untitled scene")}
+                {task.scene_title ?? (locale === "zh-CN" ? "未命名会话" : "Untitled chat")}
               </p>
             </div>
             <span className="tag tag-warning">V{task.version_number ?? 1}</span>

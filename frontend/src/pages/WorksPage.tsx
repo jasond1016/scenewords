@@ -598,7 +598,7 @@ export function WorksPage(props: Props) {
 
   return (
     <div className="flex w-full flex-col">
-      <HeaderActions>
+      <HeaderActions mobileMenu>
         <button
           type="button"
           className={`btn-outline ${selectMode ? "btn-outline-active" : ""}`}

@@ -9,7 +9,6 @@ import type { VideoTaskDetail } from "./types";
 import { CreatePage } from "./pages/CreatePage";
 import { WorksPage } from "./pages/WorksPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { ScenesPage } from "./pages/ScenesPage";
 import { SubjectsPage } from "./pages/SubjectsPage";
 
 const ACTIVE_TASK_POLL_INTERVAL_MS = 4000;
@@ -22,6 +21,7 @@ export default function App() {
   const location = useLocation();
   const isCreateRoute = location.pathname === "/" || location.pathname === "/create";
   const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
+  const [mobileMenuSlot, setMobileMenuSlot] = useState<HTMLDivElement | null>(null);
   const [visibility, setVisibility] = useState<"visible" | "hidden">(
     typeof document !== "undefined" && document.visibilityState === "hidden" ? "hidden" : "visible",
   );
@@ -94,15 +94,18 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <AppTopBar inProgressCount={inProgressCount} onSlotChange={setHeaderSlot} />
-      <HeaderSlotProvider value={headerSlot}>
+      <AppTopBar
+        inProgressCount={inProgressCount}
+        onSlotChange={setHeaderSlot}
+        onMenuSlotChange={setMobileMenuSlot}
+      />
+      <HeaderSlotProvider value={{ header: headerSlot, mobileMenu: mobileMenuSlot }}>
         <main className="page-container">
           <Routes>
             <Route path="/jobs" element={<Navigate to="/works" replace />} />
             <Route path="/assets" element={<Navigate to="/works" replace />} />
             <Route path="/subjects" element={<SubjectsPage tasks={tasksQuery.data ?? []} />} />
-            <Route path="/scenes" element={<ScenesPage catalog={catalogQuery.data} />} />
-            <Route path="/scenes/:sceneId" element={<ScenesPage catalog={catalogQuery.data} />} />
+            <Route path="/scenes/*" element={<Navigate to="/create" replace />} />
             <Route
               path="/works"
               element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}

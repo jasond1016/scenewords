@@ -20,17 +20,20 @@ import {
   CloudArrowUp,
   Faders,
   ImageSquare,
+  Images,
+  ClockCounterClockwise,
   Plus,
   UploadSimple,
   VideoCamera,
-  WarningCircle,
   X,
   CaretDown,
   Shapes,
+  UsersThree,
 } from "@phosphor-icons/react";
 import {
   createScene,
   createVideoTask,
+  fetchScene,
   fetchScenes,
   fetchSubjects,
   fetchUploadedFileBinary,
@@ -48,12 +51,10 @@ import type {
   ProviderModelInfo,
   ProviderModelOperationInfo,
   ProviderOperationField,
-  Scene,
   SubjectAsset,
   VideoGenerationRequest,
   VideoTaskDetail,
 } from "../types";
-import { extractVideoPoster } from "../lightbox";
 import {
   durationOptionsFromField,
   extractImageUrls,
@@ -68,7 +69,6 @@ import {
   valueToStoredString,
 } from "../utils";
 import { CreateTopBar } from "../components/AppTopBar";
-import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { UploadedImage } from "../components/UploadedImage";
 
 interface Props {
@@ -83,7 +83,6 @@ const COMPOSER_PROMPT_MIN_ROWS = 1;
 const COMPOSER_PROMPT_MAX_ROWS = 8;
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const LAST_GENERATION_KIND_KEY = "scenewords_last_generation_kind_v1";
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
@@ -175,9 +174,7 @@ export function CreatePage(props: Props) {
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
   const [operationId, setOperationId] = useState("");
-  const [currentGenerationKind, setCurrentGenerationKind] = useState<"image" | "video">(
-    () => readLastGenerationKind(),
-  );
+  const [currentGenerationKind, setCurrentGenerationKind] = useState<"image" | "video">("image");
   const [values, setValues] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
@@ -189,7 +186,6 @@ export function CreatePage(props: Props) {
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
-  const [recentOverlayTaskId, setRecentOverlayTaskId] = useState<string | null>(null);
   const skipNextPendingClearHydrationRef = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -203,7 +199,8 @@ export function CreatePage(props: Props) {
   const applyingComposerClearRef = useRef(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState("");
-  const [newSceneTitle, setNewSceneTitle] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const transcriptRef = useRef<HTMLElement | null>(null);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [parentVersionId, setParentVersionId] = useState<string | null>(null);
   const [versionEditBasePrompt, setVersionEditBasePrompt] = useState<string | null>(null);
@@ -232,6 +229,18 @@ export function CreatePage(props: Props) {
     setHint(t("create.hintReuseFailed", { message: settings.pendingReuseError }));
     settings.setPendingReuseError(null);
   }, [settings.pendingReuseError, settings.setPendingReuseError, t]);
+  useEffect(() => {
+    if (!historyOpen) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [historyOpen]);
   const subjectsQuery = useQuery({
     queryKey: ["subjects", settings.gatewayToken],
     queryFn: () => fetchSubjects(settings.gatewayToken),
@@ -239,6 +248,11 @@ export function CreatePage(props: Props) {
   const scenesQuery = useQuery({
     queryKey: ["scenes", settings.gatewayToken],
     queryFn: () => fetchScenes(settings.gatewayToken),
+  });
+  const activeSessionQuery = useQuery({
+    queryKey: ["scene", settings.gatewayToken, sceneId],
+    queryFn: () => fetchScene(sceneId, settings.gatewayToken),
+    enabled: Boolean(sceneId),
   });
   const selectedSubjects = useMemo(
     () =>
@@ -430,13 +444,6 @@ export function CreatePage(props: Props) {
   );
   const inProgressCount = useMemo(
     () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
-    [tasks],
-  );
-  const recentTasks = useMemo(
-    () =>
-      [...tasks]
-        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
-        .slice(0, 8),
     [tasks],
   );
   const imageProviders = useMemo(
@@ -777,15 +784,6 @@ export function CreatePage(props: Props) {
     }
     return "-";
   }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size]);
-  const promptPlaceholder = useMemo(() => {
-    if (!promptField) {
-      return "";
-    }
-    if (promptField.placeholder?.trim()) {
-      return promptField.placeholder;
-    }
-    return t("create.promptPlaceholder");
-  }, [promptField, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
   const sharedImageSourceField = useMemo<ProviderOperationField>(
     () => ({
@@ -1030,19 +1028,6 @@ export function CreatePage(props: Props) {
   useEffect(() => {
     persistLastSubmittedTaskId(lastSubmittedTaskId);
   }, [lastSubmittedTaskId]);
-
-  useEffect(() => {
-    persistLastGenerationKind(currentGenerationKind);
-  }, [currentGenerationKind]);
-
-  useEffect(() => {
-    if (!recentOverlayTaskId) {
-      return;
-    }
-    if (!tasks.some((task) => task.task_id === recentOverlayTaskId)) {
-      setRecentOverlayTaskId(null);
-    }
-  }, [recentOverlayTaskId, tasks]);
 
   useEffect(() => {
     if (!providers.length || providerId) {
@@ -1421,16 +1406,12 @@ export function CreatePage(props: Props) {
       if (!selectedOperation) {
         throw new Error(t("create.errorNoOperation"));
       }
-      let resolvedSceneId = sceneId || null;
-      if (sceneId === "__new__") {
-        const title = newSceneTitle.trim();
-        if (!title) {
-          throw new Error(locale === "zh-CN" ? "请输入场景名称。" : "Enter a scene name.");
-        }
-        const scene = await createScene({ title, description: "" }, settings.gatewayToken);
-        resolvedSceneId = scene.scene_id;
-        setSceneId(scene.scene_id);
-        setNewSceneTitle("");
+      let resolvedSceneId = sceneId;
+      if (!resolvedSceneId) {
+        const title = (promptValue.trim() || (locale === "zh-CN" ? "新会话" : "New chat")).slice(0, 160);
+        const session = await createScene({ title, description: "" }, settings.gatewayToken);
+        resolvedSceneId = session.scene_id;
+        setSceneId(session.scene_id);
         await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
       }
       const payload: VideoGenerationRequest = {
@@ -1994,78 +1975,179 @@ export function CreatePage(props: Props) {
     }
     return task.status;
   };
-  const statusTone = (task: VideoTaskDetail | null): "warn" | "ok" | "danger" | "muted" => {
-    if (!task) {
-      return "muted";
-    }
-    if (task.status === "queued" || task.status === "running") {
-      return "warn";
-    }
-    if (task.status === "succeeded") {
-      return "ok";
-    }
-    if (task.status === "failed" || task.status === "canceled") {
-      return "danger";
-    }
-    return "muted";
-  };
-  const orderedScenes = [...(scenesQuery.data ?? [])].sort(
-    (left, right) => Date.parse(left.created_at) - Date.parse(right.created_at),
+  const orderedSessions = [...(scenesQuery.data ?? [])].sort(
+    (left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at),
   );
-  const selectedScene = orderedScenes.find((scene) => scene.scene_id === sceneId) ?? null;
-  const sceneOrdinal =
-    sceneId === "__new__"
-      ? orderedScenes.length + 1
-      : selectedScene
-        ? orderedScenes.indexOf(selectedScene) + 1
-        : 0;
-  const crumbTitle =
-    sceneId === "__new__"
-      ? newSceneTitle.trim() || t("create.scene.untitled")
-      : selectedScene?.title ?? t("create.scene.standalone");
-  const sceneStatusNote = !sceneId
-    ? ""
-    : generationId
-      ? parentVersionId
-        ? t("create.scene.editBase")
-        : t("create.scene.nextVersion")
-      : parentVersionId
-        ? t("create.scene.branching")
-        : t("create.scene.firstSubmit");
-  const selectScene = (nextSceneId: string) => {
-    setSceneId(nextSceneId);
+  const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
+  const startNewSession = () => {
+    setSceneId("");
     setGenerationId(null);
     setParentVersionId(null);
     setVersionEditBasePrompt(null);
     setModificationInstruction("");
+    setValues((current) => ({ ...current, ...(promptField ? { [fieldKey(promptField)]: "" } : {}) }));
+    setFiles({});
+    setReusedFileIds({});
+    setImageSourceFiles([]);
+    setImageSourceReusedFileIds([]);
+    setImageMaskFiles([]);
+    setImageMaskReusedFileIds([]);
+    setSelectedSubjectIds([]);
+    setCurrentGenerationKind("image");
+    setHistoryOpen(false);
   };
+  const openSession = async (sessionId: string) => {
+    try {
+      const session = await fetchScene(sessionId, settings.gatewayToken);
+      const latestGeneration = [...session.generations].sort(
+        (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+      )[0];
+      const latestVersion = [...(latestGeneration?.versions ?? [])]
+        .reverse()
+        .find((version) => version.status === "succeeded") ??
+        latestGeneration?.versions[latestGeneration.versions.length - 1];
+      setSceneId(sessionId);
+      setGenerationId(latestGeneration?.generation_id ?? null);
+      setParentVersionId(latestVersion?.task_id ?? null);
+      setVersionEditBasePrompt(null);
+      setModificationInstruction("");
+      setCurrentGenerationKind(latestVersion?.asset_type ?? "image");
+      setFiles({});
+      setReusedFileIds({});
+      setImageSourceFiles([]);
+      setImageSourceReusedFileIds([]);
+      setImageMaskFiles([]);
+      setImageMaskReusedFileIds([]);
+      setSelectedSubjectIds([]);
+      if (promptField && latestVersion) {
+        setValues((current) => ({ ...current, [fieldKey(promptField)]: latestVersion.prompt ?? "" }));
+      }
+      setHistoryOpen(false);
+    } catch (error) {
+      setHint(error instanceof Error ? error.message : t("common.error"));
+    }
+  };
+  const returnSessionId =
+    (location.state as { returnSessionId?: string } | null)?.returnSessionId ?? "";
+  useEffect(() => {
+    if (!returnSessionId) {
+      return;
+    }
+    void openSession(returnSessionId);
+    navigate("/create", { replace: true, state: null });
+  }, [location.key]);
+  const conversationVersions = [...(activeSessionQuery.data?.generations ?? [])]
+    .flatMap((generation) => generation.versions)
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+  useEffect(() => {
+    if (sceneId && transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [conversationVersions.length, sceneId]);
   const topBar = (
     <CreateTopBar
       inProgressCount={inProgressCount}
-      onBack={() =>
-        navigate(selectedScene ? `/scenes/${selectedScene.scene_id}` : "/scenes")
-      }
+      returnSessionId={sceneId}
       breadcrumb={
-        <ScenePicker
-          scenes={orderedScenes}
-          sceneId={sceneId}
-          newSceneTitle={newSceneTitle}
-          crumbTitle={crumbTitle}
-          sceneOrdinal={sceneOrdinal}
-          statusNote={sceneStatusNote}
-          onSelect={selectScene}
-          onNewSceneTitleChange={setNewSceneTitle}
-          onManage={() => navigate("/scenes")}
-        />
+        <div className="create-header-controls flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="topbar-icon-btn session-history-toggle"
+            aria-label={t("create.sessions.toggle")}
+            aria-expanded={historyOpen}
+            aria-controls="session-history-sidebar"
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            <ClockCounterClockwise size={19} />
+          </button>
+          <span className="crumb-title">{selectedSession?.title ?? t("create.sessions.new")}</span>
+          <button
+            type="button"
+            className="topbar-icon-btn session-new-button"
+            aria-label={t("create.sessions.new")}
+            title={t("create.sessions.new")}
+            onClick={startNewSession}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
       }
     />
   );
+  const historyDrawer = historyOpen ? (
+    <>
+      <button
+        type="button"
+        className="session-sidebar-backdrop"
+        aria-label={t("common.close")}
+        onClick={() => setHistoryOpen(false)}
+      />
+      <aside id="session-history-sidebar" className="session-sidebar" aria-label={t("create.sessions.title")}>
+        <div className="session-sidebar-heading">
+          <span className="wordmark">SceneWords</span>
+          <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setHistoryOpen(false)}>
+            <X size={17} />
+          </button>
+        </div>
+        <nav className="session-sidebar-navigation" aria-label={t("nav.primary")}>
+          <button
+            type="button"
+            className="session-sidebar-nav-item"
+            onClick={() => {
+              setHistoryOpen(false);
+              navigate("/works", { state: sceneId ? { returnSessionId: sceneId } : null });
+            }}
+          >
+            <Images size={18} /> {t("nav.works")}
+          </button>
+          <button
+            type="button"
+            className="session-sidebar-nav-item"
+            onClick={() => {
+              setHistoryOpen(false);
+              navigate("/subjects", { state: sceneId ? { returnSessionId: sceneId } : null });
+            }}
+          >
+            <UsersThree size={18} /> {t("nav.subjects")}
+          </button>
+        </nav>
+        <div className="session-sidebar-divider" />
+        <div className="session-sidebar-section-title">{t("create.sessions.title")}</div>
+        {scenesQuery.isLoading ? (
+          <p className="session-sidebar-empty">{t("common.loading")}</p>
+        ) : orderedSessions.length === 0 ? (
+          <p className="session-sidebar-empty">{t("create.sessions.empty")}</p>
+        ) : (
+          <nav className="session-sidebar-list" aria-label={t("create.sessions.title")}>
+            {orderedSessions.map((session) => (
+              <button
+                key={session.scene_id}
+                type="button"
+                className={`session-sidebar-item ${session.scene_id === sceneId ? "session-sidebar-item-active" : ""}`}
+                aria-current={session.scene_id === sceneId ? "page" : undefined}
+                onClick={() => void openSession(session.scene_id)}
+              >
+                <span className="session-sidebar-item-title">{session.title}</span>
+                <span className="session-sidebar-item-date">
+                  {new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(session.updated_at))}
+                </span>
+              </button>
+            ))}
+          </nav>
+        )}
+        <button type="button" className="session-sidebar-new" onClick={startNewSession}>
+          <Plus size={16} /> {t("create.sessions.new")}
+        </button>
+      </aside>
+    </>
+  ) : null;
 
   const isPreparingReuse = settings.pendingReuseLoading || Boolean(settings.pendingReuseDraft);
   if (loading || isPreparingReuse) {
     return (
       <div>
         {topBar}
+        {historyDrawer}
         <div className="create-stage">
           <div className="composer">
             {isPreparingReuse ? (
@@ -2089,6 +2171,7 @@ export function CreatePage(props: Props) {
     return (
       <div>
         {topBar}
+        {historyDrawer}
         <div className="create-stage">
           <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>
         </div>
@@ -2126,12 +2209,45 @@ export function CreatePage(props: Props) {
       ids.includes(subjectId) ? ids.filter((id) => id !== subjectId) : [...ids, subjectId],
     );
   };
-  const recentStrip = recentTasks.slice(0, 6);
-
   return (
     <div>
       {topBar}
+      {historyDrawer}
       <div className="create-stage">
+      {sceneId ? (
+        <section ref={transcriptRef} className="session-transcript" aria-label={selectedSession?.title ?? t("create.sessions.title")}>
+          {activeSessionQuery.isLoading ? (
+            <p className="session-transcript-loading">{t("common.loading")}</p>
+          ) : conversationVersions.map((version) => {
+            const images = extractImageUrls(version);
+            return (
+              <article className="session-turn" key={version.task_id}>
+                <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                {images.length ? (
+                  <div className="session-turn-images">
+                    {images.map((url) => (
+                      <img
+                        key={url}
+                        src={url}
+                        alt=""
+                        loading="lazy"
+                        onError={(event) => { event.currentTarget.hidden = true; }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="session-turn-status">{statusLabel(version)}</p>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      ) : (
+        <div className="session-welcome">
+          <h1>{t("create.sessions.welcome")}</h1>
+          <p>{t("create.sessions.welcomeDescription")}</p>
+        </div>
+      )}
       <form
         ref={formRef}
         className="composer"
@@ -2213,7 +2329,6 @@ export function CreatePage(props: Props) {
                   className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
                   rows={COMPOSER_PROMPT_MIN_ROWS}
                   value={modificationInstruction}
-                  placeholder={locale === "zh-CN" ? "只描述这次要改什么，例如：把外套改成琥珀色，人物和构图保持不变" : "Describe only the change, e.g. Make the coat amber; keep the person and composition unchanged"}
                   onChange={(event) => {
                     dismissComposerClear();
                     setModificationInstruction(event.target.value);
@@ -2228,7 +2343,6 @@ export function CreatePage(props: Props) {
                 className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
                 rows={COMPOSER_PROMPT_MIN_ROWS}
                 value={promptValue}
-                placeholder={promptPlaceholder}
                 aria-label={promptField.label}
                 onChange={(e) => {
                   onFieldChanged(promptField, e.target.value);
@@ -2697,57 +2811,18 @@ export function CreatePage(props: Props) {
 
         {hint ? <p className="composer-hint">{hint}</p> : null}
         {composerClearSnapshot ? (
-          <div className="composer-clear-toast" role="status" aria-live="polite">
-            <span>{t("create.composerCleared")}</span>
-            <button type="button" onClick={undoComposerClear}>
-              {t("create.undo")}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="composer-clear"
+            aria-label={t("create.undo")}
+            title={t("create.undo")}
+            onClick={undoComposerClear}
+          >
+            {t("create.undo")}
+          </button>
         ) : null}
       </form>
 
-      {recentStrip.length > 0 ? (
-        <div className="recent-row" aria-label={t("create.recentTasks")}>
-          {recentStrip.map((task) => {
-            const tone = statusTone(task);
-            const thumb =
-              (task.asset_type === "video" ? extractVideoPoster(task) : null) ??
-              extractImageUrls(task)[0] ??
-              null;
-            return (
-              <button
-                key={task.task_id}
-                type="button"
-                className="recent-thumb"
-                title={`${statusLabel(task)} · ${task.prompt?.slice(0, 60) ?? ""}`}
-                onClick={() => setRecentOverlayTaskId(task.task_id)}
-              >
-                {thumb && tone === "ok" ? <img src={thumb} alt="" loading="lazy" /> : null}
-                {tone === "warn" ? (
-                  <span className="recent-thumb-state">
-                    <CircleNotch size={14} className="animate-spin text-[var(--c-accent)]" />
-                  </span>
-                ) : tone === "danger" ? (
-                  <span className="recent-thumb-state bg-[var(--c-error-bg)] text-[var(--c-error-text)]">
-                    <WarningCircle size={14} />
-                  </span>
-                ) : !thumb ? (
-                  <span className="recent-thumb-state">
-                    {task.asset_type === "video" ? <VideoCamera size={14} /> : <ImageSquare size={14} />}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className="topbar-text-link ml-1 text-[11px] text-[var(--c-text-secondary)]"
-            onClick={() => navigate("/works")}
-          >
-            {t("create.viewAll")}
-          </button>
-        </div>
-      ) : null}
       </div>
 
       {/* ── Advanced Panel (slide-up overlay) ────────── */}
@@ -2793,15 +2868,6 @@ export function CreatePage(props: Props) {
         </div>
       ) : null}
 
-      {/* Work detail overlay */}
-      {recentOverlayTaskId ? (
-        <WorkDetailOverlay
-          tasks={recentTasks}
-          initialTaskId={recentOverlayTaskId}
-          onClose={() => setRecentOverlayTaskId(null)}
-          onHint={setHint}
-        />
-      ) : null}
     </div>
   );
 }
@@ -2869,154 +2935,6 @@ function SubjectRefChip({
       </button>
     </span>
   );
-}
-
-function ScenePicker({
-  scenes,
-  sceneId,
-  newSceneTitle,
-  crumbTitle,
-  sceneOrdinal,
-  statusNote,
-  onSelect,
-  onNewSceneTitleChange,
-  onManage,
-}: {
-  scenes: Scene[];
-  sceneId: string;
-  newSceneTitle: string;
-  crumbTitle: string;
-  sceneOrdinal: number;
-  statusNote: string;
-  onSelect: (sceneId: string) => void;
-  onNewSceneTitleChange: (title: string) => void;
-  onManage: () => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (!anchorRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  const pick = (nextSceneId: string) => {
-    onSelect(nextSceneId);
-    if (nextSceneId !== "__new__") {
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div className="dropdown-anchor min-w-0" ref={anchorRef}>
-      <button
-        type="button"
-        className="crumb-label"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className="crumb-title">{crumbTitle}</span>
-        {sceneOrdinal > 0 ? (
-          <>
-            <span className="crumb-sep">/</span>
-            <span className="tabular-nums">{formatSceneOrdinal(sceneOrdinal)}</span>
-          </>
-        ) : null}
-      </button>
-      {open ? (
-        <div className="menu-popover menu-popover-left w-[280px] max-w-[calc(100vw-32px)]" role="menu">
-          <p className="menu-section-label">{t("create.scene.menuTitle")}</p>
-          <button
-            type="button"
-            role="menuitemradio"
-            aria-checked={!sceneId}
-            className={`menu-item ${!sceneId ? "menu-item-active" : ""}`}
-            onClick={() => pick("")}
-          >
-            <span className="menu-item-label">{t("create.scene.standalone")}</span>
-            {!sceneId ? <Check size={12} weight="bold" /> : null}
-          </button>
-          {scenes.map((scene, index) => (
-            <button
-              key={scene.scene_id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={sceneId === scene.scene_id}
-              className={`menu-item ${sceneId === scene.scene_id ? "menu-item-active" : ""}`}
-              onClick={() => pick(scene.scene_id)}
-            >
-              <span className="menu-item-label">{scene.title}</span>
-              {sceneId === scene.scene_id ? (
-                <Check size={12} weight="bold" />
-              ) : (
-                <span className="menu-item-meta tabular-nums">{formatSceneOrdinal(index + 1)}</span>
-              )}
-            </button>
-          ))}
-          <div className="menu-divider" />
-          {sceneId === "__new__" ? (
-            <div className="px-1.5 pb-1">
-              <input
-                className="input-base py-1.5 text-xs"
-                value={newSceneTitle}
-                maxLength={160}
-                autoFocus
-                onChange={(event) => onNewSceneTitleChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    setOpen(false);
-                  }
-                }}
-                placeholder={t("create.scene.newPlaceholder")}
-              />
-            </div>
-          ) : (
-            <button type="button" className="menu-item" onClick={() => pick("__new__")}>
-              <span className="menu-item-label">{t("create.scene.new")}</span>
-              <Plus size={12} />
-            </button>
-          )}
-          <button
-            type="button"
-            className="menu-item"
-            onClick={() => {
-              setOpen(false);
-              onManage();
-            }}
-          >
-            <span className="menu-item-label text-[var(--c-text-secondary)]">{t("create.scene.manage")}</span>
-          </button>
-          {statusNote ? (
-            <p className="m-0 px-2.5 pb-1.5 pt-1 text-[11px] leading-5 text-[var(--c-text-tertiary)]">{statusNote}</p>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function formatSceneOrdinal(ordinal: number): string {
-  return `Scene ${String(ordinal).padStart(2, "0")}`;
 }
 
 function DynamicInput(props: {
@@ -3835,23 +3753,6 @@ function persistLastSubmittedTaskId(taskId: string | null): void {
       LAST_SUBMITTED_TASK_KEY,
       JSON.stringify({ taskId, savedAt: new Date().toISOString() }),
     );
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readLastGenerationKind(): "image" | "video" {
-  try {
-    const raw = localStorage.getItem(LAST_GENERATION_KIND_KEY)?.trim();
-    return raw === "image" ? "image" : "video";
-  } catch {
-    return "video";
-  }
-}
-
-function persistLastGenerationKind(kind: "image" | "video"): void {
-  try {
-    localStorage.setItem(LAST_GENERATION_KIND_KEY, kind);
   } catch {
     // ignore storage failures
   }

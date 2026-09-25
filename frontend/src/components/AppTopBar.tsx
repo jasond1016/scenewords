@@ -12,14 +12,27 @@ import { ArrowLeft, DotsThree } from "@phosphor-icons/react";
 import { useI18n } from "../i18n";
 import { useAppSettingsStore } from "../state";
 
-const HeaderSlotContext = createContext<HTMLElement | null>(null);
+const HeaderSlotContext = createContext<{
+  header: HTMLElement | null;
+  mobileMenu: HTMLElement | null;
+}>({ header: null, mobileMenu: null });
 
 export const HeaderSlotProvider = HeaderSlotContext.Provider;
 
 /** Renders its children into the right side of the standard top bar. */
-export function HeaderActions({ children }: { children: ReactNode }) {
-  const slot = useContext(HeaderSlotContext);
-  return slot ? createPortal(children, slot) : null;
+export function HeaderActions({
+  children,
+  mobileMenu = false,
+}: {
+  children: ReactNode;
+  mobileMenu?: boolean;
+}) {
+  const slots = useContext(HeaderSlotContext);
+  const slot = mobileMenu ? slots.mobileMenu ?? slots.header : slots.header;
+  const content = mobileMenu ? (
+    <div className="app-topbar-menu-action">{children}</div>
+  ) : children;
+  return slot ? createPortal(content, slot) : null;
 }
 
 function isWorksPath(pathname: string): boolean {
@@ -36,23 +49,83 @@ function QueueDot({ count }: { count: number }) {
 export function AppTopBar({
   inProgressCount,
   onSlotChange,
+  onMenuSlotChange,
 }: {
   inProgressCount: number;
   onSlotChange: (element: HTMLDivElement | null) => void;
+  onMenuSlotChange: (element: HTMLDivElement | null) => void;
 }) {
   const { t } = useI18n();
   const location = useLocation();
+  const navigate = useNavigate();
+  const theme = useAppSettingsStore((state) => state.theme);
+  const setSettings = useAppSettingsStore((state) => state.setSettings);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const returnSessionId =
+    (location.state as { returnSessionId?: string } | null)?.returnSessionId;
+  const currentTitle = isWorksPath(location.pathname)
+    ? t("nav.works")
+    : location.pathname.startsWith("/settings")
+      ? t("nav.settings")
+      : t("nav.subjects");
+  const isDark =
+    theme === "dark" ||
+    (theme === "system" &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
   const navItems = [
     { to: "/create", label: t("nav.create") },
     { to: "/works", label: t("nav.works") },
     { to: "/subjects", label: t("nav.subjects") },
   ];
 
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  const backToConversation = () => {
+    navigate("/create", {
+      state: returnSessionId ? { returnSessionId } : null,
+    });
+  };
+
+  const go = (path: string) => {
+    setMenuOpen(false);
+    navigate(path, { state: location.state });
+  };
+
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="flex items-center">
-          <NavLink to="/create" className="wordmark">
+        <div className="app-topbar-leading flex items-center">
+          <button
+            type="button"
+            className="topbar-icon-btn app-topbar-back"
+            aria-label={t("create.header.backToSession")}
+            onClick={backToConversation}
+          >
+            <ArrowLeft size={19} />
+          </button>
+          <NavLink to="/create" state={location.state} className="wordmark">
             SceneWords
           </NavLink>
         </div>
@@ -61,6 +134,7 @@ export function AppTopBar({
             <NavLink
               key={item.to}
               to={item.to}
+              state={location.state}
               className={({ isActive }) =>
                 `topbar-nav-link ${isActive ? "topbar-nav-link-active" : ""}`
               }
@@ -72,7 +146,56 @@ export function AppTopBar({
             </NavLink>
           ))}
         </nav>
-        <div className="topbar-actions" ref={onSlotChange} />
+        <span className="app-topbar-mobile-title">{currentTitle}</span>
+        <div className="app-topbar-trailing">
+          <div className="topbar-actions" ref={onSlotChange} />
+          <div className="dropdown-anchor app-topbar-more" ref={menuRef}>
+            <button
+              type="button"
+              className="topbar-icon-btn"
+              aria-label={t("create.header.more")}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <DotsThree size={22} weight="bold" />
+            </button>
+            {menuOpen ? (
+              <div
+                className="menu-popover"
+                role="menu"
+                onClick={(event) => {
+                  if (
+                    event.target instanceof Element &&
+                    event.target.closest(".app-topbar-menu-action button")
+                  ) {
+                    setMenuOpen(false);
+                  }
+                }}
+              >
+                <div className="app-topbar-menu-actions" ref={onMenuSlotChange} />
+                <div className="menu-divider app-topbar-action-divider" />
+                <button type="button" role="menuitem" className="menu-item" onClick={() => go("/settings")}>
+                  <span className="menu-item-label">{t("nav.settings")}</span>
+                </button>
+                <div className="menu-divider" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    setSettings({ theme: isDark ? "light" : "dark" });
+                    setMenuOpen(false);
+                  }}
+                >
+                  <span className="menu-item-label">
+                    {isDark ? t("create.header.lightMode") : t("create.header.darkMode")}
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
     </header>
   );
@@ -80,12 +203,12 @@ export function AppTopBar({
 
 export function CreateTopBar({
   breadcrumb,
-  onBack,
   inProgressCount,
+  returnSessionId,
 }: {
   breadcrumb: ReactNode;
-  onBack: () => void;
   inProgressCount: number;
+  returnSessionId: string;
 }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -124,33 +247,24 @@ export function CreateTopBar({
 
   const go = (path: string) => {
     setMenuOpen(false);
-    navigate(path);
+    navigate(path, { state: returnSessionId ? { returnSessionId } : null });
   };
 
   return (
     <header className="topbar">
       <div className="topbar-inner topbar-inner-create">
         <div className="crumb">
-          <button
-            type="button"
-            className="crumb-back"
-            onClick={onBack}
-            aria-label={t("create.header.back")}
-            title={t("create.header.back")}
-          >
-            <ArrowLeft size={15} weight="regular" />
-          </button>
           {breadcrumb}
         </div>
         <NavLink to="/create" className="wordmark wordmark-center">
           SceneWords
         </NavLink>
         <div className="topbar-actions" style={{ gap: "clamp(14px, 2.4vw, 26px)" }}>
-          <NavLink to="/works" className="topbar-text-link">
+          <NavLink to="/works" state={returnSessionId ? { returnSessionId } : null} className="topbar-text-link create-desktop-nav-link">
             {t("nav.works")}
             <QueueDot count={inProgressCount} />
           </NavLink>
-          <NavLink to="/subjects" className="topbar-text-link">
+          <NavLink to="/subjects" state={returnSessionId ? { returnSessionId } : null} className="topbar-text-link create-desktop-nav-link">
             {t("nav.subjects")}
           </NavLink>
           <div className="dropdown-anchor" ref={menuRef}>
@@ -166,9 +280,6 @@ export function CreateTopBar({
             </button>
             {menuOpen ? (
               <div className="menu-popover" role="menu">
-                <button type="button" role="menuitem" className="menu-item" onClick={() => go("/scenes")}>
-                  <span className="menu-item-label">{t("nav.scenes")}</span>
-                </button>
                 <button type="button" role="menuitem" className="menu-item" onClick={() => go("/settings")}>
                   <span className="menu-item-label">{t("nav.settings")}</span>
                 </button>
