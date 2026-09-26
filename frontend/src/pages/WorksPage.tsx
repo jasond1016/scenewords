@@ -8,7 +8,7 @@ import {
   Play,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { adoptGenerationVersion, fetchTaskDetail, fetchTaskPage } from "../api";
+import { adoptGenerationVersion, fetchCatalog, fetchTaskDetail, fetchTaskPage } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { HeaderActions } from "../components/AppTopBar";
 import { Dropdown, DropdownOption } from "../components/Dropdown";
@@ -34,11 +34,16 @@ import {
   formatRetryQueuedMessage,
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
+  getImageResizeOptions,
+  type EditImagePayload,
+  type ResizeImagePayload,
   type RetryTaskPayload,
   type ReuseTaskPayload,
   type TaskActionPayload,
   runRetryTask,
   runTaskAction,
+  submitImageEdit,
+  submitImageResize,
 } from "../overlayTaskActions";
 import {
   buildMediaSidebarActions,
@@ -267,6 +272,27 @@ export function WorksPage(props: Props) {
   );
   const [isRawResultOpen, setIsRawResultOpen] = useState(false);
   const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
+  const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [isResizeOptionsOpen, setIsResizeOptionsOpen] = useState(false);
+
+  const catalogQuery = useQuery({
+    queryKey: ["catalog", settings.gatewayToken],
+    queryFn: () => fetchCatalog(settings.gatewayToken),
+    staleTime: 5 * 60_000,
+  });
+  const resizeOptions = useMemo(() => {
+    if (!currentLightboxTask || !catalogQuery.data) {
+      return [];
+    }
+    try {
+      return getImageResizeOptions(currentLightboxTask, catalogQuery.data).filter(
+        (option) => option.value !== "auto",
+      );
+    } catch {
+      return [];
+    }
+  }, [catalogQuery.data, currentLightboxTask]);
 
   const taskDetailQuery = useQuery({
     queryKey: [
@@ -304,6 +330,12 @@ export function WorksPage(props: Props) {
 
   useEffect(() => {
     setQueuedRetryTaskId(null);
+  }, [currentLightboxTask?.task_id]);
+
+  useEffect(() => {
+    setIsEditPromptOpen(false);
+    setEditInstruction("");
+    setIsResizeOptionsOpen(false);
   }, [currentLightboxTask?.task_id]);
 
   useOverlayScrollLock(isLightboxOpen);
@@ -444,6 +476,44 @@ export function WorksPage(props: Props) {
     onError: (error: Error) => {
       settings.setPendingReuseLoading(false);
       settings.setPendingReuseError(error.message);
+    },
+  });
+  const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload>({
+    mutationFn: (payload) => submitImageEdit(payload, settings.gatewayToken),
+    onSuccess: async (response) => {
+      setHint(t("works.editQueued"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({
+          queryKey: ["scene", settings.gatewayToken, response.scene_id],
+        }),
+      ]);
+      setLightboxState(null);
+      navigate("/create", { state: { returnSessionId: response.scene_id } });
+    },
+    onError: (error) => {
+      setHint(t("works.editImageFailed", { message: error.message }));
+    },
+  });
+  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload>({
+    mutationFn: (payload) => submitImageResize(payload, settings.gatewayToken),
+    onSuccess: async (response) => {
+      setHint(t("works.editQueued"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({
+          queryKey: ["scene", settings.gatewayToken, response.scene_id],
+        }),
+      ]);
+      setLightboxState(null);
+      navigate("/create", { state: { returnSessionId: response.scene_id } });
+    },
+    onError: (error) => {
+      setHint(t("works.resizeImageFailed", { message: error.message }));
     },
   });
   const adoptMutation = useMutation({
@@ -859,12 +929,100 @@ export function WorksPage(props: Props) {
             }
             bottomActions={
               lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
-                <MediaOverlayImageActions
-                  disabled={reuseMutation.isPending}
-                  onEdit={reuseCurrentImage}
-                  onAdjustSize={reuseCurrentImage}
-                  onGenerateFinal={reuseCurrentImage}
-                />
+                <div className="media-overlay-action-stack">
+                  <MediaOverlayImageActions
+                    disabled={reuseMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                    onEdit={() => {
+                      setIsResizeOptionsOpen(false);
+                      setIsEditPromptOpen((open) => !open);
+                      setEditInstruction("");
+                    }}
+                    onAdjustSize={() => {
+                      setIsEditPromptOpen(false);
+                      setIsResizeOptionsOpen((open) => !open);
+                    }}
+                    onGenerateFinal={reuseCurrentImage}
+                  />
+                  {isEditPromptOpen ? (
+                    <form
+                      className="media-overlay-edit-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (!editInstruction.trim()) {
+                          setHint(t("works.editPromptRequired"));
+                          return;
+                        }
+                        if (!catalogQuery.data) {
+                          setHint(t("works.editOptionsUnavailable"));
+                          return;
+                        }
+                        editMutation.mutate({
+                          task: currentLightboxTask,
+                          imageIndex: lightboxItem.imageIndex ?? 0,
+                          instruction: editInstruction,
+                          catalog: catalogQuery.data,
+                        });
+                      }}
+                    >
+                      <label className="sr-only" htmlFor="media-overlay-edit-instruction">
+                        {t("works.editInstruction")}
+                      </label>
+                      <textarea
+                        id="media-overlay-edit-instruction"
+                        value={editInstruction}
+                        onChange={(event) => setEditInstruction(event.target.value)}
+                        placeholder={t("works.editInstructionPlaceholder")}
+                        rows={2}
+                        autoFocus
+                        disabled={editMutation.isPending}
+                      />
+                      <div className="media-overlay-edit-form__actions">
+                        <span>{t("works.editOnlyCurrentImage")}</span>
+                        <button type="submit" disabled={editMutation.isPending || !editInstruction.trim()}>
+                          {editMutation.isPending ? t("works.editSubmitting") : t("works.submitEdit")}
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
+                  {isResizeOptionsOpen ? (
+                    <div className="media-overlay-edit-form media-overlay-resize-options">
+                      <strong>{t("works.resizeChooseSize")}</strong>
+                      <p>{t("works.resizeUsesCurrentImage")}</p>
+                      {resizeOptions.length ? (
+                        <div className="media-overlay-resize-options__list">
+                          {resizeOptions.map((option) => (
+                            <button
+                              type="button"
+                              key={option.value}
+                              disabled={resizeMutation.isPending || !catalogQuery.data}
+                              onClick={() => {
+                                if (!catalogQuery.data) {
+                                  setHint(t("works.editOptionsUnavailable"));
+                                  return;
+                                }
+                                resizeMutation.mutate({
+                                  task: currentLightboxTask,
+                                  imageIndex: lightboxItem.imageIndex ?? 0,
+                                  resolution: option.value,
+                                  resolutionLabel: option.label,
+                                  catalog: catalogQuery.data,
+                                });
+                              }}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="media-overlay-resize-options__empty">
+                          {catalogQuery.isPending
+                            ? t("works.editOptionsLoading")
+                            : t("works.noResizeOptions")}
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               ) : null
             }
             media={

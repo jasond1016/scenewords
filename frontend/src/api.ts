@@ -78,6 +78,21 @@ export function createVideoTask(
   );
 }
 
+export function createImageTask(
+  payload: VideoGenerationRequest,
+  token: string,
+): Promise<VideoTaskResponse> {
+  return request<VideoTaskResponse>(
+    "/v1/image/generations",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export function retryVideoTask(
   taskId: string,
   retryMode: RetryMode,

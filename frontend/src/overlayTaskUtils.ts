@@ -27,6 +27,16 @@ export function toDraft(
   };
 }
 
+export function buildVersionEditPrompt(originalPrompt: string, instruction: string): string {
+  return [
+    "Edit the supplied image while preserving all unspecified subjects, identities, objects, location details, composition, and style.",
+    "Original scene request:",
+    originalPrompt.trim(),
+    "Modification request:",
+    instruction.trim(),
+  ].join("\n");
+}
+
 export function buildTaskRequestPayload(task: VideoTaskDetail) {
   return {
     provider: task.provider,

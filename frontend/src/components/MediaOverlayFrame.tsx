@@ -65,7 +65,7 @@ export function MediaOverlayFrame(props: Props) {
 
   const handleMediaClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (target instanceof Element && target.closest("button,a,input,summary,details,video")) {
+    if (target instanceof Element && target.closest("button,a,input,textarea,select,summary,details,video")) {
       return;
     }
     if (isImage && isMobileViewport) {
@@ -90,7 +90,7 @@ export function MediaOverlayFrame(props: Props) {
       !touch ||
       event.touches.length !== 1 ||
       (target instanceof Element &&
-        target.closest("button,a,input,summary,details,video,[data-overlay-scroll=\"allow\"]"))
+        target.closest("button,a,input,textarea,select,summary,details,video,[data-overlay-scroll=\"allow\"]"))
     ) {
       touchStartRef.current = null;
       isPullingDownRef.current = false;

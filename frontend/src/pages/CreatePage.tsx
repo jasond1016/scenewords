@@ -38,6 +38,7 @@ import {
   fetchScenes,
   fetchSubjects,
   fetchUploadedFileBinary,
+  importTaskImageAsFile,
   uploadFile,
 } from "../api";
 import { useI18n, type SupportedLocale } from "../i18n";
@@ -73,6 +74,7 @@ import { CreateTopBar } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { buildLightboxItems } from "../lightbox";
+import { buildVersionEditPrompt } from "../overlayTaskUtils";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -192,6 +194,8 @@ export function CreatePage(props: Props) {
     readLastSubmittedTaskId(),
   );
   const skipNextPendingClearHydrationRef = useRef(false);
+  const openSessionRequestRef = useRef(0);
+  const latestSessionReferenceTaskIdRef = useRef("");
   const formRef = useRef<HTMLFormElement | null>(null);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2007,6 +2011,7 @@ export function CreatePage(props: Props) {
   );
   const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
   const startNewSession = () => {
+    dismissComposerClear();
     setSceneId("");
     setGenerationId(null);
     setParentVersionId(null);
@@ -2024,17 +2029,19 @@ export function CreatePage(props: Props) {
     setHistoryOpen(false);
   };
   const openSession = async (sessionId: string) => {
+    const requestId = ++openSessionRequestRef.current;
     try {
       const session = await fetchScene(sessionId, settings.gatewayToken);
-      const latestGeneration = [...session.generations].sort(
-        (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
-      )[0];
-      const latestVersion = [...(latestGeneration?.versions ?? [])]
-        .reverse()
-        .find((version) => version.status === "succeeded") ??
-        latestGeneration?.versions[latestGeneration.versions.length - 1];
+      if (requestId !== openSessionRequestRef.current) {
+        return;
+      }
+      const sessionVersions = session.generations
+        .flatMap((generation) => generation.versions)
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+      const latestVersion = sessionVersions[0];
+      dismissComposerClear();
       setSceneId(sessionId);
-      setGenerationId(latestGeneration?.generation_id ?? null);
+      setGenerationId(latestVersion?.generation_id ?? null);
       setParentVersionId(latestVersion?.task_id ?? null);
       setVersionEditBasePrompt(null);
       setModificationInstruction("");
@@ -2051,7 +2058,9 @@ export function CreatePage(props: Props) {
       }
       setHistoryOpen(false);
     } catch (error) {
-      setHint(error instanceof Error ? error.message : t("common.error"));
+      if (requestId === openSessionRequestRef.current) {
+        setHint(error instanceof Error ? error.message : t("common.error"));
+      }
     }
   };
   const returnSessionId =
@@ -2080,6 +2089,51 @@ export function CreatePage(props: Props) {
       ),
     [conversationVersions],
   );
+  const latestSessionImageTask = [...sessionImageTasks]
+    .reverse()
+    .find((version) => version.status === "succeeded") ?? null;
+  useEffect(() => {
+    if (!sceneId || currentGenerationKind !== "image") {
+      latestSessionReferenceTaskIdRef.current = "";
+      setImageSourceReusedFileIds([]);
+      return;
+    }
+    if (
+      !latestSessionImageTask ||
+      latestSessionImageTask.scene_id !== sceneId ||
+      latestSessionReferenceTaskIdRef.current === latestSessionImageTask.task_id
+    ) {
+      return;
+    }
+    latestSessionReferenceTaskIdRef.current = latestSessionImageTask.task_id;
+    let cancelled = false;
+    void importTaskImageAsFile(
+      latestSessionImageTask.task_id,
+      0,
+      settings.gatewayToken,
+    ).then(
+      (imported) => {
+        if (!cancelled) {
+          setImageSourceReusedFileIds([imported.file_id]);
+        }
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setHint(error instanceof Error ? error.message : t("common.error"));
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentGenerationKind,
+    latestSessionImageTask?.scene_id,
+    latestSessionImageTask?.task_id,
+    sceneId,
+    settings.gatewayToken,
+    t,
+  ]);
   const sessionImageItems = useMemo(
     () => buildLightboxItems(sessionImageTasks, "image"),
     [sessionImageTasks],
@@ -4616,16 +4670,6 @@ function buildPromptWithSubjects(scenePrompt: string, subjects: SubjectAsset[]):
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-function buildVersionEditPrompt(originalPrompt: string, instruction: string): string {
-  return [
-    "Edit the supplied image while preserving all unspecified subjects, identities, objects, location details, composition, and style.",
-    "Original scene request:",
-    originalPrompt.trim(),
-    "Modification request:",
-    instruction.trim(),
-  ].join("\n");
 }
 
 function fileToDataUrl(file: File): Promise<string> {
