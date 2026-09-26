@@ -86,6 +86,8 @@ const COMPOSER_PROMPT_MIN_ROWS = 1;
 const COMPOSER_PROMPT_MAX_ROWS = 8;
 const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_SESSION_POLL_INTERVAL_MS = 4_000;
+const IDLE_SESSION_POLL_INTERVAL_MS = 20_000;
 const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
@@ -263,6 +265,16 @@ export function CreatePage(props: Props) {
     queryKey: ["scene", settings.gatewayToken, sceneId],
     queryFn: () => fetchScene(sceneId, settings.gatewayToken),
     enabled: Boolean(sceneId),
+    refetchInterval: (query) => {
+      const hasInProgressGeneration = query.state.data?.generations.some((generation) =>
+        generation.versions.some(
+          (version) => version.status === "queued" || version.status === "running",
+        ),
+      );
+      return hasInProgressGeneration
+        ? ACTIVE_SESSION_POLL_INTERVAL_MS
+        : IDLE_SESSION_POLL_INTERVAL_MS;
+    },
   });
   const selectedSubjects = useMemo(
     () =>

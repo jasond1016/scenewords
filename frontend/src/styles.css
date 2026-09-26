@@ -2698,8 +2698,7 @@ select.input-base {
     justify-content: space-between;
   }
 
-  .topbar-inner-create > .wordmark-center,
-  .create-desktop-nav-link {
+  .topbar-inner-create > .wordmark-center {
     display: none;
   }
 
@@ -2752,6 +2751,12 @@ select.input-base {
     width: calc(100vw - 32px);
   }
 
+}
+
+@media (max-width: 1024px), (hover: none) {
+  .create-desktop-nav-link {
+    display: none;
+  }
 }
 
 } /* end @layer components */
