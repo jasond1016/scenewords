@@ -73,8 +73,6 @@ export function MediaDetailSidebar(props: Props) {
     errorText,
   } = props;
   const { locale, t } = useI18n();
-  const [isSharing, setIsSharing] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
   const [comparisonTaskId, setComparisonTaskId] = useState("");
@@ -102,102 +100,10 @@ export function MediaDetailSidebar(props: Props) {
         : costState.kind === "not_charged"
           ? t("works.notCharged")
           : t("common.na");
-  const buildSharedFileName = (contentType?: string): string => {
-    const base = `${task.provider || "scenewords"}_${task.task_id.slice(0, 8)}`;
-    const normalizedType = contentType?.toLowerCase() ?? "";
-    if (normalizedType.includes("png")) return `${base}.png`;
-    if (normalizedType.includes("webp")) return `${base}.webp`;
-    if (normalizedType.includes("gif")) return `${base}.gif`;
-    if (normalizedType.includes("jpeg") || normalizedType.includes("jpg")) return `${base}.jpg`;
-    if (normalizedType.includes("quicktime")) return `${base}.mov`;
-    if (normalizedType.includes("webm")) return `${base}.webm`;
-    if (normalizedType.includes("mp4")) return `${base}.mp4`;
-    return task.asset_type === "image" ? `${base}.jpg` : `${base}.mp4`;
-  };
-
-  const handleNativeShare = async () => {
-    if (!downloadUrl || typeof navigator === "undefined") {
-      return;
-    }
-
-    const hasNativeShare = typeof navigator.share === "function";
-    if (!hasNativeShare) {
-      const requiresSecureContext =
-        typeof window !== "undefined" && window.isSecureContext === false;
-      setShareError(
-        requiresSecureContext ? t("works.shareRequiresHttps") : t("works.shareUnavailable"),
-      );
-      return;
-    }
-    setIsSharing(true);
-    setShareError(null);
-
-    try {
-      let shared = false;
-
-      try {
-        const response = await fetch(downloadUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const blob = await response.blob();
-        const file = new File([blob], buildSharedFileName(blob.type), {
-          type: blob.type || undefined,
-        });
-
-        const canShareFiles =
-          typeof navigator.canShare === "function" &&
-          navigator.canShare({ files: [file] });
-
-        if (canShareFiles) {
-          await navigator.share({
-            files: [file],
-            title: task.prompt || t("works.share"),
-          });
-          shared = true;
-        }
-      } catch {
-        // Fall through to URL-based share.
-      }
-
-      if (!shared) {
-        await navigator.share({
-          title: task.prompt || t("works.share"),
-          url: downloadUrl,
-        });
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
-      }
-      setShareError(t("works.shareFailed"));
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          {downloadUrl ? (
-            <a href={downloadUrl} download className="btn-secondary text-xs" title={t("works.download")}>
-              {t("works.download")}
-            </a>
-          ) : null}
-          {downloadUrl ? (
-            <button
-              type="button"
-              className="btn-secondary text-xs"
-              onClick={() => {
-                void handleNativeShare();
-              }}
-              disabled={isSharing}
-              title={t("works.share")}
-            >
-              {isSharing ? t("works.sharing") : t("works.share")}
-            </button>
-          ) : null}
           {cancelAction ? (
             <button
               type="button"
@@ -227,11 +133,6 @@ export function MediaDetailSidebar(props: Props) {
         </details>
       </div>
 
-      {shareError ? (
-        <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-error-bg px-3 py-2 text-[11px] text-error-text">
-          {shareError}
-        </p>
-      ) : null}
       {task.status === "succeeded" && !downloadUrl ? (
         <p className="m-0 rounded-2xl border border-[var(--c-border-subtle)] bg-warning-bg px-3 py-2 text-[11px] text-warning-text">
           {t("works.resourceExpiredHint")}
@@ -267,16 +168,18 @@ export function MediaDetailSidebar(props: Props) {
       </section>
 
       <div className="flex flex-wrap gap-2 border-y border-border py-3">
-        <button
-          type="button"
-          className="btn-primary text-xs"
-          onClick={onReuse}
-          disabled={reuseDisabled}
-        >
-          {task.generation_id
-            ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
-            : t("works.editAgain")}
-        </button>
+        {task.asset_type !== "image" || task.status !== "succeeded" ? (
+          <button
+            type="button"
+            className="btn-primary text-xs"
+            onClick={onReuse}
+            disabled={reuseDisabled}
+          >
+            {task.generation_id
+              ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
+              : t("works.editAgain")}
+          </button>
+        ) : null}
         {onBranch && task.asset_type === "image" && task.status === "succeeded" && task.generation_id ? (
           <button type="button" className="btn-secondary text-xs" onClick={onBranch} disabled={reuseDisabled}>
             {locale === "zh-CN" ? "从此分支" : "Branch from here"}
@@ -372,7 +275,7 @@ export function MediaDetailSidebar(props: Props) {
             </summary>
             {isRawResultOpen ? (
               rawResultPending ? (
-                <p className="m-0 mt-2 text-[11px] text-[var(--c-text-tertiary)]">
+                <p className="m-0 mt-2 text-[11px] text-[var(--c-text-secondary)]">
                   {t("common.loading")}
                 </p>
               ) : rawResultError ? (
@@ -542,7 +445,7 @@ function renderRetryButtons(
 function InlineStat({ label, value }: { label: string; value: string }) {
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
-      <span className="text-[var(--c-text-tertiary)]">{label}</span>
+      <span className="text-[var(--c-text)]">{label}</span>
       <span className="font-medium text-[var(--c-text)]">{value}</span>
     </span>
   );

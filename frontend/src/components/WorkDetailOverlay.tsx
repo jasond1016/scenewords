@@ -3,12 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { adoptGenerationVersion, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
+import { MediaOverlayExportActions, MediaOverlayImageActions } from "./MediaOverlayActions";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
 import { MediaOverlayFrame } from "./MediaOverlayFrame";
 import { useI18n } from "../i18n";
 import {
   buildLightboxItems,
-  inferTaskOrientation,
   resolveInitialLightboxState,
 } from "../lightbox";
 import {
@@ -61,7 +61,6 @@ export function WorkDetailOverlay(props: Props) {
   const [lightboxState, setLightboxState] = useState<{ kind: "image" | "video"; index: number } | null>(() =>
     resolveInitialLightboxState(initialTaskId, tasks, imageLightboxItems, videoLightboxItems),
   );
-  const [isMediaExpanded, setIsMediaExpanded] = useState(false);
   const isLightboxOpen = lightboxState !== null;
   const taskById = useMemo(
     () => new Map(tasks.map((task) => [task.task_id, task])),
@@ -98,9 +97,6 @@ export function WorkDetailOverlay(props: Props) {
   const currentLightboxTask = lightboxItem
     ? taskById.get(lightboxItem.taskId) ?? null
     : null;
-  const currentLightboxOrientation = currentLightboxTask
-    ? inferTaskOrientation(currentLightboxTask)
-    : "landscape";
   const versionTasks = useMemo(
     () =>
       currentLightboxTask?.generation_id
@@ -148,10 +144,6 @@ export function WorkDetailOverlay(props: Props) {
   }, [currentLightboxTask?.task_id]);
 
   useEffect(() => {
-    setIsMediaExpanded(false);
-  }, [currentLightboxTask?.task_id]);
-
-  useEffect(() => {
     setQueuedRetryTaskId(null);
   }, [currentLightboxTask?.task_id]);
 
@@ -169,8 +161,7 @@ export function WorkDetailOverlay(props: Props) {
     }
   }, [lightboxIndex, lightboxItems, onClose]);
 
-  useEscapeToClose(lightboxIndex != null && !isMediaExpanded, onClose);
-  useEscapeToClose(isMediaExpanded, () => setIsMediaExpanded(false));
+  useEscapeToClose(lightboxIndex != null, onClose);
 
   const deleteMutation = useMutation<unknown, Error, TaskActionPayload>({
     mutationFn: (payload) => runTaskAction(payload, settings.gatewayToken),
@@ -268,15 +259,36 @@ export function WorkDetailOverlay(props: Props) {
         }
       : sidebarActions.retryActions;
 
+  const reuseCurrentImage = () => {
+    reuseMutation.mutate({
+      task: currentLightboxTask,
+      imageIndex: lightboxItem.imageIndex ?? 0,
+      branch: false,
+    });
+  };
+
   return (
     <>
       <MediaOverlayFrame
-        title={t("works.workPreview")}
-        currentIndex={lightboxIndex}
-        totalItems={lightboxItems.length}
         onClose={onClose}
-        onExpandMedia={() => setIsMediaExpanded(true)}
         closeLabel={t("common.close")}
+        detailsLabel={t("works.details")}
+        closeDetailsLabel={t("works.closeDetails")}
+        mediaToggleLabel={t("works.toggleOverlayActions")}
+        isImage={lightboxItem.kind === "image"}
+        topActions={
+          <MediaOverlayExportActions task={currentLightboxTask} downloadUrl={lightboxItem.url} />
+        }
+        bottomActions={
+          lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
+            <MediaOverlayImageActions
+              disabled={reuseMutation.isPending}
+              onEdit={reuseCurrentImage}
+              onAdjustSize={reuseCurrentImage}
+              onGenerateFinal={reuseCurrentImage}
+            />
+          ) : null
+        }
         media={
           <AppLightboxStage
             items={lightboxItems}
@@ -287,14 +299,8 @@ export function WorkDetailOverlay(props: Props) {
                 current ? { ...current, index: nextIndex } : null,
               )
             }
+            onClose={onClose}
           />
-        }
-        mediaHint={
-          currentLightboxOrientation === "portrait"
-            ? t("works.portraitHint")
-            : currentLightboxOrientation === "square"
-              ? t("works.squareHint")
-              : t("works.landscapeHint")
         }
         sidebar={
           <MediaDetailSidebar
@@ -309,13 +315,7 @@ export function WorkDetailOverlay(props: Props) {
             statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
             updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
             downloadUrl={lightboxItem.url}
-            onReuse={() => {
-              reuseMutation.mutate({
-                task: currentLightboxTask,
-                imageIndex: lightboxItem.imageIndex ?? 0,
-                branch: false,
-              });
-            }}
+            onReuse={reuseCurrentImage}
             reuseDisabled={reuseMutation.isPending}
             onBranch={() => {
               reuseMutation.mutate({
@@ -359,41 +359,6 @@ export function WorkDetailOverlay(props: Props) {
           />
         }
       />
-      {isMediaExpanded ? (
-        <div
-          className="fixed inset-0 z-[60] bg-[rgba(9,9,11,0.8)] p-4 backdrop-blur-[4px]"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setIsMediaExpanded(false)}
-        >
-          <div
-            className="relative mx-auto flex h-full max-w-[min(96vw,1460px)] items-center justify-center"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(24,24,27,0.82)] text-white shadow-[var(--shadow-lg)] transition-colors hover:bg-[rgba(39,39,42,0.92)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-              onClick={() => setIsMediaExpanded(false)}
-              aria-label={t("common.close")}
-              title={t("common.close")}
-            >
-              ×
-            </button>
-            <div className="h-full w-full overflow-hidden rounded-[28px] bg-[rgba(10,10,14,0.9)] p-3 shadow-[var(--shadow-overlay)] md:p-4">
-              <AppLightboxStage
-                items={lightboxItems}
-                index={lightboxIndex ?? 0}
-                taskById={taskById}
-                onIndexChange={(nextIndex) =>
-                  setLightboxState((current) =>
-                    current ? { ...current, index: nextIndex } : null,
-                  )
-                }
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

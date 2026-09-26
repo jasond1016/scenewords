@@ -19,13 +19,12 @@ interface Props {
   index: number;
   taskById: ReadonlyMap<string, VideoTaskDetail>;
   onIndexChange: (index: number) => void;
+  onClose: () => void;
 }
 
 const PLUGINS = [Inline, Video, Zoom];
-const NOOP = () => {};
-
 export function AppLightboxStage(props: Props) {
-  const { items, index, taskById, onIndexChange } = props;
+  const { items, index, taskById, onIndexChange, onClose } = props;
   const { t } = useI18n();
   const slides = useMemo(() => mapLightboxItemsToSlides(items, taskById), [items, taskById]);
 
@@ -39,7 +38,7 @@ export function AppLightboxStage(props: Props) {
     <div className="app-lightbox-stage h-full w-full" data-overlay-gesture="allow">
       <Lightbox
         open
-        close={NOOP}
+        close={onClose}
         index={safeIndex}
         slides={slides}
         plugins={PLUGINS}
@@ -93,6 +92,7 @@ export function AppLightboxStage(props: Props) {
           buttonPrev: () => null,
           buttonNext: () => null,
           buttonClose: () => null,
+          buttonZoom: () => null,
         }}
         styles={{
           root: {

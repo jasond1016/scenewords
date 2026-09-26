@@ -13,6 +13,7 @@ import { AppLightboxStage } from "../components/AppLightboxStage";
 import { HeaderActions } from "../components/AppTopBar";
 import { Dropdown, DropdownOption } from "../components/Dropdown";
 import { EmptyStateWorks } from "../components/Skeletons";
+import { MediaOverlayExportActions, MediaOverlayImageActions } from "../components/MediaOverlayActions";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
@@ -20,7 +21,6 @@ import {
   buildLightboxItems,
   extractVideoPoster,
   inferTaskAspectRatio,
-  inferTaskOrientation,
   type LightboxKind,
 } from "../lightbox";
 import {
@@ -92,7 +92,6 @@ export function WorksPage(props: Props) {
   const [measuredRatios, setMeasuredRatios] = useState<Record<string, number>>({});
   const [hint, setHint] = useState("");
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
-  const [isMediaExpanded, setIsMediaExpanded] = useState(false);
   const [extraTasks, setExtraTasks] = useState<VideoTaskDetail[]>([]);
   const [nextOffset, setNextOffset] = useState(TASK_PAGE_SIZE);
   const [hasMorePages, setHasMorePages] = useState(() => inferHasMorePages(tasks));
@@ -258,9 +257,6 @@ export function WorksPage(props: Props) {
   const currentLightboxTask = lightboxItem
     ? taskById.get(lightboxItem.taskId) ?? null
     : null;
-  const currentLightboxOrientation = currentLightboxTask
-    ? inferTaskOrientation(currentLightboxTask)
-    : "landscape";
   const versionTasks = useMemo(
     () => currentLightboxTask?.generation_id
       ? allTasks
@@ -307,10 +303,6 @@ export function WorksPage(props: Props) {
   }, [currentLightboxTask?.task_id]);
 
   useEffect(() => {
-    setIsMediaExpanded(false);
-  }, [currentLightboxTask?.task_id]);
-
-  useEffect(() => {
     setQueuedRetryTaskId(null);
   }, [currentLightboxTask?.task_id]);
 
@@ -328,8 +320,7 @@ export function WorksPage(props: Props) {
     }
   }, [lightboxIndex, lightboxItems]);
 
-  useEscapeToClose(lightboxIndex != null && !isMediaExpanded, () => setLightboxState(null));
-  useEscapeToClose(isMediaExpanded, () => setIsMediaExpanded(false));
+  useEscapeToClose(lightboxIndex != null, () => setLightboxState(null));
   useEscapeToClose(selectMode && !isLightboxOpen, () => exitSelectMode());
 
   const openImageLightbox = (taskId: string, imageUrl?: string) => {
@@ -569,6 +560,17 @@ export function WorksPage(props: Props) {
           onDefault: () => undefined,
         }
       : sidebarActions?.retryActions;
+
+  const reuseCurrentImage = () => {
+    if (!currentLightboxTask || !lightboxItem) {
+      return;
+    }
+    reuseMutation.mutate({
+      task: currentLightboxTask,
+      imageIndex: lightboxItem.imageIndex ?? 0,
+      branch: false,
+    });
+  };
 
   const kindLabels: Record<BrowseFilter, string> = {
     all: t("works.filter.all"),
@@ -846,12 +848,25 @@ export function WorksPage(props: Props) {
       {lightboxItem && currentLightboxTask ? (
         <>
           <MediaOverlayFrame
-            title={t("works.workPreview")}
-            currentIndex={lightboxIndex}
-            totalItems={lightboxItems.length}
             onClose={() => setLightboxState(null)}
-            onExpandMedia={() => setIsMediaExpanded(true)}
             closeLabel={t("common.close")}
+            detailsLabel={t("works.details")}
+            closeDetailsLabel={t("works.closeDetails")}
+            mediaToggleLabel={t("works.toggleOverlayActions")}
+            isImage={lightboxItem.kind === "image"}
+            topActions={
+              <MediaOverlayExportActions task={currentLightboxTask} downloadUrl={lightboxItem.url} />
+            }
+            bottomActions={
+              lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
+                <MediaOverlayImageActions
+                  disabled={reuseMutation.isPending}
+                  onEdit={reuseCurrentImage}
+                  onAdjustSize={reuseCurrentImage}
+                  onGenerateFinal={reuseCurrentImage}
+                />
+              ) : null
+            }
             media={
               <AppLightboxStage
                 items={lightboxItems}
@@ -862,14 +877,8 @@ export function WorksPage(props: Props) {
                     current ? { ...current, index: nextIndex } : null,
                   )
                 }
+                onClose={() => setLightboxState(null)}
               />
-            }
-            mediaHint={
-              currentLightboxOrientation === "portrait"
-                ? t("works.portraitHint")
-                : currentLightboxOrientation === "square"
-                  ? t("works.squareHint")
-                  : t("works.landscapeHint")
             }
             sidebar={
               <MediaDetailSidebar
@@ -884,13 +893,7 @@ export function WorksPage(props: Props) {
                 statusLabel={formatOverlayTaskStatus(currentLightboxTask, t)}
                 updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 downloadUrl={lightboxItem.url}
-                onReuse={() => {
-                  reuseMutation.mutate({
-                    task: currentLightboxTask,
-                    imageIndex: lightboxItem.imageIndex ?? 0,
-                    branch: false,
-                  });
-                }}
+                onReuse={reuseCurrentImage}
                 reuseDisabled={reuseMutation.isPending}
                 onBranch={() => {
                   reuseMutation.mutate({
@@ -934,41 +937,6 @@ export function WorksPage(props: Props) {
               />
             }
           />
-          {isMediaExpanded ? (
-            <div
-              className="fixed inset-0 z-[60] bg-[var(--c-overlay)] p-4 backdrop-blur-[4px]"
-              role="dialog"
-              aria-modal="true"
-              onClick={() => setIsMediaExpanded(false)}
-            >
-              <div
-                className="relative mx-auto flex h-full max-w-[min(96vw,1460px)] items-center justify-center"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--c-overlay-chip)] text-[var(--c-on-media)] shadow-[var(--shadow-lg)]"
-                  onClick={() => setIsMediaExpanded(false)}
-                  aria-label={t("common.close")}
-                  title={t("common.close")}
-                >
-                  ×
-                </button>
-                <div className="h-full w-full overflow-hidden rounded-2xl bg-[var(--c-overlay-panel)] p-3 shadow-[var(--shadow-overlay)] md:p-4">
-                  <AppLightboxStage
-                    items={lightboxItems}
-                    index={lightboxIndex ?? 0}
-                    taskById={taskById}
-                    onIndexChange={(nextIndex) =>
-                      setLightboxState((current) =>
-                        current ? { ...current, index: nextIndex } : null,
-                      )
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          ) : null}
         </>
       ) : null}
     </div>
