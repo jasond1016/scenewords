@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { adoptGenerationVersion, fetchTaskDetail } from "../api";
@@ -46,20 +46,34 @@ import {
 interface Props {
   tasks: VideoTaskDetail[];
   initialTaskId: string;
+  initialItemKey?: string;
   onClose: () => void;
   onHint?: (message: string) => void;
 }
 
 export function WorkDetailOverlay(props: Props) {
-  const { tasks, initialTaskId, onClose, onHint } = props;
+  const { tasks, initialTaskId, initialItemKey, onClose, onHint } = props;
   const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const imageLightboxItems = useMemo(() => buildLightboxItems(tasks, "image"), [tasks]);
   const videoLightboxItems = useMemo(() => buildLightboxItems(tasks, "video"), [tasks]);
-  const [lightboxState, setLightboxState] = useState<{ kind: "image" | "video"; index: number } | null>(() =>
-    resolveInitialLightboxState(initialTaskId, tasks, imageLightboxItems, videoLightboxItems),
+  const resolveInitialState = useCallback(() => {
+    const initialState = resolveInitialLightboxState(
+      initialTaskId,
+      tasks,
+      imageLightboxItems,
+      videoLightboxItems,
+    );
+    if (!initialState || initialState.kind !== "image" || !initialItemKey) {
+      return initialState;
+    }
+    const itemIndex = imageLightboxItems.findIndex((item) => item.key === initialItemKey);
+    return itemIndex >= 0 ? { ...initialState, index: itemIndex } : initialState;
+  }, [imageLightboxItems, initialItemKey, initialTaskId, tasks, videoLightboxItems]);
+  const [lightboxState, setLightboxState] = useState<{ kind: "image" | "video"; index: number } | null>(
+    resolveInitialState,
   );
   const isLightboxOpen = lightboxState !== null;
   const taskById = useMemo(
@@ -68,12 +82,7 @@ export function WorkDetailOverlay(props: Props) {
   );
 
   useEffect(() => {
-    const nextState = resolveInitialLightboxState(
-      initialTaskId,
-      tasks,
-      imageLightboxItems,
-      videoLightboxItems,
-    );
+    const nextState = resolveInitialState();
     if (!nextState) {
       onClose();
       return;
@@ -84,7 +93,7 @@ export function WorkDetailOverlay(props: Props) {
       }
       return nextState;
     });
-  }, [imageLightboxItems, initialTaskId, tasks, videoLightboxItems]);
+  }, [onClose, resolveInitialState]);
 
   const lightboxItems = lightboxState?.kind === "video" ? videoLightboxItems : imageLightboxItems;
   const lightboxIndex = lightboxState?.index ?? null;

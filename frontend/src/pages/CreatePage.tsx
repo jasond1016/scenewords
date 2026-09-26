@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -70,6 +71,8 @@ import {
 } from "../utils";
 import { CreateTopBar } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
+import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
+import { buildLightboxItems } from "../lightbox";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -200,7 +203,14 @@ export function CreatePage(props: Props) {
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessionImagePreview, setSessionImagePreview] = useState<{
+    taskId: string;
+    itemKey: string;
+    tasks: VideoTaskDetail[];
+  } | null>(null);
+  const closeSessionImagePreview = useCallback(() => setSessionImagePreview(null), []);
   const transcriptRef = useRef<HTMLElement | null>(null);
+  const shouldStickTranscriptToBottomRef = useRef(true);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [parentVersionId, setParentVersionId] = useState<string | null>(null);
   const [versionEditBasePrompt, setVersionEditBasePrompt] = useState<string | null>(null);
@@ -1573,10 +1583,15 @@ export function CreatePage(props: Props) {
         setSceneId(response.scene_id);
         setGenerationId(response.generation_id);
         setParentVersionId(response.task_id);
-        await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+          queryClient.invalidateQueries({
+            queryKey: ["scene", settings.gatewayToken, response.scene_id],
+          }),
+        ]);
       }
       setLastSubmittedTaskId(response.task_id);
-      setHint(t("create.hintCreated", { taskId: response.task_id.slice(0, 8) }));
+      setHint("");
       if (settings.savePromptHistory && promptField) {
         const promptValue = (values[fieldKey(promptField)] ?? "").trim();
         if (promptValue) {
@@ -2036,13 +2051,39 @@ export function CreatePage(props: Props) {
     void openSession(returnSessionId);
     navigate("/create", { replace: true, state: null });
   }, [location.key]);
-  const conversationVersions = [...(activeSessionQuery.data?.generations ?? [])]
-    .flatMap((generation) => generation.versions)
-    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+  const conversationVersions = useMemo(
+    () =>
+      [...(activeSessionQuery.data?.generations ?? [])]
+        .flatMap((generation) => generation.versions)
+        .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at)),
+    [activeSessionQuery.data?.generations],
+  );
+  const sessionImageTasks = useMemo(
+    () =>
+      conversationVersions.filter(
+        (version) =>
+          version.asset_type === "image" &&
+          version.status !== "failed" &&
+          extractImageUrls(version).length > 0,
+      ),
+    [conversationVersions],
+  );
+  const sessionImageItems = useMemo(
+    () => buildLightboxItems(sessionImageTasks, "image"),
+    [sessionImageTasks],
+  );
   useEffect(() => {
-    if (sceneId && transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    if (!sceneId) {
+      return;
     }
+    shouldStickTranscriptToBottomRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (transcript) {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [conversationVersions.length, sceneId]);
   const topBar = (
     <CreateTopBar
@@ -2215,27 +2256,77 @@ export function CreatePage(props: Props) {
     <div>
       {topBar}
       {historyDrawer}
-      <div className="create-stage">
+      <div className={`create-stage ${sceneId ? "create-stage-session" : ""}`}>
       {sceneId ? (
-        <section ref={transcriptRef} className="session-transcript" aria-label={selectedSession?.title ?? t("create.sessions.title")}>
+        <section
+          ref={transcriptRef}
+          className="session-transcript"
+          aria-label={selectedSession?.title ?? t("create.sessions.title")}
+          onScroll={() => {
+            const transcript = transcriptRef.current;
+            if (transcript) {
+              shouldStickTranscriptToBottomRef.current =
+                transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 64;
+            }
+          }}
+        >
           {activeSessionQuery.isLoading ? (
             <p className="session-transcript-loading">{t("common.loading")}</p>
           ) : conversationVersions.map((version) => {
             const images = extractImageUrls(version);
+            const isGeneratingImage =
+              version.asset_type === "image" &&
+              (version.status === "queued" || version.status === "running");
             return (
               <article className="session-turn" key={version.task_id}>
                 <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
                 {images.length ? (
                   <div className="session-turn-images">
-                    {images.map((url) => (
-                      <img
-                        key={url}
-                        src={url}
-                        alt=""
-                        loading="lazy"
-                        onError={(event) => { event.currentTarget.hidden = true; }}
-                      />
-                    ))}
+                    {images.map((url) => {
+                      const item = sessionImageItems.find(
+                        (candidate) => candidate.taskId === version.task_id && candidate.url === url,
+                      );
+                      return (
+                        <button
+                          key={url}
+                          type="button"
+                          className="session-turn-image-button"
+                          aria-label={t("create.sessions.openImage")}
+                          title={t("create.sessions.openImage")}
+                          onClick={() => {
+                            if (item) {
+                              setSessionImagePreview({
+                                taskId: item.taskId,
+                                itemKey: item.key,
+                                tasks: sessionImageTasks,
+                              });
+                            }
+                          }}
+                        >
+                          <img
+                            src={url}
+                            alt=""
+                            loading="lazy"
+                            onLoad={() => {
+                              if (shouldStickTranscriptToBottomRef.current) {
+                                window.requestAnimationFrame(() => {
+                                  const transcript = transcriptRef.current;
+                                  if (transcript) {
+                                    transcript.scrollTop = transcript.scrollHeight;
+                                  }
+                                });
+                              }
+                            }}
+                            onError={(event) => { event.currentTarget.hidden = true; }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : isGeneratingImage ? (
+                  <div className="session-turn-image-placeholder skeleton" role="status" aria-live="polite">
+                    <ImageSquare size={26} />
+                    <span>{statusLabel(version)}</span>
                   </div>
                 ) : (
                   <p className="session-turn-status">{statusLabel(version)}</p>
@@ -2868,6 +2959,15 @@ export function CreatePage(props: Props) {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {sessionImagePreview && sceneId ? (
+        <WorkDetailOverlay
+          tasks={sessionImagePreview.tasks}
+          initialTaskId={sessionImagePreview.taskId}
+          initialItemKey={sessionImagePreview.itemKey}
+          onClose={closeSessionImagePreview}
+        />
       ) : null}
 
     </div>
