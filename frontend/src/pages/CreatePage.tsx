@@ -2061,15 +2061,17 @@ export function CreatePage(props: Props) {
             <ClockCounterClockwise size={19} />
           </button>
           <span className="crumb-title">{selectedSession?.title ?? t("create.sessions.new")}</span>
-          <button
-            type="button"
-            className="topbar-icon-btn session-new-button"
-            aria-label={t("create.sessions.new")}
-            title={t("create.sessions.new")}
-            onClick={startNewSession}
-          >
-            <Plus size={18} />
-          </button>
+          {sceneId ? (
+            <button
+              type="button"
+              className="topbar-icon-btn session-new-button"
+              aria-label={t("create.sessions.new")}
+              title={t("create.sessions.new")}
+              onClick={startNewSession}
+            >
+              <Plus size={18} />
+            </button>
+          ) : null}
         </div>
       }
     />
