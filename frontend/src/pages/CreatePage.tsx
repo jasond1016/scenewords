@@ -79,7 +79,6 @@ import { buildVersionEditPrompt } from "../overlayTaskUtils";
 interface Props {
   catalog?: ProviderCatalogResponse;
   loading: boolean;
-  tasks: VideoTaskDetail[];
 }
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
@@ -170,7 +169,7 @@ interface ModelSelectorChoice {
 }
 
 export function CreatePage(props: Props) {
-  const { catalog, loading, tasks } = props;
+  const { catalog, loading } = props;
   const { locale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
@@ -265,10 +264,12 @@ export function CreatePage(props: Props) {
     queryKey: ["scenes", settings.gatewayToken],
     queryFn: () => fetchScenes(settings.gatewayToken),
   });
+  const sceneQueryKey = (id: string) => ["scene", settings.gatewayToken, id] as const;
   const activeSessionQuery = useQuery({
-    queryKey: ["scene", settings.gatewayToken, sceneId],
+    queryKey: sceneQueryKey(sceneId),
     queryFn: () => fetchScene(sceneId, settings.gatewayToken),
     enabled: Boolean(sceneId),
+    staleTime: 5_000,
     refetchInterval: (query) => {
       const hasInProgressGeneration = query.state.data?.generations.some((generation) =>
         generation.versions.some(
@@ -467,10 +468,6 @@ export function CreatePage(props: Props) {
   const advancedGroups = useMemo(
     () => groupAdvancedFields(advancedFields),
     [advancedFields],
-  );
-  const inProgressCount = useMemo(
-    () => tasks.filter((task) => task.status === "queued" || task.status === "running").length,
-    [tasks],
   );
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
@@ -2031,7 +2028,11 @@ export function CreatePage(props: Props) {
   const openSession = async (sessionId: string) => {
     const requestId = ++openSessionRequestRef.current;
     try {
-      const session = await fetchScene(sessionId, settings.gatewayToken);
+      const session = await queryClient.fetchQuery({
+        queryKey: sceneQueryKey(sessionId),
+        queryFn: () => fetchScene(sessionId, settings.gatewayToken),
+        staleTime: 5_000,
+      });
       if (requestId !== openSessionRequestRef.current) {
         return;
       }
@@ -2153,7 +2154,6 @@ export function CreatePage(props: Props) {
   }, [conversationVersions.length, sceneId]);
   const topBar = (
     <CreateTopBar
-      inProgressCount={inProgressCount}
       returnSessionId={sceneId}
       breadcrumb={
         <div className="create-header-controls flex min-w-0 items-center gap-2">

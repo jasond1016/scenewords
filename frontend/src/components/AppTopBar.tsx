@@ -203,11 +203,9 @@ export function AppTopBar({
 
 export function CreateTopBar({
   breadcrumb,
-  inProgressCount,
   returnSessionId,
 }: {
   breadcrumb: ReactNode;
-  inProgressCount: number;
   returnSessionId: string;
 }) {
   const { t } = useI18n();
@@ -259,14 +257,7 @@ export function CreateTopBar({
         <NavLink to="/create" className="wordmark wordmark-center">
           SceneWords
         </NavLink>
-        <div className="topbar-actions" style={{ gap: "clamp(14px, 2.4vw, 26px)" }}>
-          <NavLink to="/works" state={returnSessionId ? { returnSessionId } : null} className="topbar-text-link create-desktop-nav-link">
-            {t("nav.works")}
-            <QueueDot count={inProgressCount} />
-          </NavLink>
-          <NavLink to="/subjects" state={returnSessionId ? { returnSessionId } : null} className="topbar-text-link create-desktop-nav-link">
-            {t("nav.subjects")}
-          </NavLink>
+        <div className="topbar-actions">
           <div className="dropdown-anchor" ref={menuRef}>
             <button
               type="button"

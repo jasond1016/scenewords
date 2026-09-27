@@ -2864,10 +2864,4 @@ select.input-base {
 
 }
 
-@media (max-width: 1024px), (hover: none) {
-  .create-desktop-nav-link {
-    display: none;
-  }
-}
-
 } /* end @layer components */

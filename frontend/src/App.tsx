@@ -84,7 +84,6 @@ export default function App() {
     <CreatePage
       catalog={catalogQuery.data}
       loading={catalogQuery.isLoading}
-      tasks={tasksQuery.data ?? []}
     />
   );
 
