@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import io
 
+import httpx
 import pytest
 from PIL import Image
 
+from app.config import ProviderConfig, load_app_config
+from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import ProviderError
 from app.providers.tuzi_video import (
     _SubmitRequest,
@@ -223,3 +227,61 @@ def test_should_retry_upload_failure_only_once_for_normal_profile() -> None:
 
     assert _should_retry_upload_failure(error=error, submit_request=normal_submit) is True
     assert _should_retry_upload_failure(error=error, submit_request=aggressive_submit) is False
+
+
+@pytest.mark.parametrize("provider_type", ["tuzi_veo", "tuzi_sora"])
+@pytest.mark.parametrize("has_video_url", [True, False])
+@pytest.mark.parametrize("resume", [True, False])
+def test_video_provider_submit_resume_and_download_policy(provider_type, has_video_url, resume):
+    async def run():
+        calls = []
+        progress = []
+        video_url = "https://media.test/result.mp4"
+
+        def handler(request):
+            calls.append((request.method, request.url.path))
+            if request.method == "POST":
+                return httpx.Response(200, json={"id": "job-17"})
+            if request.url.path.endswith("/content"):
+                return httpx.Response(302, headers={"location": video_url})
+            payload = {"status": "completed"}
+            if has_video_url:
+                payload["video_url"] = video_url
+            return httpx.Response(200, json=payload)
+
+        config = ProviderConfig(
+            provider_id="test", display_name="Test", provider_type=provider_type,
+            enabled=True, base_url="https://provider.test", api_path="/v1/videos",
+            auth_env=None, models=[], supports_custom_endpoint=False, extra={},
+        )
+        options = {"__provider_progress_reporter": progress.append}
+        if resume:
+            options.update({
+                "__resume_provider_job_id": "job-17",
+                "__resume_provider_query_endpoint": "https://provider.test/v1/videos/job-17",
+            })
+        request = VideoGenerationRequest(
+            provider="test", model="test-model", operation="generate",
+            prompt="test", provider_options=options,
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            provider = PROVIDER_TYPE_REGISTRY[provider_type](load_app_config(), client)
+            if not has_video_url and provider_type == "tuzi_veo":
+                with pytest.raises(ProviderError) as error:
+                    await provider.generate(config, request)
+                assert error.value.code == "missing_video_url"
+            else:
+                result = await provider.generate(config, request)
+                assert result["mode"] == provider_type
+                assert result["provider_job_id"] == "job-17"
+                assert result["video_url"] == video_url
+
+        expected = [] if resume else [("POST", "/v1/videos")]
+        expected.append(("GET", "/v1/videos/job-17"))
+        if not has_video_url and provider_type == "tuzi_sora":
+            expected.append(("GET", "/v1/videos/job-17/content"))
+        assert calls == expected
+        assert progress[0]["provider_status"] == ("resuming" if resume else "submitted")
+        assert progress[-1]["provider_status"] == "succeeded"
+
+    asyncio.run(run())

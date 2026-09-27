@@ -1556,7 +1556,7 @@ export function CreatePage(props: Props) {
             );
           }
         } else {
-          const localDataUrls = await Promise.all(imageSourceFiles.map(fileToDataUrl));
+          const localDataUrls = await Promise.all(imageSourceFiles.map(blobToDataUrl));
           const reusedDataUrls = await Promise.all(
             sourceFileIds.map(async (fileId) => {
               const { blob } = await fetchUploadedFileBinary(fileId, settings.gatewayToken);
@@ -4670,10 +4670,6 @@ function buildPromptWithSubjects(scenePrompt: string, subjects: SubjectAsset[]):
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return blobToDataUrl(file);
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

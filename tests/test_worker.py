@@ -188,6 +188,42 @@ def test_cancel_running_task_unblocks_next_queued_task(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_worker_skips_canceled_and_deleted_tasks_before_generation(tmp_path: Path) -> None:
+    async def _run() -> None:
+        store = TaskStore(tmp_path / "tasks.db")
+        started = asyncio.Event()
+        release = asyncio.Event()
+        release.set()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(404, request=request)
+        )) as client:
+            provider = _BlockingProvider(
+                app_config=_build_app_config(tmp_path), http_client=client,
+                started=started, release=release,
+            )
+            worker = TaskWorker(
+                store=store,
+                provider_configs={"demo_provider": _build_provider_config()},
+                providers={"demo_provider": provider},
+            )
+            canceled = _seed_task(store)
+            deleted = _seed_task(store)
+            active = _seed_task(store)
+            worker.cancel(canceled)
+            store.delete_task(deleted)
+
+            await worker._process_task(canceled)
+            await worker._process_task(deleted)
+            assert not started.is_set()
+            assert store.get_task(canceled)["status"] == "queued"
+
+            await worker._process_task(active)
+            assert started.is_set()
+            assert store.get_task(active)["status"] == "succeeded"
+
+    asyncio.run(_run())
+
+
 def test_archives_image_results_with_stable_local_urls(tmp_path: Path) -> None:
     async def _run() -> None:
         store = TaskStore(tmp_path / "tasks.db")

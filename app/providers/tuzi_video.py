@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from PIL import Image, ImageOps
+
 from app.config import ProviderConfig
 from app.providers.base import (
     Provider,
@@ -16,34 +18,6 @@ from app.providers.base import (
     report_provider_progress,
 )
 from app.schemas import VideoGenerationRequest
-
-try:
-    from PIL import Image, ImageOps
-except Exception:  # pragma: no cover - optional dependency at import time
-    Image = None  # type: ignore[assignment]
-    ImageOps = None  # type: ignore[assignment]
-
-
-class TuziVeoProvider(Provider):
-    async def generate(
-        self, provider_config: ProviderConfig, request: VideoGenerationRequest
-    ) -> dict[str, Any]:
-        return await _TuziAsyncVideoProvider(
-            provider=self,
-            mode_name="tuzi_veo",
-            enable_download_fallback=False,
-        ).generate(provider_config=provider_config, request=request)
-
-
-class TuziSoraProvider(Provider):
-    async def generate(
-        self, provider_config: ProviderConfig, request: VideoGenerationRequest
-    ) -> dict[str, Any]:
-        return await _TuziAsyncVideoProvider(
-            provider=self,
-            mode_name="tuzi_sora",
-            enable_download_fallback=True,
-        ).generate(provider_config=provider_config, request=request)
 
 
 @dataclass(slots=True)
@@ -57,11 +31,9 @@ class _SubmitRequest:
     image_processing: list[dict[str, Any]] | None = None
 
 
-class _TuziAsyncVideoProvider:
-    def __init__(self, provider: Provider, mode_name: str, enable_download_fallback: bool) -> None:
-        self.provider = provider
-        self.mode_name = mode_name
-        self.enable_download_fallback = enable_download_fallback
+class _TuziAsyncVideoProvider(Provider):
+    mode_name: str
+    enable_download_fallback: bool
 
     async def generate(
         self, provider_config: ProviderConfig, request: VideoGenerationRequest
@@ -70,18 +42,18 @@ class _TuziAsyncVideoProvider:
         base_url = _choose_value(
             configured=provider_config.base_url,
             override=request.provider_options.get("base_url"),
-            allow_override=self.provider.app_config.allow_endpoint_override,
+            allow_override=self.app_config.allow_endpoint_override,
         )
         api_path = _choose_value(
             configured=provider_config.api_path,
             override=request.provider_options.get("api_path"),
-            allow_override=self.provider.app_config.allow_endpoint_override,
+            allow_override=self.app_config.allow_endpoint_override,
         )
         query_path = _choose_value(
             configured=_string_or_none(provider_config.extra.get("query_path"))
             or "/v1/videos/{task_id}",
             override=request.provider_options.get("query_path"),
-            allow_override=self.provider.app_config.allow_endpoint_override,
+            allow_override=self.app_config.allow_endpoint_override,
         )
         if not base_url or not api_path or not query_path:
             raise ProviderError(
@@ -288,7 +260,7 @@ class _TuziAsyncVideoProvider:
             request_headers.pop("Content-Type", None)
 
         try:
-            response = await self.provider.http_client.post(
+            response = await self.http_client.post(
                 endpoint,
                 headers=request_headers,
                 files=files,
@@ -329,7 +301,7 @@ class _TuziAsyncVideoProvider:
         deadline = asyncio.get_event_loop().time() + timeout_sec
         while asyncio.get_event_loop().time() < deadline:
             try:
-                response = await self.provider.http_client.get(
+                response = await self.http_client.get(
                     endpoint,
                     headers=headers,
                     timeout=30.0,
@@ -398,7 +370,7 @@ class _TuziAsyncVideoProvider:
             configured=_string_or_none(provider_config.extra.get("download_path"))
             or "/v1/videos/{task_id}/content",
             override=request.provider_options.get("download_path"),
-            allow_override=self.provider.app_config.allow_endpoint_override,
+            allow_override=self.app_config.allow_endpoint_override,
         )
         if not download_path:
             return None, None
@@ -410,7 +382,7 @@ class _TuziAsyncVideoProvider:
             field_name="download_timeout_sec",
         )
         try:
-            response = await self.provider.http_client.get(
+            response = await self.http_client.get(
                 endpoint,
                 headers=headers,
                 timeout=timeout_sec,
@@ -435,6 +407,16 @@ class _TuziAsyncVideoProvider:
 
         download_meta["response"] = _safe_json(response)
         return None, download_meta
+
+
+class TuziVeoProvider(_TuziAsyncVideoProvider):
+    mode_name = "tuzi_veo"
+    enable_download_fallback = False
+
+
+class TuziSoraProvider(_TuziAsyncVideoProvider):
+    mode_name = "tuzi_sora"
+    enable_download_fallback = True
 
 
 def _build_submit_request(
@@ -533,11 +515,7 @@ def _build_generation_form(
     submit_size, target_width, target_height = _resolve_tuzi_video_submit_resolution(
         request.resolution
     )
-    target_ratio = (
-        float(target_width) / float(target_height)
-        if target_width and target_height and target_height > 0
-        else None
-    )
+    target_ratio = target_width / target_height
     form_payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
@@ -850,21 +828,6 @@ def _resolve_tuzi_video_submit_resolution(
     return "1280x720", 1280, 720
 
 
-def _parse_resolution_dimensions(raw_resolution: str | None) -> tuple[int | None, int | None]:
-    normalized = str(raw_resolution or "").strip().lower()
-    if "x" not in normalized:
-        return None, None
-    width_part, _, height_part = normalized.partition("x")
-    try:
-        width = int(width_part.strip())
-        height = int(height_part.strip())
-    except (TypeError, ValueError):
-        return None, None
-    if width <= 0 or height <= 0:
-        return None, None
-    return width, height
-
-
 def _should_retry_upload_failure(error: ProviderError, submit_request: _SubmitRequest) -> bool:
     if submit_request.upload_profile == "aggressive":
         return False
@@ -890,8 +853,6 @@ def _normalize_upload_image(
     target_height: int | None,
     upload_profile: Literal["normal", "aggressive"],
 ) -> tuple[tuple[str, bytes, str] | None, dict[str, Any] | None]:
-    if Image is None or ImageOps is None:
-        return None, None
     if not mime_type.lower().startswith("image/"):
         return None, None
 
@@ -955,8 +916,6 @@ def _normalize_upload_image(
                 image=image,
                 upload_profile=upload_profile,
             )
-            if encoded_bytes is None:
-                return None, None
 
             base_name = Path(filename).stem.strip() or "image"
             normalized_name = f"{base_name}.jpg"
@@ -1048,7 +1007,7 @@ def _encode_image_with_limit(
     *,
     image: Any,
     upload_profile: Literal["normal", "aggressive"],
-) -> tuple[bytes | None, int]:
+) -> tuple[bytes, int]:
     max_bytes = 3_000_000 if upload_profile == "normal" else 1_500_000
     quality_candidates = [88, 82, 76, 70, 64, 58] if upload_profile == "normal" else [80, 74, 68, 62, 56, 50]
     working = image

@@ -121,16 +121,12 @@ class TaskWorker:
             )
             return
 
-        if task_id in self._canceled_task_ids:
-            return
         self.store.set_status(task_id=task_id, status="running")
         request = VideoGenerationRequest.model_validate(task["request"])
         resume_provider_job_id = task.get("provider_job_id")
         resume_provider_query_endpoint = task.get("provider_query_endpoint")
 
         def _report_provider_progress(payload: dict[str, Any]) -> None:
-            if not isinstance(payload, dict):
-                return
             self.store.set_provider_progress(
                 task_id=task_id,
                 provider_job_id=_as_optional_text(payload.get("provider_job_id")),

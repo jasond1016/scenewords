@@ -10,7 +10,6 @@ import type { TranslateFn } from "./i18n";
 import type {
   AssetType,
   ProviderCatalogResponse,
-  ProviderModelOperationInfo,
   RetryMode,
   VideoTaskDetail,
   VideoTaskResponse,
@@ -61,13 +60,12 @@ export async function submitImageEdit(
     throw new Error("Only completed images can be edited.");
   }
 
-  const operation = resolveImageReferenceOperation(payload.task, payload.catalog);
   return submitImageTaskFromReference(
     payload.task,
     payload.imageIndex,
     buildVersionEditPrompt(payload.task.prompt, instruction),
     payload.task.resolution,
-    operation,
+    payload.catalog,
     gatewayToken,
   );
 }
@@ -76,7 +74,6 @@ export async function submitImageResize(
   payload: ResizeImagePayload,
   gatewayToken: string,
 ): Promise<VideoTaskResponse> {
-  const operation = resolveImageReferenceOperation(payload.task, payload.catalog);
   const prompt = buildVersionResizePrompt(
     payload.task.prompt,
     payload.resolutionLabel,
@@ -86,7 +83,7 @@ export async function submitImageResize(
     payload.imageIndex,
     prompt,
     payload.resolution,
-    operation,
+    payload.catalog,
     gatewayToken,
   );
 }
@@ -95,32 +92,30 @@ export function getImageResizeOptions(
   task: VideoTaskDetail,
   catalog: ProviderCatalogResponse,
 ) {
-  const operation = resolveImageReferenceOperation(task, catalog);
+  const { operation } = resolveImageReferenceOperation(task, catalog);
   return operation.fields.find((field) => field.key === "resolution")?.options ?? [];
 }
 
 function resolveImageReferenceOperation(
   task: VideoTaskDetail,
   catalog: ProviderCatalogResponse,
-): ProviderModelOperationInfo {
+) {
   const model = catalog.providers
     .find((provider) => provider.id === task.provider)
     ?.models.find((candidate) => candidate.name === task.model);
-  const supportsImageReference = (operation: ProviderModelOperationInfo) =>
-    operation.fields.some(
-      (field) =>
-        field.target === "provider_options" &&
-        field.input_type === "file_list" &&
-        (field.key === "image_file_ids" || field.key === "input_reference_file_ids"),
-    );
-  const operation =
-    model?.operations.find((candidate) => candidate.id === "edit" && supportsImageReference(candidate)) ??
-    model?.operations.find((candidate) => candidate.id === task.operation && supportsImageReference(candidate)) ??
-    model?.operations.find((candidate) => candidate.id === "generate" && supportsImageReference(candidate));
-  if (!operation) {
-    throw new Error("This model does not support editing with an image reference.");
+  for (const id of ["edit", task.operation, "generate"]) {
+    for (const operation of model?.operations ?? []) {
+      if (operation.id !== id) continue;
+      const referenceField = operation.fields.find(
+        (field) =>
+          field.target === "provider_options" &&
+          field.input_type === "file_list" &&
+          (field.key === "image_file_ids" || field.key === "input_reference_file_ids"),
+      );
+      if (referenceField) return { operation, referenceField };
+    }
   }
-  return operation;
+  throw new Error("This model does not support editing with an image reference.");
 }
 
 async function submitImageTaskFromReference(
@@ -128,18 +123,10 @@ async function submitImageTaskFromReference(
   imageIndex: number,
   prompt: string,
   resolution: string | null,
-  operation: ProviderModelOperationInfo,
+  catalog: ProviderCatalogResponse,
   gatewayToken: string,
 ): Promise<VideoTaskResponse> {
-  const referenceField = operation.fields.find(
-    (field) =>
-      field.target === "provider_options" &&
-      field.input_type === "file_list" &&
-      (field.key === "image_file_ids" || field.key === "input_reference_file_ids"),
-  );
-  if (!referenceField) {
-    throw new Error("This model does not support editing with an image reference.");
-  }
+  const { operation, referenceField } = resolveImageReferenceOperation(task, catalog);
   const imported = await importTaskImageAsFile(task.task_id, imageIndex, gatewayToken);
   const scene = task.scene_id
     ? null

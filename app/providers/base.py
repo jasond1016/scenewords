@@ -37,8 +37,6 @@ def report_provider_progress(
     provider_query_endpoint: str | None = None,
 ) -> None:
     provider_options = request.provider_options
-    if not isinstance(provider_options, dict):
-        return
     callback = provider_options.get("__provider_progress_reporter")
     if not callable(callback):
         return
@@ -61,8 +59,6 @@ def report_provider_progress(
 
 def extract_resume_checkpoint(request: VideoGenerationRequest) -> tuple[str | None, str | None]:
     provider_options = request.provider_options
-    if not isinstance(provider_options, dict):
-        return None, None
     provider_job_id_raw = provider_options.get("__resume_provider_job_id")
     provider_query_endpoint_raw = provider_options.get("__resume_provider_query_endpoint")
     provider_job_id = (
