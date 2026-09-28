@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { fetchCatalog } from "../src/api";
-import { getImageResizeOptions, submitImageEdit, submitImageResize } from "../src/overlayTaskActions";
+import {
+  getImageResizeOptions,
+  submitImageFinalize,
+  submitImageEdit,
+  submitImageResize,
+} from "../src/overlayTaskActions";
 import type { ProviderCatalogResponse, ProviderModelOperationInfo, VideoTaskDetail } from "../src/types";
 
 const task: VideoTaskDetail = {
@@ -106,6 +111,100 @@ test("reference import failure prevents scene and generation requests", async (t
   await assert.rejects(submitImageEdit({ task: { ...task, scene_id: null }, imageIndex: 0,
     instruction: "Edit", catalog: catalog([operation("edit", "image_file_ids")]) }, ""), /Reference expired/);
   assert.equal(calls.length, 1);
+});
+
+test("final submits Sunburst edit immediately with preservation options and source size", async (t) => {
+  const capabilities: ProviderCatalogResponse = {
+    providers: [{
+      id: "sunburst-provider",
+      display_name: "Sunburst",
+      type: "tuzi_image",
+      supports_custom_endpoint: false,
+      models: [{
+        name: "gpt-image-2.5-sunburst",
+        display_name: "GPT Image 2.5 Sunburst",
+        is_default: false,
+        operations: [operation("edit", "image_file_ids")],
+      }],
+    }],
+  };
+  const calls = mockFetch(t, [
+    Response.json({ file_id: "final-source" }),
+    Response.json({ task_id: "final-task" }),
+  ]);
+  const response = await submitImageFinalize({
+    task: { ...task, resolution: "2800x1260" },
+    imageIndex: 2,
+    catalog: capabilities,
+  }, "token");
+
+  assert.equal(response.task_id, "final-task");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
+  assert.equal(calls[1].path, "/v1/image/generations");
+  const submitted = JSON.parse(String(calls[1].init.body));
+  assert.equal(submitted.provider, "sunburst-provider");
+  assert.equal(submitted.model, "gpt-image-2.5-sunburst");
+  assert.equal(submitted.operation, "edit");
+  assert.equal(submitted.resolution, "2800x1260");
+  assert.deepEqual(submitted.provider_options, {
+    image_file_ids: ["final-source"],
+    quality: "xhigh",
+    background: "auto",
+    output_format: "png",
+    input_fidelity: "high",
+  });
+  assert.match(submitted.prompt, /Use that image as the source of truth/);
+  assert.match(submitted.prompt, /Preserve its exact composition, framing, aspect ratio/);
+  assert.match(submitted.prompt, /Original brief for context only/);
+  assert.equal(submitted.scene_id, task.scene_id);
+  assert.equal(submitted.generation_id, task.generation_id);
+  assert.equal(submitted.parent_version_id, task.task_id);
+});
+
+test("finalization creates a scene for standalone images", async (t) => {
+  const capabilities: ProviderCatalogResponse = {
+    providers: [{
+      id: "sunburst-provider",
+      display_name: "Sunburst",
+      type: "tuzi_image",
+      supports_custom_endpoint: false,
+      models: [{
+        name: "gpt-image-2.5-sunburst",
+        display_name: "GPT Image 2.5 Sunburst",
+        is_default: false,
+        operations: [operation("edit", "image_file_ids")],
+      }],
+    }],
+  };
+  const calls = mockFetch(t, [
+    Response.json({ file_id: "final-source" }),
+    Response.json({ scene_id: "new-scene" }),
+    Response.json({ task_id: "final-task" }),
+  ]);
+  await submitImageFinalize({
+    task: { ...task, scene_id: null, generation_id: null },
+    imageIndex: 0,
+    catalog: capabilities,
+  }, "");
+  assert.deepEqual(calls.map((call) => call.path), [
+    "/v1/image/tasks/source%2F17/outputs/0/file",
+    "/v1/scenes",
+    "/v1/image/generations",
+  ]);
+  const submitted = JSON.parse(String(calls[2].init.body));
+  assert.equal(submitted.scene_id, "new-scene");
+  assert.equal(submitted.generation_id, null);
+  assert.equal(submitted.parent_version_id, null);
+});
+
+test("finalization fails before importing when Sunburst edit is unavailable", async (t) => {
+  const calls = mockFetch(t, []);
+  await assert.rejects(
+    submitImageFinalize({ task, imageIndex: 0, catalog: catalog([]) }, ""),
+    /Sunburst editing is not available/,
+  );
+  assert.equal(calls.length, 0);
 });
 
 for (const [body, message] of [

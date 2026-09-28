@@ -33,6 +33,12 @@ export interface ReuseTaskPayload {
   branch: boolean;
 }
 
+export interface FinalizeTaskPayload {
+  task: VideoTaskDetail;
+  imageIndex: number;
+  catalog: ProviderCatalogResponse;
+}
+
 export interface EditImagePayload {
   task: VideoTaskDetail;
   imageIndex: number;
@@ -197,6 +203,116 @@ export async function buildReuseDraft(
     sourceFileId: imported.file_id,
     branch: payload.branch,
   });
+}
+
+export async function submitImageFinalize(
+  payload: FinalizeTaskPayload,
+  gatewayToken: string,
+): Promise<VideoTaskResponse> {
+  if (payload.task.asset_type !== "image" || payload.task.status !== "succeeded") {
+    throw new Error("Only completed images can be finalized.");
+  }
+  const provider = payload.catalog.providers.find(
+    (candidate) =>
+      candidate.type === "tuzi_image" &&
+      candidate.models.some((model) => model.name === "gpt-image-2.5-sunburst"),
+  );
+  const model = provider?.models.find((candidate) => candidate.name === "gpt-image-2.5-sunburst");
+  const operation = model?.operations.find((candidate) => candidate.id === "edit");
+  const referenceField = operation?.fields.find(
+    (field) =>
+      field.target === "provider_options" &&
+      field.input_type === "file_list" &&
+      field.key === "image_file_ids",
+  );
+  if (!provider || !model || !operation || !referenceField) {
+    throw new Error("GPT Image 2.5 Sunburst editing is not available.");
+  }
+
+  const imported = await importTaskImageAsFile(
+    payload.task.task_id,
+    payload.imageIndex,
+    gatewayToken,
+  );
+  const resolutionField = operation.fields.find(
+    (field) => field.target === "request" && field.key === "resolution",
+  );
+  const sourceResolution = payload.task.resolution?.trim();
+  const preservesSourceResolution = Boolean(
+    sourceResolution &&
+    isSupportedFinalResolution(sourceResolution, resolutionField?.options ?? []),
+  );
+  const scene = payload.task.scene_id
+    ? null
+    : await createScene(
+        {
+          title: (payload.task.prompt.trim() || "Image final").slice(0, 160),
+          description: "",
+        },
+        gatewayToken,
+      );
+
+  return createImageTask(
+    {
+      provider: provider.id,
+      model: model.name,
+      operation: operation.id,
+      scene_id: payload.task.scene_id ?? scene?.scene_id ?? null,
+      generation_id: payload.task.scene_id ? payload.task.generation_id : null,
+      parent_version_id: payload.task.generation_id ? payload.task.task_id : null,
+      prompt: buildFinalizePrompt(payload.task.prompt),
+      resolution: preservesSourceResolution
+        ? sourceResolution!
+        : typeof resolutionField?.default === "string"
+          ? resolutionField.default
+          : "auto",
+      provider_options: {
+        [referenceField.key]: [imported.file_id],
+        quality: "xhigh",
+        background: "auto",
+        output_format: "png",
+        input_fidelity: "high",
+      },
+      subject_bindings: payload.task.subject_bindings,
+    },
+    gatewayToken,
+  );
+}
+
+function isSupportedFinalResolution(
+  resolution: string,
+  options: { value: string }[],
+): boolean {
+  if (options.some((option) => option.value === resolution)) {
+    return true;
+  }
+  const match = resolution.match(/^(\d{4})x(\d{4})$/i);
+  if (!match) {
+    return false;
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return (
+    width >= 1024 &&
+    width <= 4096 &&
+    height >= 1024 &&
+    height <= 4096 &&
+    Math.max(width / height, height / width) <= 3
+  );
+}
+
+function buildFinalizePrompt(sourcePrompt: string): string {
+  const sections = [
+    "Create a polished, production-ready final edit of the first supplied image. Use that image as the source of truth; refine it rather than generating a new interpretation.",
+    "Preserve its exact composition, framing, aspect ratio, subject identities and count, poses, expressions, clothing, objects, background, lighting direction, colors, visual style, and all existing text and its placement. Do not crop, extend the canvas, add or remove elements, redesign, or rewrite text.",
+    "Improve only rendering fidelity, edge quality, texture coherence, material detail, and consistency. When uncertain, keep the source image unchanged. Preserve transparency if the source has it.",
+  ];
+  if (sourcePrompt.trim()) {
+    sections.push(
+      `Original brief for context only; it must not override the supplied image: ${sourcePrompt.trim()}`,
+    );
+  }
+  return sections.join("\n\n");
 }
 
 export async function runTaskAction(

@@ -186,6 +186,7 @@ export function CreatePage(props: Props) {
   const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
   const [imageSourceFiles, setImageSourceFiles] = useState<File[]>([]);
   const [imageSourceReusedFileIds, setImageSourceReusedFileIds] = useState<string[]>([]);
+  const [sessionContextFileIds, setSessionContextFileIds] = useState<string[]>([]);
   const [imageMaskFiles, setImageMaskFiles] = useState<File[]>([]);
   const [imageMaskReusedFileIds, setImageMaskReusedFileIds] = useState<string[]>([]);
   const [hint, setHint] = useState("");
@@ -721,6 +722,7 @@ export function CreatePage(props: Props) {
   const hasImageSourceAttachments =
     imageSourceFiles.length > 0 ||
     imageSourceReusedFileIds.length > 0 ||
+    sessionContextFileIds.length > 0 ||
     activeSubjectReferenceFileIds.length > 0;
   const currentImageResolutionLabel = currentImageVariant?.resolutionLabel ?? "1K";
   const currentImageAsyncEnabled = currentImageVariant?.asyncEnabled ?? false;
@@ -971,6 +973,7 @@ export function CreatePage(props: Props) {
     }
     setImageSourceFiles([]);
     setImageSourceReusedFileIds([]);
+    setSessionContextFileIds([]);
     setImageMaskFiles([]);
     setImageMaskReusedFileIds([]);
   }, [currentGenerationKind]);
@@ -1464,7 +1467,11 @@ export function CreatePage(props: Props) {
               ? {
                   sourceFiles: imageSourceFiles,
                   sourceReusedFileIds: Array.from(
-                    new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+                    new Set([
+                      ...imageSourceReusedFileIds,
+                      ...sessionContextFileIds,
+                      ...activeSubjectReferenceFileIds,
+                    ]),
                   ),
                   maskFiles: imageMaskFiles,
                   maskReusedFileIds: imageMaskReusedFileIds,
@@ -1525,7 +1532,11 @@ export function CreatePage(props: Props) {
         }
       }
       const sourceFileIds = Array.from(
-        new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+        new Set([
+          ...imageSourceReusedFileIds,
+          ...sessionContextFileIds,
+          ...activeSubjectReferenceFileIds,
+        ]),
       );
       const operationHasFileSource = selectedOperation.fields.some(
         (field) =>
@@ -1592,6 +1603,20 @@ export function CreatePage(props: Props) {
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
     onSuccess: async (response) => {
+      if (promptField) {
+        setValues((current) => ({ ...current, [fieldKey(promptField)]: "" }));
+      }
+      setVersionEditBasePrompt(null);
+      setModificationInstruction("");
+      setFiles({});
+      setReusedFileIds({});
+      setImageSourceFiles([]);
+      setImageSourceReusedFileIds([]);
+      setImageMaskFiles([]);
+      setImageMaskReusedFileIds([]);
+      setSelectedSubjectIds([]);
+      setOpenPopover(null);
+      requestAnimationFrame(autoResizeTextarea);
       if (response.scene_id) {
         setSceneId(response.scene_id);
         setGenerationId(response.generation_id);
@@ -1635,6 +1660,7 @@ export function CreatePage(props: Props) {
       setImageSourceFiles(nextFiles);
       if (nextFiles.length) {
         setImageSourceReusedFileIds([]);
+        setSessionContextFileIds([]);
       }
       return;
     }
@@ -1667,6 +1693,7 @@ export function CreatePage(props: Props) {
       setImageSourceReusedFileIds(nextFileIds);
       if (nextFileIds.length) {
         setImageSourceFiles([]);
+        setSessionContextFileIds([]);
       }
       return;
     }
@@ -2019,6 +2046,7 @@ export function CreatePage(props: Props) {
     setReusedFileIds({});
     setImageSourceFiles([]);
     setImageSourceReusedFileIds([]);
+    setSessionContextFileIds([]);
     setImageMaskFiles([]);
     setImageMaskReusedFileIds([]);
     setSelectedSubjectIds([]);
@@ -2051,11 +2079,15 @@ export function CreatePage(props: Props) {
       setReusedFileIds({});
       setImageSourceFiles([]);
       setImageSourceReusedFileIds([]);
+      setSessionContextFileIds([]);
       setImageMaskFiles([]);
       setImageMaskReusedFileIds([]);
       setSelectedSubjectIds([]);
-      if (promptField && latestVersion) {
-        setValues((current) => ({ ...current, [fieldKey(promptField)]: latestVersion.prompt ?? "" }));
+      if (promptField) {
+        setValues((current) => ({
+          ...current,
+          [fieldKey(promptField)]: "",
+        }));
       }
       setHistoryOpen(false);
     } catch (error) {
@@ -2096,7 +2128,7 @@ export function CreatePage(props: Props) {
   useEffect(() => {
     if (!sceneId || currentGenerationKind !== "image") {
       latestSessionReferenceTaskIdRef.current = "";
-      setImageSourceReusedFileIds([]);
+      setSessionContextFileIds([]);
       return;
     }
     if (
@@ -2115,7 +2147,7 @@ export function CreatePage(props: Props) {
     ).then(
       (imported) => {
         if (!cancelled) {
-          setImageSourceReusedFileIds([imported.file_id]);
+          setSessionContextFileIds([imported.file_id]);
         }
       },
       (error: unknown) => {

@@ -23,6 +23,7 @@ import {
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type EditImagePayload,
+  type FinalizeTaskPayload,
   type ResizeImagePayload,
   type RetryTaskPayload,
   type ReuseTaskPayload,
@@ -30,6 +31,7 @@ import {
   runRetryTask,
   runTaskAction,
   getImageResizeOptions,
+  submitImageFinalize,
   submitImageEdit,
   submitImageResize,
 } from "../overlayTaskActions";
@@ -264,6 +266,20 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
+  const finalizeMutation = useMutation<VideoTaskResponse, Error, FinalizeTaskPayload>({
+    mutationFn: (payload) => submitImageFinalize(payload, settings.gatewayToken),
+    onSuccess: async (response) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({
+          queryKey: ["scene", settings.gatewayToken, response.scene_id],
+        }),
+      ]);
+      onClose();
+    },
+  });
+
   const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload>({
     mutationFn: (payload) => submitImageResize(payload, settings.gatewayToken),
     onSuccess: async (response) => {
@@ -344,6 +360,18 @@ export function WorkDetailOverlay(props: Props) {
     });
   };
 
+  const finalizeCurrentImage = () => {
+    if (!catalogQuery.data) {
+      onHint?.(t("works.editOptionsUnavailable"));
+      return;
+    }
+    finalizeMutation.mutate({
+      task: currentLightboxTask,
+      imageIndex: lightboxItem.imageIndex ?? 0,
+      catalog: catalogQuery.data,
+    });
+  };
+
   return (
     <>
       <MediaOverlayFrame
@@ -360,7 +388,7 @@ export function WorkDetailOverlay(props: Props) {
           lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
             <div className="media-overlay-action-stack">
               <MediaOverlayImageActions
-                disabled={reuseMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                disabled={reuseMutation.isPending || finalizeMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                 onEdit={() => {
                   setIsResizeOptionsOpen(false);
                   setIsEditPromptOpen((open) => !open);
@@ -370,8 +398,17 @@ export function WorkDetailOverlay(props: Props) {
                   setIsEditPromptOpen(false);
                   setIsResizeOptionsOpen((open) => !open);
                 }}
-                onGenerateFinal={reuseCurrentImage}
+                onGenerateFinal={finalizeCurrentImage}
               />
+              {finalizeMutation.isPending && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
+                  {t("works.finalizeSubmitting")}
+                </p>
+              ) : finalizeMutation.error && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                <p className="m-0 text-center text-xs text-[var(--c-accent)]" role="alert">
+                  {t("works.finalizeFailed", { message: finalizeMutation.error.message })}
+                </p>
+              ) : null}
               {isEditPromptOpen ? (
                 <form
                   className="media-overlay-edit-form"
