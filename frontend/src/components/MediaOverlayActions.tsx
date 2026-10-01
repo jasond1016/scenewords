@@ -1,4 +1,4 @@
-import { Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
+import { ArrowClockwise, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import type { VideoTaskDetail } from "../types";
@@ -128,51 +128,80 @@ interface ImageActionsProps {
   disabled?: boolean;
   onEdit: () => void;
   onAdjustSize: () => void;
+  onRegenerate: () => void;
   onGenerateHighResolutionCandidate: () => void;
 }
 
 export function MediaOverlayImageActions(props: ImageActionsProps) {
-  const { disabled = false, onEdit, onAdjustSize, onGenerateHighResolutionCandidate } = props;
+  const { disabled = false, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
   const { t } = useI18n();
 
   return (
-    <div className="media-overlay-image-actions" role="toolbar" aria-label={t("works.imageActions")}>
-      <button
-        type="button"
-        className="media-overlay-image-action"
-        onClick={onEdit}
-        disabled={disabled}
-        title={t("works.editImageHint")}
-      >
-        <span className="media-overlay-icon-button">
-          <PencilSimple size={22} weight="regular" />
-        </span>
-        <span>{t("works.editImage")}</span>
-      </button>
-      <button
-        type="button"
-        className="media-overlay-image-action"
-        onClick={onAdjustSize}
-        disabled={disabled}
-        title={t("works.adjustImageSizeHint")}
-      >
-        <span className="media-overlay-icon-button">
-          <Crop size={22} weight="regular" />
-        </span>
-        <span>{t("works.adjustImageSize")}</span>
-      </button>
-      <button
-        type="button"
-        className="media-overlay-image-action media-overlay-image-action--primary"
-        onClick={onGenerateHighResolutionCandidate}
-        disabled={disabled}
-        title={t("works.generateHighResolutionCandidateHint")}
-      >
-        <span className="media-overlay-icon-button">
-          <Sparkle size={22} weight="regular" />
-        </span>
-        <span>{t("works.generateHighResolutionCandidate")}</span>
-      </button>
+    <div className="media-overlay-image-tools">
+      <div className="media-overlay-image-actions" role="toolbar" aria-label={t("works.imageActions")}>
+        <button
+          type="button"
+          className="media-overlay-image-action"
+          onClick={onEdit}
+          disabled={disabled}
+          title={t("works.editImageHint")}
+        >
+          <PencilSimple size={20} weight="regular" />
+          <span>{t("works.editImage")}…</span>
+        </button>
+        <button
+          type="button"
+          className="media-overlay-image-action"
+          onClick={onAdjustSize}
+          disabled={disabled}
+          title={t("works.adjustImageSizeHint")}
+        >
+          <Crop size={20} weight="regular" />
+          <span>{t("works.adjustImageSize")}…</span>
+        </button>
+        <span className="media-overlay-action-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="media-overlay-image-action media-overlay-image-action--primary"
+          onClick={onRegenerate}
+          disabled={disabled}
+          title={t("works.regenerateHint")}
+        >
+          <ArrowClockwise size={20} weight="regular" />
+          <span>{t("works.regenerate")}</span>
+        </button>
+        <button
+          type="button"
+          className="media-overlay-image-action media-overlay-image-action--primary"
+          onClick={onGenerateHighResolutionCandidate}
+          disabled={disabled}
+          title={t("works.generateHighResolutionCandidateHint")}
+        >
+          <Sparkle size={20} weight="regular" />
+          <span>{t("works.highResolutionCandidateShort")}</span>
+        </button>
+      </div>
+      <p className="media-overlay-action-hint">{t("works.imageActionsHint")}</p>
+    </div>
+  );
+}
+
+export function MediaOverlayGenerationFeedback(props: {
+  pending: boolean;
+  queued: boolean;
+  error?: string | null;
+  kind: "regenerate" | "highResolutionCandidate";
+  onViewTask: () => void;
+}) {
+  const { t } = useI18n();
+  const { pending, queued, error, kind, onViewTask } = props;
+  if (!pending && !queued && !error) return null;
+  return (
+    <div className="media-overlay-generation-feedback" role={error ? "alert" : "status"} aria-live="polite">
+      <span>{error ? t(`works.${kind}Failed`, { message: error }) : t(`works.${kind}${pending ? "Submitting" : "Queued"}`)}</span>
+      {queued && !pending && !error ? (
+        <button type="button" onClick={onViewTask}>{t("works.viewTask")}</button>
+      ) : null}
     </div>
   );
 }

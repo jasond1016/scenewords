@@ -73,8 +73,11 @@ import {
 import { CreateTopBar } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
+import { SessionResultActions } from "../components/SessionResultActions";
 import { buildLightboxItems } from "../lightbox";
 import { buildVersionEditPrompt } from "../overlayTaskUtils";
+import { runRetryTask, submitHighResolutionCandidate, type HighResolutionCandidatePayload } from "../overlayTaskActions";
+import { providerSupportsSeedRetry } from "../overlayTaskPresentation";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -213,6 +216,7 @@ export function CreatePage(props: Props) {
     taskId: string;
     itemKey: string;
     tasks: VideoTaskDetail[];
+    initialAction?: "edit" | "resize";
   } | null>(null);
   const closeSessionImagePreview = useCallback(() => setSessionImagePreview(null), []);
   const transcriptRef = useRef<HTMLElement | null>(null);
@@ -280,6 +284,29 @@ export function CreatePage(props: Props) {
       return hasInProgressGeneration
         ? ACTIVE_SESSION_POLL_INTERVAL_MS
         : IDLE_SESSION_POLL_INTERVAL_MS;
+    },
+  });
+  const regenerateMutation = useMutation({
+    mutationFn: (task: VideoTaskDetail) => runRetryTask({
+      task,
+      mode: providerSupportsSeedRetry(task.provider) ? "new_seed" : "same_seed",
+    }, settings.gatewayToken),
+    onSuccess: async (response) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: sceneQueryKey(response.scene_id ?? "") }),
+      ]);
+    },
+  });
+  const highResolutionCandidateMutation = useMutation({
+    mutationFn: (payload: HighResolutionCandidatePayload) => submitHighResolutionCandidate(payload, settings.gatewayToken),
+    onSuccess: async (response) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: sceneQueryKey(response.scene_id ?? "") }),
+      ]);
     },
   });
   const selectedSubjects = useMemo(
@@ -2376,7 +2403,7 @@ export function CreatePage(props: Props) {
               version.asset_type === "image" &&
               (version.status === "queued" || version.status === "running");
             return (
-              <article className="session-turn" key={version.task_id}>
+              <article className="session-turn" key={version.task_id} id={`session-task-${version.task_id}`}>
                 <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
                 {images.length ? (
                   <div className="session-turn-images">
@@ -2429,6 +2456,44 @@ export function CreatePage(props: Props) {
                 ) : (
                   <p className="session-turn-status">{statusLabel(version)}</p>
                 )}
+                {version.asset_type === "image" && version.status === "succeeded" && images.length > 0 ? (
+                  <div className="session-turn-actions">
+                    <SessionResultActions
+                      images={images}
+                      disabled={regenerateMutation.isPending || highResolutionCandidateMutation.isPending}
+                      onRegenerate={() => {
+                        highResolutionCandidateMutation.reset();
+                        regenerateMutation.mutate(version);
+                      }}
+                      onImageAction={(action, imageIndex) => {
+                        if (action === "highResolutionCandidate") {
+                          if (!catalog) return;
+                          regenerateMutation.reset();
+                          highResolutionCandidateMutation.mutate({ task: version, imageIndex, catalog });
+                          return;
+                        }
+                        const item = sessionImageItems.find((candidate) => candidate.taskId === version.task_id && candidate.imageIndex === imageIndex);
+                        if (item) {
+                          setSessionImagePreview({ taskId: version.task_id, itemKey: item.key, tasks: sessionImageTasks, initialAction: action });
+                        }
+                      }}
+                    />
+                    {[
+                      { mutation: regenerateMutation, taskId: regenerateMutation.variables?.task_id, kind: "regenerate" },
+                      { mutation: highResolutionCandidateMutation, taskId: highResolutionCandidateMutation.variables?.task.task_id, kind: "highResolutionCandidate" },
+                    ].map(({ mutation, taskId, kind }) => taskId === version.task_id ? (
+                      <span key={kind} className="session-turn-action-feedback" role={mutation.error ? "alert" : "status"}>
+                        {mutation.error ? t(`works.${kind}Failed`, { message: mutation.error.message })
+                          : t(`works.${kind}${mutation.isPending ? "Submitting" : "Queued"}`)}
+                        {mutation.isSuccess ? (
+                          <button type="button" className="btn-ghost text-xs" onClick={() => {
+                            document.getElementById(`session-task-${mutation.data?.task_id}`)?.scrollIntoView({ block: "nearest" });
+                          }}>{t("works.viewTask")}</button>
+                        ) : null}
+                      </span>
+                    ) : null)}
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -3064,6 +3129,7 @@ export function CreatePage(props: Props) {
           tasks={sessionImagePreview.tasks}
           initialTaskId={sessionImagePreview.taskId}
           initialItemKey={sessionImagePreview.itemKey}
+          initialAction={sessionImagePreview.initialAction}
           onClose={closeSessionImagePreview}
         />
       ) : null}

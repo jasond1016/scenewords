@@ -13,7 +13,7 @@ import { AppLightboxStage } from "../components/AppLightboxStage";
 import { HeaderActions } from "../components/AppTopBar";
 import { Dropdown, DropdownOption } from "../components/Dropdown";
 import { EmptyStateWorks } from "../components/Skeletons";
-import { MediaOverlayExportActions, MediaOverlayImageActions } from "../components/MediaOverlayActions";
+import { MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions } from "../components/MediaOverlayActions";
 import { MediaDetailSidebar } from "../components/MediaDetailSidebar";
 import { MediaOverlayFrame } from "../components/MediaOverlayFrame";
 import { useI18n, type TranslateFn } from "../i18n";
@@ -449,12 +449,14 @@ export function WorksPage(props: Props) {
     mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
     onSuccess: async (response, payload) => {
       setQueuedRetryTaskId(payload.task.task_id);
-      setHint(formatRetryQueuedMessage(response.task_id, t));
+      setHint(payload.task.status === "succeeded" ? t("works.regenerateQueued") : formatRetryQueuedMessage(response.task_id, t));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
+      await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
+      await queryClient.invalidateQueries({ queryKey: ["scene", settings.gatewayToken, response.scene_id] });
     },
-    onError: (error: Error) => {
-      setHint(formatRetryErrorMessage(error, t));
+    onError: (error: Error, payload) => {
+      setHint(payload.task.status === "succeeded" ? t("works.regenerateFailed", { message: error.message }) : formatRetryErrorMessage(error, t));
     },
   });
   const reuseMutation = useMutation({
@@ -475,7 +477,8 @@ export function WorksPage(props: Props) {
     },
   });
   const highResolutionCandidateMutation = useMutation({
-    mutationFn: (payload: HighResolutionCandidatePayload) => submitHighResolutionCandidate(payload, settings.gatewayToken),
+    mutationFn: (payload: HighResolutionCandidatePayload) =>
+      submitHighResolutionCandidate(payload, settings.gatewayToken),
     onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
@@ -485,9 +488,6 @@ export function WorksPage(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
-      if (response.scene_id) {
-        navigate("/create", { state: { returnSessionId: response.scene_id } });
-      }
     },
     onError: (error: Error) => {
       setHint(t("works.highResolutionCandidateFailed", { message: error.message }));
@@ -653,6 +653,7 @@ export function WorksPage(props: Props) {
       setHint(t("works.editOptionsUnavailable"));
       return;
     }
+    retryMutation.reset();
     highResolutionCandidateMutation.mutate({
       task: currentLightboxTask,
       imageIndex: lightboxItem.imageIndex ?? 0,
@@ -929,7 +930,7 @@ export function WorksPage(props: Props) {
               lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
                 <div className="media-overlay-action-stack">
                   <MediaOverlayImageActions
-                    disabled={reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                    disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                     onEdit={() => {
                       setIsResizeOptionsOpen(false);
                       setIsEditPromptOpen((open) => !open);
@@ -939,21 +940,34 @@ export function WorksPage(props: Props) {
                       setIsEditPromptOpen(false);
                       setIsResizeOptionsOpen((open) => !open);
                     }}
+                    onRegenerate={() => {
+                      highResolutionCandidateMutation.reset();
+                      retryMutation.mutate({
+                        task: currentLightboxTask,
+                        mode: providerSupportsSeedRetry(currentLightboxTask.provider) ? "new_seed" : "same_seed",
+                      });
+                    }}
                     onGenerateHighResolutionCandidate={submitHighResolutionCandidateForImage}
                   />
-                  {highResolutionCandidateMutation.isPending && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
-                    <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
-                      {t("works.highResolutionCandidateSubmitting")}
-                    </p>
-                  ) : highResolutionCandidateMutation.isSuccess && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
-                    <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
-                      {t("works.highResolutionCandidateQueued")}
-                    </p>
-                  ) : highResolutionCandidateMutation.error && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
-                    <p className="m-0 text-center text-xs text-[var(--c-accent)]" role="alert">
-                      {t("works.highResolutionCandidateFailed", { message: highResolutionCandidateMutation.error.message })}
-                    </p>
-                  ) : null}
+                  {[{ mutation: retryMutation, kind: "regenerate" as const }, { mutation: highResolutionCandidateMutation, kind: "highResolutionCandidate" as const }].map(({ mutation, kind }) =>
+                    mutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                      <MediaOverlayGenerationFeedback
+                        key={kind}
+                        kind={kind}
+                        pending={mutation.isPending}
+                        queued={mutation.isSuccess}
+                        error={mutation.error?.message}
+                        onViewTask={() => {
+                          const response = mutation.data;
+                          if (!response) return;
+                          setLightboxState(null);
+                          navigate(response.scene_id ? "/create" : `/works?taskId=${encodeURIComponent(response.task_id)}`, {
+                            state: response.scene_id ? { returnSessionId: response.scene_id } : null,
+                          });
+                        }}
+                      />
+                    ) : null,
+                  )}
                   {isEditPromptOpen ? (
                     <form
                       className="media-overlay-edit-form"
@@ -1068,7 +1082,7 @@ export function WorksPage(props: Props) {
                 onDelete={sidebarActions?.onDelete ?? (() => undefined)}
                 deleteDisabled={sidebarActions?.deleteDisabled}
                 cancelAction={sidebarActions?.cancelAction}
-                retryActions={retryActions}
+                retryActions={currentLightboxTask.asset_type === "image" && currentLightboxTask.status === "succeeded" ? undefined : retryActions}
                 onCopyRequestJson={() => {
                   const payload = buildTaskRequestPayload(currentLightboxTask);
                   const text = JSON.stringify(payload, null, 2);

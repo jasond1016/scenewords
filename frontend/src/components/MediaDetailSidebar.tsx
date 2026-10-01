@@ -161,21 +161,23 @@ export function MediaDetailSidebar(props: Props) {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-2 border-y border-border py-3">
-        {task.asset_type !== "image" || task.status !== "succeeded" ? (
-          <button
-            type="button"
-            className="btn-primary text-xs"
-            onClick={onReuse}
-            disabled={reuseDisabled}
-          >
-            {task.generation_id
-              ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
-              : t("works.editAgain")}
-          </button>
-        ) : null}
-        {renderRetryButtons(retryActions, t)}
-      </div>
+      {task.asset_type !== "image" || task.status !== "succeeded" || retryActions ? (
+        <div className="flex flex-wrap gap-2 border-y border-border py-3">
+          {task.asset_type !== "image" || task.status !== "succeeded" ? (
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={onReuse}
+              disabled={reuseDisabled}
+            >
+              {task.generation_id
+                ? locale === "zh-CN" ? "基于此版本继续" : "Continue from this version"
+                : t("works.editAgain")}
+            </button>
+          ) : null}
+          {renderRetryButtons(retryActions, t)}
+        </div>
+      ) : null}
 
       {task.scene_id && task.generation_id ? (
         <section className="rounded-[20px] border border-border bg-surface-raised/90 p-3.5">

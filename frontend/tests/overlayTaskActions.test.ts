@@ -3,6 +3,7 @@ import { test, type TestContext } from "node:test";
 import { fetchCatalog } from "../src/api";
 import {
   getImageResizeOptions,
+  runRetryTask,
   submitHighResolutionCandidate,
   submitImageEdit,
   submitImageResize,
@@ -57,6 +58,21 @@ function mockFetch(t: TestContext, responses: Response[]) {
   });
   return calls;
 }
+
+test("regeneration retries the whole source image request without importing a result image", async (t) => {
+  const calls = mockFetch(t, [Response.json({ task_id: "regenerated-task", scene_id: "scene-2" })]);
+  const source = { ...task, provider_options: { ...task.provider_options, n: 3 } };
+  const response = await runRetryTask({ task: source, mode: "new_seed" }, " token ");
+  assert.equal(response.task_id, "regenerated-task");
+  assert.deepEqual(calls.map((call) => call.path), ["/v1/image/tasks/source%2F17/retry"]);
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
+    retry_mode: "new_seed", prompt: "Original scene",
+  });
+  assert.equal(new Headers(calls[0].init.headers).get("Authorization"), "Bearer token");
+  assert.deepEqual(source.provider_options.image_file_ids, ["old"]);
+  assert.equal(source.provider_options.n, 3);
+});
 
 for (const selected of ["edit", "custom", "generate"]) {
   test(`image edit selects ${selected} and replaces stale references`, async (t) => {
