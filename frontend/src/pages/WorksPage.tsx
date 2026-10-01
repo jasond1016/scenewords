@@ -8,7 +8,7 @@ import {
   Play,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { adoptGenerationVersion, fetchCatalog, fetchTaskDetail, fetchTaskPage } from "../api";
+import { fetchCatalog, fetchTaskDetail, fetchTaskPage } from "../api";
 import { AppLightboxStage } from "../components/AppLightboxStage";
 import { HeaderActions } from "../components/AppTopBar";
 import { Dropdown, DropdownOption } from "../components/Dropdown";
@@ -36,14 +36,14 @@ import {
   formatTaskActionSuccessMessage,
   getImageResizeOptions,
   type EditImagePayload,
-  type FinalizeTaskPayload,
+  type HighResolutionCandidatePayload,
   type ResizeImagePayload,
   type RetryTaskPayload,
   type ReuseTaskPayload,
   type TaskActionPayload,
   runRetryTask,
   runTaskAction,
-  submitImageFinalize,
+  submitHighResolutionCandidate,
   submitImageEdit,
   submitImageResize,
 } from "../overlayTaskActions";
@@ -70,7 +70,6 @@ interface Props {
 }
 
 type BrowseFilter = "all" | "image" | "video";
-type StageFilter = "all" | "draft" | "final";
 type SortOrder = "recent" | "oldest";
 const TASK_PAGE_SIZE = 50;
 const ALL_PROJECTS = "__all__";
@@ -88,7 +87,6 @@ export function WorksPage(props: Props) {
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("all");
-  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
   const [projectFilter, setProjectFilter] = useState(ALL_PROJECTS);
   const [searchQuery, setSearchQuery] = useState("");
@@ -182,9 +180,6 @@ export function WorksPage(props: Props) {
     if (browseFilter !== "all") {
       nextList = nextList.filter((task) => task.asset_type === browseFilter);
     }
-    if (stageFilter !== "all") {
-      nextList = nextList.filter((task) => task.task_stage === stageFilter);
-    }
     if (projectFilter === STANDALONE_PROJECT) {
       nextList = nextList.filter((task) => !task.scene_id);
     } else if (projectFilter !== ALL_PROJECTS) {
@@ -211,7 +206,7 @@ export function WorksPage(props: Props) {
     return [...nextList].sort(
       (left, right) => direction * (Date.parse(left.created_at) - Date.parse(right.created_at)),
     );
-  }, [allTasks, browseFilter, normalizedSearchQuery, projectFilter, providerFilter, sortOrder, stageFilter]);
+  }, [allTasks, browseFilter, normalizedSearchQuery, projectFilter, providerFilter, sortOrder]);
   const assetList = useMemo(
     () => filteredTasks.filter((task) => task.status !== "queued" && task.status !== "running"),
     [filteredTasks],
@@ -391,7 +386,6 @@ export function WorksPage(props: Props) {
 
     handledTaskDeepLinkRef.current = taskId;
     setBrowseFilter("all");
-    setStageFilter("all");
     setProjectFilter(ALL_PROJECTS);
     setProviderFilter("all");
     setSearchQuery("");
@@ -480,8 +474,8 @@ export function WorksPage(props: Props) {
       settings.setPendingReuseError(error.message);
     },
   });
-  const finalizeMutation = useMutation({
-    mutationFn: (payload: FinalizeTaskPayload) => submitImageFinalize(payload, settings.gatewayToken),
+  const highResolutionCandidateMutation = useMutation({
+    mutationFn: (payload: HighResolutionCandidatePayload) => submitHighResolutionCandidate(payload, settings.gatewayToken),
     onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
@@ -496,7 +490,7 @@ export function WorksPage(props: Props) {
       }
     },
     onError: (error: Error) => {
-      setHint(t("works.finalizeFailed", { message: error.message }));
+      setHint(t("works.highResolutionCandidateFailed", { message: error.message }));
     },
   });
   const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload>({
@@ -535,17 +529,6 @@ export function WorksPage(props: Props) {
     },
     onError: (error) => {
       setHint(t("works.resizeImageFailed", { message: error.message }));
-    },
-  });
-  const adoptMutation = useMutation({
-    mutationFn: (payload: { generationId: string; taskId: string }) =>
-      adoptGenerationVersion(payload.generationId, payload.taskId, settings.gatewayToken),
-    onSuccess: async () => {
-      setHint(locale === "zh-CN" ? "已采用此版本。" : "Version adopted.");
-      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
-    },
-    onError: (error: Error) => {
-      setHint(locale === "zh-CN" ? `采用失败：${error.message}` : `Could not adopt version: ${error.message}`);
     },
   });
   const loadMoreMutation = useMutation({
@@ -659,11 +642,10 @@ export function WorksPage(props: Props) {
     reuseMutation.mutate({
       task: currentLightboxTask,
       imageIndex: lightboxItem.imageIndex ?? 0,
-      branch: false,
     });
   };
 
-  const submitImageFinal = () => {
+  const submitHighResolutionCandidateForImage = () => {
     if (!currentLightboxTask || !lightboxItem) {
       return;
     }
@@ -671,7 +653,7 @@ export function WorksPage(props: Props) {
       setHint(t("works.editOptionsUnavailable"));
       return;
     }
-    finalizeMutation.mutate({
+    highResolutionCandidateMutation.mutate({
       task: currentLightboxTask,
       imageIndex: lightboxItem.imageIndex ?? 0,
       catalog: catalogQuery.data,
@@ -683,17 +665,10 @@ export function WorksPage(props: Props) {
     image: t("works.kindImage"),
     video: t("works.kindVideo"),
   };
-  const stageLabels: Record<StageFilter, string> = {
-    all: t("works.filter.allStages"),
-    draft: t("works.filter.draft"),
-    final: t("works.filter.final"),
-  };
   const kindTriggerLabel =
     browseFilter !== "all"
       ? kindLabels[browseFilter]
-      : stageFilter !== "all"
-        ? stageLabels[stageFilter]
-        : kindLabels.all;
+      : kindLabels.all;
   const projectTriggerLabel =
     projectFilter === ALL_PROJECTS
       ? providerFilter !== "all"
@@ -734,7 +709,7 @@ export function WorksPage(props: Props) {
             aria-label={t("works.searchPlaceholder")}
           />
         </label>
-        <Dropdown label={kindTriggerLabel} highlighted={browseFilter !== "all" || stageFilter !== "all"}>
+        <Dropdown label={kindTriggerLabel} highlighted={browseFilter !== "all"}>
           {(close) => (
             <>
               <p className="menu-section-label">{t("works.filter.kind")}</p>
@@ -746,19 +721,6 @@ export function WorksPage(props: Props) {
                   selected={browseFilter === value}
                   onSelect={() => {
                     setBrowseFilter(value);
-                    close();
-                  }}
-                />
-              ))}
-              <div className="menu-divider" />
-              <p className="menu-section-label">{t("works.filter.stage")}</p>
-              {(["all", "draft", "final"] as StageFilter[]).map((value) => (
-                <DropdownOption
-                  key={value}
-                  label={stageLabels[value]}
-                  selected={stageFilter === value}
-                  onSelect={() => {
-                    setStageFilter(value);
                     close();
                   }}
                 />
@@ -967,7 +929,7 @@ export function WorksPage(props: Props) {
               lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
                 <div className="media-overlay-action-stack">
                   <MediaOverlayImageActions
-                    disabled={reuseMutation.isPending || finalizeMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                    disabled={reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                     onEdit={() => {
                       setIsResizeOptionsOpen(false);
                       setIsEditPromptOpen((open) => !open);
@@ -977,19 +939,19 @@ export function WorksPage(props: Props) {
                       setIsEditPromptOpen(false);
                       setIsResizeOptionsOpen((open) => !open);
                     }}
-                    onGenerateFinal={submitImageFinal}
+                    onGenerateHighResolutionCandidate={submitHighResolutionCandidateForImage}
                   />
-                  {finalizeMutation.isPending && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                  {highResolutionCandidateMutation.isPending && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
                     <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
-                      {t("works.finalizeSubmitting")}
+                      {t("works.highResolutionCandidateSubmitting")}
                     </p>
-                  ) : finalizeMutation.isSuccess && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                  ) : highResolutionCandidateMutation.isSuccess && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
                     <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
-                      {t("works.finalizeQueued")}
+                      {t("works.highResolutionCandidateQueued")}
                     </p>
-                  ) : finalizeMutation.error && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+                  ) : highResolutionCandidateMutation.error && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
                     <p className="m-0 text-center text-xs text-[var(--c-accent)]" role="alert">
-                      {t("works.finalizeFailed", { message: finalizeMutation.error.message })}
+                      {t("works.highResolutionCandidateFailed", { message: highResolutionCandidateMutation.error.message })}
                     </p>
                   ) : null}
                   {isEditPromptOpen ? (
@@ -1101,20 +1063,7 @@ export function WorksPage(props: Props) {
                 updatedAtLabel={formatTime(currentLightboxTask.updated_at, locale === "zh-CN" ? "zh-CN" : "en-US")}
                 downloadUrl={lightboxItem.url}
                 onReuse={reuseCurrentImage}
-                reuseDisabled={reuseMutation.isPending || finalizeMutation.isPending}
-                onBranch={() => {
-                  reuseMutation.mutate({
-                    task: currentLightboxTask,
-                    imageIndex: lightboxItem.imageIndex ?? 0,
-                    branch: true,
-                  });
-                }}
-                onAdoptVersion={(taskId) => {
-                  if (currentLightboxTask.generation_id) {
-                    adoptMutation.mutate({ generationId: currentLightboxTask.generation_id, taskId });
-                  }
-                }}
-                adoptDisabled={adoptMutation.isPending}
+                reuseDisabled={reuseMutation.isPending || highResolutionCandidateMutation.isPending}
                 gatewayToken={settings.gatewayToken}
                 onDelete={sidebarActions?.onDelete ?? (() => undefined)}
                 deleteDisabled={sidebarActions?.deleteDisabled}

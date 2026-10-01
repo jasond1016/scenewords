@@ -4,7 +4,6 @@ import type {
   RetryMode,
   Scene,
   SceneDetail,
-  SceneFinalizeInput,
   SubjectAsset,
   SubjectAssetInput,
   TaskPageResult,
@@ -311,50 +310,10 @@ export function createScene(
   );
 }
 
-export function approveSceneVersion(
-  sceneId: string,
-  taskId: string,
-  token: string,
-): Promise<Scene> {
-  return request<Scene>(
-    `/v1/scenes/${encodeURIComponent(sceneId)}/approve/${encodeURIComponent(taskId)}`,
-    { method: "POST" },
-    token,
-  );
-}
-
-export function finalizeScene(
-  sceneId: string,
-  payload: SceneFinalizeInput,
-  token: string,
-): Promise<VideoTaskResponse> {
-  return request<VideoTaskResponse>(
-    `/v1/scenes/${encodeURIComponent(sceneId)}/finalize`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
-    token,
-  );
-}
-
 export function deleteGeneration(generationId: string, token: string): Promise<void> {
   return request<void>(
     `/v1/generations/${encodeURIComponent(generationId)}`,
     { method: "DELETE" },
-    token,
-  );
-}
-
-export function adoptGenerationVersion(
-  generationId: string,
-  taskId: string,
-  token: string,
-): Promise<{ generation_id: string; adopted_version_id: string }> {
-  return request(
-    `/v1/generations/${encodeURIComponent(generationId)}/adopt/${encodeURIComponent(taskId)}`,
-    { method: "POST" },
     token,
   );
 }

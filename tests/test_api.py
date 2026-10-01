@@ -349,6 +349,8 @@ def test_create_video_task_persists_estimated_cost(client_factory) -> None:
         task = client.app.state.store.get_task(response.json()["task_id"])
 
     assert response.status_code == 200
+    assert "task_stage" not in response.json()
+    assert "final_source_task_id" not in response.json()
     assert task["estimated_cost"] == 1.0
     assert task["actual_cost"] is None
     assert task["cost_source"] == "local_config"
@@ -886,61 +888,7 @@ def test_generated_image_output_reports_remote_download_failure(client_factory) 
     assert response.json()["detail"] == "Failed to download generated image from provider"
 
 
-def test_scene_can_branch_from_version_and_adopt_result(client_factory) -> None:
-    with client_factory() as client:
-        async def _submit_noop(task_id: str) -> None:
-            return None
-
-        client.app.state.worker.submit = _submit_noop
-        scene_id = client.post(
-            "/v1/scenes",
-            json={"title": "Branching scene", "description": ""},
-        ).json()["scene_id"]
-        first = client.post(
-            "/v1/image/generations",
-            json={
-                "provider": "tuzi_image_demo",
-                "model": "gemini-3-pro-image-preview",
-                "operation": "generate",
-                "scene_id": scene_id,
-                "prompt": "first version",
-                "provider_options": {},
-            },
-        ).json()
-        branch_response = client.post(
-            "/v1/image/generations",
-            json={
-                "provider": "tuzi_image_demo",
-                "model": "gemini-3-pro-image-preview",
-                "operation": "generate",
-                "scene_id": scene_id,
-                "generation_id": None,
-                "parent_version_id": first["task_id"],
-                "prompt": "alternate direction",
-                "provider_options": {},
-            },
-        )
-        branch = branch_response.json()
-        client.app.state.store.set_result(
-            branch["task_id"],
-            {"local_image_urls": [f"/v1/assets/{branch['task_id']}/image_0.png"]},
-        )
-        adopt_response = client.post(
-            f"/v1/generations/{branch['generation_id']}/adopt/{branch['task_id']}"
-        )
-        refreshed = client.get(f"/v1/image/tasks/{branch['task_id']}").json()
-        scenes = client.get("/v1/scenes").json()
-
-    assert branch_response.status_code == 200
-    assert branch["generation_id"] != first["generation_id"]
-    assert branch["parent_version_id"] == first["task_id"]
-    assert branch["version_number"] == 1
-    assert adopt_response.status_code == 200
-    assert refreshed["adopted_version_id"] == branch["task_id"]
-    assert scenes[0]["generation_count"] == 2
-
-
-def test_scene_detail_groups_candidates_and_approves_exact_version(client_factory) -> None:
+def test_scene_detail_groups_candidate_versions_without_adoption(client_factory) -> None:
     with client_factory() as client:
         async def _submit_noop(task_id: str) -> None:
             return None
@@ -977,16 +925,13 @@ def test_scene_detail_groups_candidates_and_approves_exact_version(client_factor
         client.app.state.store.set_result(first["task_id"], {"image_urls": ["https://example.com/a.png"]})
         client.app.state.store.set_result(second["task_id"], {"image_urls": ["https://example.com/b.png"]})
 
-        approve_response = client.post(
-            f"/v1/scenes/{scene_id}/approve/{second['task_id']}"
-        )
         detail_response = client.get(f"/v1/scenes/{scene_id}")
 
-    assert approve_response.status_code == 200
-    assert approve_response.json()["approved_generation_id"] == second["generation_id"]
-    assert approve_response.json()["approved_version_id"] == second["task_id"]
     assert detail_response.status_code == 200
     detail = detail_response.json()
+    assert "finals" not in detail
+    assert "approved_generation_id" not in detail
+    assert "approved_version_id" not in detail
     assert [item["generation_id"] for item in detail["generations"]] == [
         first["generation_id"],
         second["generation_id"],
@@ -995,167 +940,27 @@ def test_scene_detail_groups_candidates_and_approves_exact_version(client_factor
         "candidate A",
         "candidate B",
     ]
-    assert detail["generations"][1]["adopted_version_id"] == second["task_id"]
 
 
-def test_scene_rejects_approving_unfinished_or_foreign_version(client_factory) -> None:
+def test_scene_finalization_and_version_selection_endpoints_are_removed(client_factory) -> None:
     with client_factory() as client:
-        async def _submit_noop(task_id: str) -> None:
-            return None
-
-        client.app.state.worker.submit = _submit_noop
-        scene_ids = [
-            client.post(
-                "/v1/scenes",
-                json={"title": title, "description": ""},
-            ).json()["scene_id"]
-            for title in ("First scene", "Second scene")
-        ]
-        task = client.post(
-            "/v1/image/generations",
-            json={
-                "provider": "tuzi_image_demo",
-                "model": "gemini-3-pro-image-preview",
-                "operation": "generate",
-                "scene_id": scene_ids[0],
-                "prompt": "still queued",
-                "provider_options": {},
-            },
-        ).json()
-
-        unfinished = client.post(
-            f"/v1/scenes/{scene_ids[0]}/approve/{task['task_id']}"
-        )
-        foreign = client.post(
-            f"/v1/scenes/{scene_ids[1]}/approve/{task['task_id']}"
-        )
-
-    assert unfinished.status_code == 409
-    assert foreign.status_code == 400
-
-
-def test_scene_finalize_requires_approved_version(client_factory) -> None:
-    with client_factory() as client:
-        scene_id = client.post(
-            "/v1/scenes",
-            json={"title": "Not approved", "description": ""},
-        ).json()["scene_id"]
-
-        response = client.post(
-            f"/v1/scenes/{scene_id}/finalize",
-            json={
-                "provider": "tuzi_image_demo",
-                "model": "gpt-image-2.5",
-                "operation": "edit",
-                "resolution": "2048x2048",
-            },
-        )
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Approve a scene version before finalizing"
-
-
-def test_scene_finalize_keeps_final_history_outside_draft_versions(client_factory) -> None:
-    with client_factory() as client:
-        submitted: list[str] = []
-
-        async def _submit_noop(task_id: str) -> None:
-            submitted.append(task_id)
-
-        client.app.state.worker.submit = _submit_noop
-        reference = client.post(
-            "/v1/files",
-            files={"file": ("anchor.png", b"subject-reference", "image/png")},
-        ).json()
-        scene_id = client.post(
-            "/v1/scenes",
-            json={"title": "Final scene", "description": ""},
-        ).json()["scene_id"]
-        draft = client.post(
-            "/v1/image/generations",
-            json={
-                "provider": "tuzi_image_demo",
-                "model": "gemini-3-pro-image-preview",
-                "operation": "generate",
-                "scene_id": scene_id,
-                "prompt": "hero at the station",
-                "provider_options": {},
-                "subject_bindings": [{
-                    "subject_id": "subject-1",
-                    "name": "Hero",
-                    "kind": "character",
-                    "reference_file_ids": [reference["file_id"]],
-                }],
-            },
-        ).json()
-        archive_dir = client.app.state.config.output_dir / "assets" / draft["task_id"]
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        (archive_dir / "image_0.png").write_bytes(b"approved-output")
-        client.app.state.store.set_result(
-            draft["task_id"],
-            {"local_image_urls": [f"/v1/assets/{draft['task_id']}/image_0.png"]},
-        )
-        client.post(f"/v1/scenes/{scene_id}/approve/{draft['task_id']}")
-
         finalize_response = client.post(
-            f"/v1/scenes/{scene_id}/finalize",
+            "/v1/scenes/scene-id/finalize",
             json={
                 "provider": "tuzi_image_demo",
                 "model": "gpt-image-2.5",
                 "operation": "edit",
-                "resolution": "2048x2048",
             },
         )
-        final = finalize_response.json()
-        stored_final = client.app.state.store.get_task(final["task_id"])
-        detail_before = client.get(f"/v1/scenes/{scene_id}").json()
+        approve_response = client.post("/v1/scenes/scene-id/approve/task-id")
+        adopt_response = client.post("/v1/generations/generation-id/adopt/task-id")
 
-        client.app.state.store.set_result(
-            final["task_id"], {"image_urls": ["https://example.com/final.png"]}
-        )
-        detail_after = client.get(f"/v1/scenes/{scene_id}").json()
-        retried_final = client.post(
-            f"/v1/image/tasks/{final['task_id']}/retry",
-            json={"retry_mode": "new_seed"},
-        ).json()
-        delete_response = client.delete(f"/v1/image/tasks/{final['task_id']}")
-        client.delete(f"/v1/image/tasks/{retried_final['task_id']}")
-        detail_deleted = client.get(f"/v1/scenes/{scene_id}").json()
-
-    assert finalize_response.status_code == 200
-    assert submitted == [draft["task_id"], final["task_id"], retried_final["task_id"]]
-    assert final["task_stage"] == "final"
-    assert final["final_source_task_id"] == draft["task_id"]
-    assert final["scene_id"] == scene_id
-    assert final["generation_id"] is None
-    assert final["version_number"] is None
-    assert stored_final["request"]["resolution"] == "2048x2048"
-    assert stored_final["request"]["provider_options"]["quality"] == "auto"
-    resolved = stored_final["request"]["provider_options"]["__resolved_image_file_ids"]
-    assert len(resolved) == 2
-    assert stored_final["request"]["subject_bindings"][0]["reference_file_ids"] == [
-        reference["file_id"]
-    ]
-    assert detail_before["generation_count"] == 1
-    assert detail_before["version_count"] == 1
-    assert detail_before["current_final_id"] is None
-    assert [item["task_id"] for item in detail_before["finals"]] == [final["task_id"]]
-    assert detail_after["current_final_id"] == final["task_id"]
-    assert detail_after["generation_count"] == 1
-    assert detail_after["version_count"] == 1
-    assert retried_final["task_stage"] == "final"
-    assert retried_final["final_source_task_id"] == draft["task_id"]
-    assert retried_final["generation_id"] is None
-    assert retried_final["version_number"] is None
-    assert delete_response.status_code == 204
-    assert detail_deleted["current_final_id"] is None
-    assert detail_deleted["finals"] == []
-    assert detail_deleted["approved_version_id"] == draft["task_id"]
-    assert detail_deleted["generation_count"] == 1
-    assert detail_deleted["version_count"] == 1
+    assert finalize_response.status_code == 404
+    assert approve_response.status_code == 404
+    assert adopt_response.status_code == 404
 
 
-def test_deleting_only_candidate_version_clears_scene_selection(client_factory) -> None:
+def test_deleting_only_candidate_version_updates_scene_counts(client_factory) -> None:
     with client_factory() as client:
         async def _submit_noop(task_id: str) -> None:
             return None
@@ -1179,14 +984,10 @@ def test_deleting_only_candidate_version_clears_scene_selection(client_factory) 
         client.app.state.store.set_result(
             task["task_id"], {"image_urls": ["https://example.com/result.png"]}
         )
-        client.post(f"/v1/scenes/{scene_id}/approve/{task['task_id']}")
-
         delete_response = client.delete(f"/v1/image/tasks/{task['task_id']}")
         detail = client.get(f"/v1/scenes/{scene_id}").json()
 
     assert delete_response.status_code == 204
-    assert detail["approved_generation_id"] is None
-    assert detail["approved_version_id"] is None
     assert detail["generation_count"] == 0
     assert detail["version_count"] == 0
     assert detail["generations"] == []
@@ -1224,8 +1025,6 @@ def test_deleting_candidate_direction_removes_all_versions_and_selection(client_
             archive_dir = client.app.state.config.output_dir / "assets" / task["task_id"]
             archive_dir.mkdir(parents=True, exist_ok=True)
             (archive_dir / "image_1.png").write_bytes(b"result")
-        client.post(f"/v1/scenes/{scene_id}/approve/{second['task_id']}")
-
         delete_response = client.delete(f"/v1/generations/{first['generation_id']}")
         detail = client.get(f"/v1/scenes/{scene_id}").json()
         task_responses = [
@@ -1234,7 +1033,6 @@ def test_deleting_candidate_direction_removes_all_versions_and_selection(client_
 
     assert delete_response.status_code == 204
     assert all(response.status_code == 404 for response in task_responses)
-    assert detail["approved_version_id"] is None
     assert detail["generation_count"] == 0
     assert detail["version_count"] == 0
     assert detail["generations"] == []

@@ -38,8 +38,6 @@ class TaskStore:
                     actual_cost REAL,
                     currency TEXT,
                     cost_source TEXT,
-                    task_stage TEXT NOT NULL DEFAULT 'draft',
-                    final_source_task_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -93,8 +91,6 @@ class TaskStore:
                     scene_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     description TEXT NOT NULL,
-                    approved_task_id TEXT,
-                    final_task_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -106,15 +102,12 @@ class TaskStore:
                     generation_id TEXT PRIMARY KEY,
                     scene_id TEXT NOT NULL,
                     asset_type TEXT NOT NULL,
-                    adopted_task_id TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(scene_id) REFERENCES scenes(scene_id) ON DELETE CASCADE
                 );
                 """
             )
             _ensure_task_columns(self._connection)
-            _ensure_generation_columns(self._connection)
-            _ensure_scene_columns(self._connection)
             self._connection.commit()
 
     def create_task(
@@ -132,8 +125,6 @@ class TaskStore:
         scene_id: str | None = None,
         generation_id: str | None = None,
         parent_task_id: str | None = None,
-        task_stage: str = "draft",
-        final_source_task_id: str | None = None,
     ) -> dict[str, Any]:
         now_iso = _now_iso()
         with self._lock:
@@ -149,8 +140,8 @@ class TaskStore:
                 INSERT INTO tasks (
                     task_id, status, asset_type, provider, model, operation, prompt, request_json,
                     estimated_cost, currency, cost_source, scene_id, generation_id, parent_task_id,
-                    version_number, task_stage, final_source_task_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    version_number, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -168,8 +159,6 @@ class TaskStore:
                     generation_id,
                     parent_task_id,
                     version_number,
-                    task_stage,
-                    final_source_task_id,
                     now_iso,
                     now_iso,
                 ),
@@ -239,10 +228,6 @@ class TaskStore:
         cost_source: str | None = None,
     ) -> None:
         with self._lock:
-            task = self._connection.execute(
-                "SELECT scene_id, task_stage FROM tasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
             self._connection.execute(
                 """
                 UPDATE tasks
@@ -260,15 +245,6 @@ class TaskStore:
                     task_id,
                 ),
             )
-            if (
-                task is not None
-                and task["task_stage"] == "final"
-                and task["scene_id"]
-            ):
-                self._connection.execute(
-                    "UPDATE scenes SET final_task_id = ?, updated_at = ? WHERE scene_id = ?",
-                    (task_id, _now_iso(), task["scene_id"]),
-                )
             self._connection.commit()
 
     def update_result_payload(self, task_id: str, result: dict[str, Any]) -> None:
@@ -325,20 +301,17 @@ class TaskStore:
         scene_id = task.get("scene_id")
         if not scene_id:
             task["scene_title"] = None
-            task["adopted_version_id"] = None
             return task
         with self._lock:
             row = self._connection.execute(
                 """
-                SELECT s.title, g.adopted_task_id
+                SELECT s.title
                 FROM scenes s
-                LEFT JOIN generations g ON g.generation_id = ?
                 WHERE s.scene_id = ?
                 """,
-                (task.get("generation_id"), scene_id),
+                (scene_id,),
             ).fetchone()
         task["scene_title"] = row["title"] if row is not None else None
-        task["adopted_version_id"] = row["adopted_task_id"] if row is not None else None
         return task
 
     def delete_task(self, task_id: str) -> None:
@@ -349,18 +322,6 @@ class TaskStore:
             ).fetchone()
             if row is None:
                 raise KeyError(task_id)
-            self._connection.execute(
-                "UPDATE generations SET adopted_task_id = NULL WHERE adopted_task_id = ?",
-                (task_id,),
-            )
-            self._connection.execute(
-                "UPDATE scenes SET approved_task_id = NULL WHERE approved_task_id = ?",
-                (task_id,),
-            )
-            self._connection.execute(
-                "UPDATE scenes SET final_task_id = NULL WHERE final_task_id = ?",
-                (task_id,),
-            )
             self._connection.execute(
                 "DELETE FROM tasks WHERE task_id = ?",
                 (task_id,),
@@ -589,13 +550,11 @@ class TaskStore:
             row = self._connection.execute(
                 """
                 SELECT s.*,
-                    approved.generation_id AS approved_generation_id,
                     COUNT(DISTINCT g.generation_id) AS generation_count,
                     COUNT(t.task_id) AS version_count
                 FROM scenes s
                 LEFT JOIN generations g ON g.scene_id = s.scene_id
                 LEFT JOIN tasks t ON t.generation_id = g.generation_id
-                LEFT JOIN tasks approved ON approved.task_id = s.approved_task_id
                 WHERE s.scene_id = ?
                 GROUP BY s.scene_id
                 """,
@@ -610,13 +569,11 @@ class TaskStore:
             rows = self._connection.execute(
                 """
                 SELECT s.*,
-                    approved.generation_id AS approved_generation_id,
                     COUNT(DISTINCT g.generation_id) AS generation_count,
                     COUNT(t.task_id) AS version_count
                 FROM scenes s
                 LEFT JOIN generations g ON g.scene_id = s.scene_id
                 LEFT JOIN tasks t ON t.generation_id = g.generation_id
-                LEFT JOIN tasks approved ON approved.task_id = s.approved_task_id
                 GROUP BY s.scene_id
                 ORDER BY s.updated_at DESC
                 """
@@ -679,17 +636,6 @@ class TaskStore:
             if generation is None:
                 raise KeyError(generation_id)
             self._connection.execute(
-                """
-                UPDATE scenes
-                SET approved_task_id = NULL, updated_at = ?
-                WHERE scene_id = ?
-                  AND approved_task_id IN (
-                      SELECT task_id FROM tasks WHERE generation_id = ?
-                  )
-                """,
-                (now_iso, generation["scene_id"], generation_id),
-            )
-            self._connection.execute(
                 "DELETE FROM tasks WHERE generation_id = ?",
                 (generation_id,),
             )
@@ -715,99 +661,22 @@ class TaskStore:
                 (scene_id,),
             ).fetchall()
         tasks_by_generation: dict[str, list[dict[str, Any]]] = {}
-        adopted_by_generation = {
-            row["generation_id"]: row["adopted_task_id"] for row in generation_rows
-        }
         for row in task_rows:
             task = _row_to_dict(row)
             generation_id = task.get("generation_id")
             if not generation_id:
                 continue
             task["scene_title"] = scene["title"]
-            task["adopted_version_id"] = adopted_by_generation.get(generation_id)
             tasks_by_generation.setdefault(generation_id, []).append(task)
         return [
             {
                 "generation_id": row["generation_id"],
                 "asset_type": row["asset_type"],
-                "adopted_version_id": row["adopted_task_id"],
                 "created_at": _parse_iso(row["created_at"]),
                 "versions": tasks_by_generation.get(row["generation_id"], []),
             }
             for row in generation_rows
         ]
-
-    def get_scene_final_tasks(self, scene_id: str) -> list[dict[str, Any]]:
-        scene = self.get_scene(scene_id)
-        with self._lock:
-            rows = self._connection.execute(
-                """
-                SELECT * FROM tasks
-                WHERE scene_id = ? AND task_stage = 'final'
-                ORDER BY created_at DESC
-                """,
-                (scene_id,),
-            ).fetchall()
-        finals = []
-        for row in rows:
-            task = _row_to_dict(row)
-            task["scene_title"] = scene["title"]
-            task["adopted_version_id"] = None
-            finals.append(task)
-        return finals
-
-    def approve_scene_version(self, *, scene_id: str, task_id: str) -> dict[str, Any]:
-        now_iso = _now_iso()
-        with self._lock:
-            task = self._connection.execute(
-                "SELECT scene_id, generation_id, status FROM tasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            if (
-                task is None
-                or task["scene_id"] != scene_id
-                or not task["generation_id"]
-            ):
-                raise KeyError(task_id)
-            if task["status"] != "succeeded":
-                raise ValueError(task_id)
-            updated = self._connection.execute(
-                "UPDATE scenes SET approved_task_id = ?, updated_at = ? WHERE scene_id = ?",
-                (task_id, now_iso, scene_id),
-            )
-            if updated.rowcount == 0:
-                raise KeyError(scene_id)
-            self._connection.execute(
-                "UPDATE generations SET adopted_task_id = ? WHERE generation_id = ?",
-                (task_id, task["generation_id"]),
-            )
-            self._connection.commit()
-        return self.get_scene(scene_id)
-
-    def adopt_generation_version(
-        self, *, generation_id: str, task_id: str
-    ) -> dict[str, Any]:
-        now_iso = _now_iso()
-        with self._lock:
-            task = self._connection.execute(
-                "SELECT generation_id, scene_id, status FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            if task is None or task["generation_id"] != generation_id:
-                raise KeyError(task_id)
-            if task["status"] != "succeeded":
-                raise ValueError(task_id)
-            updated = self._connection.execute(
-                "UPDATE generations SET adopted_task_id = ? WHERE generation_id = ?",
-                (task_id, generation_id),
-            )
-            if updated.rowcount == 0:
-                raise KeyError(generation_id)
-            self._connection.execute(
-                "UPDATE scenes SET updated_at = ? WHERE scene_id = ?",
-                (now_iso, task["scene_id"]),
-            )
-            self._connection.commit()
-        return self.get_generation(generation_id)
 
     def create_subject(
         self,
@@ -1005,16 +874,6 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "actual_cost": _as_float(row["actual_cost"]) if "actual_cost" in row.keys() else None,
         "currency": row["currency"] if "currency" in row.keys() else None,
         "cost_source": row["cost_source"] if "cost_source" in row.keys() else None,
-        "task_stage": (
-            row["task_stage"]
-            if "task_stage" in row.keys() and row["task_stage"]
-            else "draft"
-        ),
-        "final_source_task_id": (
-            row["final_source_task_id"]
-            if "final_source_task_id" in row.keys()
-            else None
-        ),
         "scene_id": row["scene_id"] if "scene_id" in row.keys() else None,
         "generation_id": row["generation_id"] if "generation_id" in row.keys() else None,
         "parent_task_id": row["parent_task_id"] if "parent_task_id" in row.keys() else None,
@@ -1068,9 +927,6 @@ def _scene_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "scene_id": row["scene_id"],
         "title": row["title"],
         "description": row["description"],
-        "approved_generation_id": row["approved_generation_id"],
-        "approved_version_id": row["approved_task_id"],
-        "current_final_id": row["final_task_id"],
         "generation_count": int(row["generation_count"] or 0),
         "version_count": int(row["version_count"] or 0),
         "created_at": _parse_iso(row["created_at"]),
@@ -1114,8 +970,6 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
         "generation_id": "TEXT",
         "parent_task_id": "TEXT",
         "version_number": "INTEGER",
-        "task_stage": "TEXT NOT NULL DEFAULT 'draft'",
-        "final_source_task_id": "TEXT",
     }
     for column, definition in expected_columns.items():
         if column in existing:
@@ -1124,22 +978,3 @@ def _ensure_task_columns(connection: sqlite3.Connection) -> None:
     connection.execute(
         "UPDATE tasks SET asset_type = 'video' WHERE asset_type IS NULL OR asset_type = ''"
     )
-
-
-def _ensure_generation_columns(connection: sqlite3.Connection) -> None:
-    existing = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(generations)").fetchall()
-    }
-    if "adopted_task_id" not in existing:
-        connection.execute("ALTER TABLE generations ADD COLUMN adopted_task_id TEXT")
-
-
-def _ensure_scene_columns(connection: sqlite3.Connection) -> None:
-    existing = {
-        row["name"] for row in connection.execute("PRAGMA table_info(scenes)").fetchall()
-    }
-    if "approved_task_id" not in existing:
-        connection.execute("ALTER TABLE scenes ADD COLUMN approved_task_id TEXT")
-    if "final_task_id" not in existing:
-        connection.execute("ALTER TABLE scenes ADD COLUMN final_task_id TEXT")

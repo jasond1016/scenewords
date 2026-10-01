@@ -29,9 +29,6 @@ interface Props {
   downloadUrl?: string | null;
   onReuse: () => void;
   reuseDisabled?: boolean;
-  onBranch?: () => void;
-  onAdoptVersion?: (taskId: string) => void;
-  adoptDisabled?: boolean;
   gatewayToken?: string;
   onDelete: () => void;
   deleteDisabled?: boolean;
@@ -56,9 +53,6 @@ export function MediaDetailSidebar(props: Props) {
     downloadUrl,
     onReuse,
     reuseDisabled,
-    onBranch,
-    onAdoptVersion,
-    adoptDisabled,
     gatewayToken = "",
     onDelete,
     deleteDisabled,
@@ -180,11 +174,6 @@ export function MediaDetailSidebar(props: Props) {
               : t("works.editAgain")}
           </button>
         ) : null}
-        {onBranch && task.asset_type === "image" && task.status === "succeeded" && task.generation_id ? (
-          <button type="button" className="btn-secondary text-xs" onClick={onBranch} disabled={reuseDisabled}>
-            {locale === "zh-CN" ? "从此分支" : "Branch from here"}
-          </button>
-        ) : null}
         {renderRetryButtons(retryActions, t)}
       </div>
 
@@ -209,30 +198,17 @@ export function MediaDetailSidebar(props: Props) {
                   onClick={() => onVersionSelect?.(version.task_id)}
                 >
                   V{version.version_number ?? 1}
-                  {task.adopted_version_id === version.task_id ? " ✓" : ""}
                 </button>
               ))}
             </div>
           ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {comparisonCandidates.length ? (
+          {comparisonCandidates.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" className="btn-ghost text-xs" onClick={() => setIsComparing((current) => !current)}>
                 {locale === "zh-CN" ? "并排比较" : "Compare side by side"}
               </button>
-            ) : null}
-            {task.adopted_version_id === task.task_id ? (
-              <span className="tag tag-success">{locale === "zh-CN" ? "已采用" : "Adopted"}</span>
-            ) : (
-              <button
-                type="button"
-                className="btn-ghost text-xs"
-                disabled={adoptDisabled || task.status !== "succeeded"}
-                onClick={() => onAdoptVersion?.(task.task_id)}
-              >
-                {locale === "zh-CN" ? "采用此版本" : "Adopt this version"}
-              </button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { adoptGenerationVersion, fetchCatalog, fetchTaskDetail } from "../api";
+import { fetchCatalog, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
 import { MediaOverlayExportActions, MediaOverlayImageActions } from "./MediaOverlayActions";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
@@ -23,7 +23,7 @@ import {
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type EditImagePayload,
-  type FinalizeTaskPayload,
+  type HighResolutionCandidatePayload,
   type ResizeImagePayload,
   type RetryTaskPayload,
   type ReuseTaskPayload,
@@ -31,7 +31,7 @@ import {
   runRetryTask,
   runTaskAction,
   getImageResizeOptions,
-  submitImageFinalize,
+  submitHighResolutionCandidate,
   submitImageEdit,
   submitImageResize,
 } from "../overlayTaskActions";
@@ -266,8 +266,8 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
-  const finalizeMutation = useMutation<VideoTaskResponse, Error, FinalizeTaskPayload>({
-    mutationFn: (payload) => submitImageFinalize(payload, settings.gatewayToken),
+  const highResolutionCandidateMutation = useMutation<VideoTaskResponse, Error, HighResolutionCandidatePayload>({
+    mutationFn: (payload) => submitHighResolutionCandidate(payload, settings.gatewayToken),
     onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
@@ -295,18 +295,6 @@ export function WorkDetailOverlay(props: Props) {
     },
     onError: (error) => {
       onHint?.(t("works.resizeImageFailed", { message: error.message }));
-    },
-  });
-
-  const adoptMutation = useMutation({
-    mutationFn: (payload: { generationId: string; taskId: string }) =>
-      adoptGenerationVersion(payload.generationId, payload.taskId, settings.gatewayToken),
-    onSuccess: async () => {
-      onHint?.(locale === "zh-CN" ? "已采用此版本。" : "Version adopted.");
-      await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
-    },
-    onError: (error: Error) => {
-      onHint?.(locale === "zh-CN" ? `采用失败：${error.message}` : `Could not adopt version: ${error.message}`);
     },
   });
 
@@ -356,16 +344,15 @@ export function WorkDetailOverlay(props: Props) {
     reuseMutation.mutate({
       task: currentLightboxTask,
       imageIndex: lightboxItem.imageIndex ?? 0,
-      branch: false,
     });
   };
 
-  const finalizeCurrentImage = () => {
+  const createHighResolutionCandidate = () => {
     if (!catalogQuery.data) {
       onHint?.(t("works.editOptionsUnavailable"));
       return;
     }
-    finalizeMutation.mutate({
+    highResolutionCandidateMutation.mutate({
       task: currentLightboxTask,
       imageIndex: lightboxItem.imageIndex ?? 0,
       catalog: catalogQuery.data,
@@ -388,7 +375,7 @@ export function WorkDetailOverlay(props: Props) {
           lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
             <div className="media-overlay-action-stack">
               <MediaOverlayImageActions
-                disabled={reuseMutation.isPending || finalizeMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                disabled={reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                 onEdit={() => {
                   setIsResizeOptionsOpen(false);
                   setIsEditPromptOpen((open) => !open);
@@ -398,15 +385,15 @@ export function WorkDetailOverlay(props: Props) {
                   setIsEditPromptOpen(false);
                   setIsResizeOptionsOpen((open) => !open);
                 }}
-                onGenerateFinal={finalizeCurrentImage}
+                onGenerateHighResolutionCandidate={createHighResolutionCandidate}
               />
-              {finalizeMutation.isPending && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+              {highResolutionCandidateMutation.isPending && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
                 <p className="m-0 text-center text-xs text-[var(--c-text-secondary)]" role="status" aria-live="polite">
-                  {t("works.finalizeSubmitting")}
+                  {t("works.highResolutionCandidateSubmitting")}
                 </p>
-              ) : finalizeMutation.error && finalizeMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
+              ) : highResolutionCandidateMutation.error && highResolutionCandidateMutation.variables?.task.task_id === currentLightboxTask.task_id ? (
                 <p className="m-0 text-center text-xs text-[var(--c-accent)]" role="alert">
-                  {t("works.finalizeFailed", { message: finalizeMutation.error.message })}
+                  {t("works.highResolutionCandidateFailed", { message: highResolutionCandidateMutation.error.message })}
                 </p>
               ) : null}
               {isEditPromptOpen ? (
@@ -519,19 +506,6 @@ export function WorkDetailOverlay(props: Props) {
             downloadUrl={lightboxItem.url}
             onReuse={reuseCurrentImage}
             reuseDisabled={reuseMutation.isPending}
-            onBranch={() => {
-              reuseMutation.mutate({
-                task: currentLightboxTask,
-                imageIndex: lightboxItem.imageIndex ?? 0,
-                branch: true,
-              });
-            }}
-            onAdoptVersion={(taskId) => {
-              if (currentLightboxTask.generation_id) {
-                adoptMutation.mutate({ generationId: currentLightboxTask.generation_id, taskId });
-              }
-            }}
-            adoptDisabled={adoptMutation.isPending}
             gatewayToken={settings.gatewayToken}
             onDelete={sidebarActions.onDelete}
             deleteDisabled={sidebarActions.deleteDisabled}

@@ -128,11 +128,11 @@ interface ImageActionsProps {
   disabled?: boolean;
   onEdit: () => void;
   onAdjustSize: () => void;
-  onGenerateFinal: () => void;
+  onGenerateHighResolutionCandidate: () => void;
 }
 
 export function MediaOverlayImageActions(props: ImageActionsProps) {
-  const { disabled = false, onEdit, onAdjustSize, onGenerateFinal } = props;
+  const { disabled = false, onEdit, onAdjustSize, onGenerateHighResolutionCandidate } = props;
   const { t } = useI18n();
 
   return (
@@ -164,14 +164,14 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
       <button
         type="button"
         className="media-overlay-image-action media-overlay-image-action--primary"
-        onClick={onGenerateFinal}
+        onClick={onGenerateHighResolutionCandidate}
         disabled={disabled}
-        title={t("works.generateFinalHint")}
+        title={t("works.generateHighResolutionCandidateHint")}
       >
         <span className="media-overlay-icon-button">
           <Sparkle size={22} weight="regular" />
         </span>
-        <span>{t("works.generateFinal")}</span>
+        <span>{t("works.generateHighResolutionCandidate")}</span>
       </button>
     </div>
   );

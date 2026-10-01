@@ -30,10 +30,9 @@ export interface RetryTaskPayload {
 export interface ReuseTaskPayload {
   task: VideoTaskDetail;
   imageIndex: number;
-  branch: boolean;
 }
 
-export interface FinalizeTaskPayload {
+export interface HighResolutionCandidatePayload {
   task: VideoTaskDetail;
   imageIndex: number;
   catalog: ProviderCatalogResponse;
@@ -201,16 +200,15 @@ export async function buildReuseDraft(
   );
   return toDraft(payload.task, {
     sourceFileId: imported.file_id,
-    branch: payload.branch,
   });
 }
 
-export async function submitImageFinalize(
-  payload: FinalizeTaskPayload,
+export async function submitHighResolutionCandidate(
+  payload: HighResolutionCandidatePayload,
   gatewayToken: string,
 ): Promise<VideoTaskResponse> {
   if (payload.task.asset_type !== "image" || payload.task.status !== "succeeded") {
-    throw new Error("Only completed images can be finalized.");
+    throw new Error("Only completed images can be used to create a high-resolution candidate.");
   }
   const provider = payload.catalog.providers.find(
     (candidate) =>
@@ -240,13 +238,13 @@ export async function submitImageFinalize(
   const sourceResolution = payload.task.resolution?.trim();
   const preservesSourceResolution = Boolean(
     sourceResolution &&
-    isSupportedFinalResolution(sourceResolution, resolutionField?.options ?? []),
+    isSupportedCandidateResolution(sourceResolution, resolutionField?.options ?? []),
   );
   const scene = payload.task.scene_id
     ? null
     : await createScene(
         {
-          title: (payload.task.prompt.trim() || "Image final").slice(0, 160),
+          title: (payload.task.prompt.trim() || "High-resolution image candidate").slice(0, 160),
           description: "",
         },
         gatewayToken,
@@ -260,7 +258,7 @@ export async function submitImageFinalize(
       scene_id: payload.task.scene_id ?? scene?.scene_id ?? null,
       generation_id: payload.task.scene_id ? payload.task.generation_id : null,
       parent_version_id: payload.task.generation_id ? payload.task.task_id : null,
-      prompt: buildFinalizePrompt(payload.task.prompt),
+      prompt: buildHighResolutionCandidatePrompt(payload.task.prompt),
       resolution: preservesSourceResolution
         ? sourceResolution!
         : typeof resolutionField?.default === "string"
@@ -279,7 +277,7 @@ export async function submitImageFinalize(
   );
 }
 
-function isSupportedFinalResolution(
+function isSupportedCandidateResolution(
   resolution: string,
   options: { value: string }[],
 ): boolean {
@@ -301,15 +299,14 @@ function isSupportedFinalResolution(
   );
 }
 
-function buildFinalizePrompt(sourcePrompt: string): string {
+function buildHighResolutionCandidatePrompt(sourcePrompt: string): string {
   const sections = [
-    "Create a polished, production-ready final edit of the first supplied image. Use that image as the source of truth; refine it rather than generating a new interpretation.",
-    "Preserve its exact composition, framing, aspect ratio, subject identities and count, poses, expressions, clothing, objects, background, lighting direction, colors, visual style, and all existing text and its placement. Do not crop, extend the canvas, add or remove elements, redesign, or rewrite text.",
-    "Improve only rendering fidelity, edge quality, texture coherence, material detail, and consistency. When uncertain, keep the source image unchanged. Preserve transparency if the source has it.",
+    "Create a high-resolution candidate based on the first supplied image. Treat it as the visual reference and preserve its composition, subject identities, overall style, colors, and important details.",
+    "Improve rendering clarity, edge quality, texture coherence, and material detail while keeping the image recognizable. Small visual differences may occur; do not claim or force an exact pixel-for-pixel reproduction. Preserve transparency if the source has it.",
   ];
   if (sourcePrompt.trim()) {
     sections.push(
-      `Original brief for context only; it must not override the supplied image: ${sourcePrompt.trim()}`,
+      `Original brief for context only; the supplied image takes priority: ${sourcePrompt.trim()}`,
     );
   }
   return sections.join("\n\n");

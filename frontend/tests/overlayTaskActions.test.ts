@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { fetchCatalog } from "../src/api";
 import {
   getImageResizeOptions,
-  submitImageFinalize,
+  submitHighResolutionCandidate,
   submitImageEdit,
   submitImageResize,
 } from "../src/overlayTaskActions";
@@ -13,8 +13,8 @@ const task: VideoTaskDetail = {
   task_id: "source/17", status: "succeeded", asset_type: "image",
   provider: "test", model: "image-model", operation: "custom",
   scene_id: "scene-2", scene_title: "Scene", generation_id: "generation-3",
-  parent_version_id: null, version_number: 2, adopted_version_id: null,
-  task_stage: "draft", final_source_task_id: null, queue_position: null,
+  parent_version_id: null, version_number: 2,
+  queue_position: null,
   created_at: "", updated_at: "", prompt: "Original scene", negative_prompt: null,
   duration_sec: null, resolution: null, fps: null, seed: 19,
   provider_options: {
@@ -113,7 +113,7 @@ test("reference import failure prevents scene and generation requests", async (t
   assert.equal(calls.length, 1);
 });
 
-test("final submits Sunburst edit immediately with preservation options and source size", async (t) => {
+test("high-resolution candidate submits Sunburst edit with source size and preservation options", async (t) => {
   const capabilities: ProviderCatalogResponse = {
     providers: [{
       id: "sunburst-provider",
@@ -129,16 +129,16 @@ test("final submits Sunburst edit immediately with preservation options and sour
     }],
   };
   const calls = mockFetch(t, [
-    Response.json({ file_id: "final-source" }),
-    Response.json({ task_id: "final-task" }),
+    Response.json({ file_id: "candidate-source" }),
+    Response.json({ task_id: "candidate-task" }),
   ]);
-  const response = await submitImageFinalize({
+  const response = await submitHighResolutionCandidate({
     task: { ...task, resolution: "2800x1260" },
     imageIndex: 2,
     catalog: capabilities,
   }, "token");
 
-  assert.equal(response.task_id, "final-task");
+  assert.equal(response.task_id, "candidate-task");
   assert.equal(calls.length, 2);
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
   assert.equal(calls[1].path, "/v1/image/generations");
@@ -148,21 +148,21 @@ test("final submits Sunburst edit immediately with preservation options and sour
   assert.equal(submitted.operation, "edit");
   assert.equal(submitted.resolution, "2800x1260");
   assert.deepEqual(submitted.provider_options, {
-    image_file_ids: ["final-source"],
+    image_file_ids: ["candidate-source"],
     quality: "xhigh",
     background: "auto",
     output_format: "png",
     input_fidelity: "high",
   });
-  assert.match(submitted.prompt, /Use that image as the source of truth/);
-  assert.match(submitted.prompt, /Preserve its exact composition, framing, aspect ratio/);
+  assert.match(submitted.prompt, /Create a high-resolution candidate/);
+  assert.match(submitted.prompt, /Small visual differences may occur/);
   assert.match(submitted.prompt, /Original brief for context only/);
   assert.equal(submitted.scene_id, task.scene_id);
   assert.equal(submitted.generation_id, task.generation_id);
   assert.equal(submitted.parent_version_id, task.task_id);
 });
 
-test("finalization creates a scene for standalone images", async (t) => {
+test("high-resolution candidate creates a scene for standalone images", async (t) => {
   const capabilities: ProviderCatalogResponse = {
     providers: [{
       id: "sunburst-provider",
@@ -178,11 +178,11 @@ test("finalization creates a scene for standalone images", async (t) => {
     }],
   };
   const calls = mockFetch(t, [
-    Response.json({ file_id: "final-source" }),
+    Response.json({ file_id: "candidate-source" }),
     Response.json({ scene_id: "new-scene" }),
-    Response.json({ task_id: "final-task" }),
+    Response.json({ task_id: "candidate-task" }),
   ]);
-  await submitImageFinalize({
+  await submitHighResolutionCandidate({
     task: { ...task, scene_id: null, generation_id: null },
     imageIndex: 0,
     catalog: capabilities,
@@ -198,10 +198,10 @@ test("finalization creates a scene for standalone images", async (t) => {
   assert.equal(submitted.parent_version_id, null);
 });
 
-test("finalization fails before importing when Sunburst edit is unavailable", async (t) => {
+test("high-resolution candidate fails before importing when Sunburst edit is unavailable", async (t) => {
   const calls = mockFetch(t, []);
   await assert.rejects(
-    submitImageFinalize({ task, imageIndex: 0, catalog: catalog([]) }, ""),
+    submitHighResolutionCandidate({ task, imageIndex: 0, catalog: catalog([]) }, ""),
     /Sunburst editing is not available/,
   );
   assert.equal(calls.length, 0);
