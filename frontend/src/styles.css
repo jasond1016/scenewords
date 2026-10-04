@@ -465,17 +465,6 @@ p {
   white-space: nowrap;
 }
 
-.crumb-label:hover .crumb-title {
-  color: var(--c-accent-text);
-}
-
-.crumb-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 28vw;
-  transition: color var(--duration-fast) var(--ease-out-expo);
-}
-
 .crumb-sep {
   color: var(--c-text-secondary);
 }
@@ -3035,41 +3024,9 @@ select.input-base {
   }
 
   .topbar-inner-create {
-    position: relative;
-    display: flex;
-    justify-content: space-between;
     gap: 12px;
     padding-right: 12px;
     padding-left: 12px;
-  }
-
-  .topbar-inner-create > .crumb {
-    flex: 1 1 auto;
-    width: 100%;
-  }
-
-  .create-header-controls {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .topbar-inner-create > .wordmark-center {
-    display: none;
-  }
-
-  .topbar-inner-create > .topbar-actions {
-    flex: 0 0 auto;
-  }
-
-  .crumb-title {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    max-width: min(30vw, 120px);
-    transform: translate(-50%, -50%);
-    text-align: center;
-    white-space: nowrap;
-    pointer-events: none;
   }
 
   .create-stage {

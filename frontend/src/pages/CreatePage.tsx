@@ -2222,22 +2222,20 @@ export function CreatePage(props: Props) {
             aria-label={t("create.sessions.toggle")}
             aria-expanded={historyOpen}
             aria-controls="session-history-sidebar"
+            title={t("create.sessions.toggle")}
             onClick={() => setHistoryOpen((open) => !open)}
           >
             <ClockCounterClockwise size={19} />
           </button>
-          <span className="crumb-title">{selectedSession?.title ?? t("create.sessions.new")}</span>
-          {sceneId ? (
-            <button
-              type="button"
-              className="topbar-icon-btn session-new-button"
-              aria-label={t("create.sessions.new")}
-              title={t("create.sessions.new")}
-              onClick={startNewSession}
-            >
-              <Plus size={18} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="topbar-icon-btn session-new-button"
+            aria-label={t("create.sessions.new")}
+            title={t("create.sessions.new")}
+            onClick={startNewSession}
+          >
+            <Plus size={18} />
+          </button>
         </div>
       }
     />
