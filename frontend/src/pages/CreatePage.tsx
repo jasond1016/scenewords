@@ -74,6 +74,7 @@ import { CreateTopBar } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
 import { SessionResultActions } from "../components/SessionResultActions";
+import { SessionImage } from "../components/SessionImage";
 import { buildLightboxItems } from "../lightbox";
 import { buildVersionEditPrompt } from "../overlayTaskUtils";
 import { runRetryTask, submitHighResolutionCandidate, type HighResolutionCandidatePayload } from "../overlayTaskActions";
@@ -2410,13 +2411,12 @@ export function CreatePage(props: Props) {
                         (candidate) => candidate.taskId === version.task_id && candidate.url === url,
                       );
                       return (
-                        <button
+                        <SessionImage
                           key={url}
-                          type="button"
-                          className="session-turn-image-button"
-                          aria-label={t("create.sessions.openImage")}
-                          title={t("create.sessions.openImage")}
-                          onClick={() => {
+                          src={url}
+                          running={false}
+                          statusLabel={statusLabel(version)}
+                          onOpen={() => {
                             if (item) {
                               setSessionImagePreview({
                                 taskId: item.taskId,
@@ -2425,32 +2425,22 @@ export function CreatePage(props: Props) {
                               });
                             }
                           }}
-                        >
-                          <img
-                            src={url}
-                            alt=""
-                            loading="lazy"
-                            onLoad={() => {
-                              if (shouldStickTranscriptToBottomRef.current) {
-                                window.requestAnimationFrame(() => {
-                                  const transcript = transcriptRef.current;
-                                  if (transcript) {
-                                    transcript.scrollTop = transcript.scrollHeight;
-                                  }
-                                });
-                              }
-                            }}
-                            onError={(event) => { event.currentTarget.hidden = true; }}
-                          />
-                        </button>
+                          onLoad={() => {
+                            if (shouldStickTranscriptToBottomRef.current) {
+                              window.requestAnimationFrame(() => {
+                                const transcript = transcriptRef.current;
+                                if (transcript) {
+                                  transcript.scrollTop = transcript.scrollHeight;
+                                }
+                              });
+                            }
+                          }}
+                        />
                       );
                     })}
                   </div>
                 ) : isGeneratingImage ? (
-                  <div className="session-turn-image-placeholder skeleton" role="status" aria-live="polite">
-                    <ImageSquare size={26} />
-                    <span>{statusLabel(version)}</span>
-                  </div>
+                  <SessionImage running={version.status === "running"} statusLabel={statusLabel(version)} />
                 ) : (
                   <p className="session-turn-status">{statusLabel(version)}</p>
                 )}

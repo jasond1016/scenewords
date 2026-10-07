@@ -2038,15 +2038,42 @@ select.input-base {
   gap: 10px;
 }
 
-.session-turn-image-button {
-  display: block;
+.session-image {
+  position: relative;
   width: 360px;
   max-width: 100%;
+  aspect-ratio: 4 / 3;
+  flex-shrink: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-raised);
+}
+
+.session-turn-image-button {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 0;
   border-radius: var(--radius-lg);
   background: transparent;
   cursor: zoom-in;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out-expo);
+}
+
+.session-turn-image-button:disabled {
+  cursor: default;
+}
+
+.session-image[data-loaded="true"] .session-turn-image-button {
+  opacity: 1;
+}
+
+.session-image[data-loaded="true"] .session-turn-image-placeholder {
+  opacity: 0;
 }
 
 .session-turn-image-button:focus-visible {
@@ -2056,32 +2083,79 @@ select.input-base {
 
 .session-turn-images img {
   display: block;
-  width: min(100%, 360px);
-  max-height: 460px;
-  border: 1px solid var(--c-border);
+  width: 100%;
+  height: 100%;
   border-radius: var(--radius-lg);
-  background: var(--c-surface-raised);
   object-fit: contain;
 }
 
 .session-turn-image-placeholder {
+  position: absolute;
+  inset: 0;
   display: flex;
-  width: min(100%, 360px);
-  min-height: 200px;
-  aspect-ratio: 4 / 3;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
   overflow: hidden;
-  border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   color: var(--c-text-secondary);
   font-size: 0.8125rem;
+  pointer-events: none;
+  transition: opacity 300ms var(--ease-out-expo);
 }
 
-.session-turn-images img[hidden] {
-  display: none;
+.session-turn-image-placeholder[data-state="queued"] .session-image-drawing,
+.session-turn-image-placeholder[data-state="loading"] .session-image-drawing {
+  animation: session-image-breathe 2.4s ease-in-out infinite;
+}
+
+.session-turn-image-placeholder[data-state="running"] .session-image-stroke {
+  animation: session-image-draw 3s ease-in-out infinite;
+}
+
+.session-turn-image-placeholder[data-state="running"] .session-image-stroke-mountain {
+  animation-name: session-image-draw-mountain;
+}
+
+.session-turn-image-placeholder[data-state="running"] .session-image-stroke-sun {
+  animation-name: session-image-draw-sun;
+}
+
+@keyframes session-image-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes session-image-draw {
+  0% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; stroke: var(--c-accent); }
+  3% { opacity: 1; }
+  28% { stroke-dashoffset: 0; stroke: var(--c-accent); }
+  65%, 82% { stroke-dashoffset: 0; opacity: 1; stroke: var(--c-text-secondary); }
+  95%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes session-image-draw-mountain {
+  0%, 28% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; stroke: var(--c-accent); }
+  31% { opacity: 1; }
+  52% { stroke-dashoffset: 0; stroke: var(--c-accent); }
+  65%, 82% { stroke-dashoffset: 0; opacity: 1; stroke: var(--c-text-secondary); }
+  95%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes session-image-draw-sun {
+  0%, 52% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; stroke: var(--c-accent); }
+  55% { opacity: 1; }
+  65% { stroke-dashoffset: 0; stroke: var(--c-accent); }
+  75%, 82% { stroke-dashoffset: 0; opacity: 1; stroke: var(--c-text-secondary); }
+  95%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-image-drawing,
+  .session-image-stroke {
+    animation: none !important;
+  }
 }
 
 .session-turn-actions,
