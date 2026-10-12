@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { fetchCatalog, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
-import { MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions } from "./MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions } from "./MediaOverlayActions";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
 import { MediaOverlayFrame } from "./MediaOverlayFrame";
 import { useI18n } from "../i18n";
@@ -382,6 +382,8 @@ export function WorkDetailOverlay(props: Props) {
             <div className="media-overlay-action-stack">
               <MediaOverlayImageActions
                 disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
+                isEditPromptOpen={isEditPromptOpen}
+                isResizeOptionsOpen={isResizeOptionsOpen}
                 onEdit={() => {
                   setIsResizeOptionsOpen(false);
                   setIsEditPromptOpen((open) => !open);
@@ -420,10 +422,11 @@ export function WorkDetailOverlay(props: Props) {
                 ) : null,
               )}
               {isEditPromptOpen ? (
-                <form
-                  className="media-overlay-edit-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
+                <MediaOverlayEditComposer
+                  value={editInstruction}
+                  onChange={setEditInstruction}
+                  pending={editMutation.isPending}
+                  onSubmit={() => {
                     if (!editInstruction.trim()) {
                       onHint?.(t("works.editPromptRequired"));
                       return;
@@ -439,29 +442,10 @@ export function WorkDetailOverlay(props: Props) {
                       catalog: catalogQuery.data,
                     });
                   }}
-                >
-                  <label className="sr-only" htmlFor="media-overlay-edit-instruction">
-                    {t("works.editInstruction")}
-                  </label>
-                  <textarea
-                    id="media-overlay-edit-instruction"
-                    value={editInstruction}
-                    onChange={(event) => setEditInstruction(event.target.value)}
-                    placeholder={t("works.editInstructionPlaceholder")}
-                    rows={2}
-                    autoFocus
-                    disabled={editMutation.isPending}
-                  />
-                  <div className="media-overlay-edit-form__actions">
-                    <span>{t("works.editOnlyCurrentImage")}</span>
-                    <button type="submit" disabled={editMutation.isPending || !editInstruction.trim()}>
-                      {editMutation.isPending ? t("works.editSubmitting") : t("works.submitEdit")}
-                    </button>
-                  </div>
-                </form>
+                />
               ) : null}
               {isResizeOptionsOpen ? (
-                <div className="media-overlay-edit-form media-overlay-resize-options">
+                <div id="media-overlay-resize-options" className="media-overlay-edit-form media-overlay-resize-options">
                   <strong>{t("works.resizeChooseSize")}</strong>
                   <p>{t("works.resizeUsesCurrentImage")}</p>
                   {resizeOptions.length ? (

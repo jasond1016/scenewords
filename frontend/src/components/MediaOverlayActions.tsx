@@ -1,4 +1,4 @@
-import { ArrowClockwise, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowRight, CaretDown, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import type { VideoTaskDetail } from "../types";
@@ -126,6 +126,8 @@ function isShareCanceled(error: unknown): boolean {
 
 interface ImageActionsProps {
   disabled?: boolean;
+  isEditPromptOpen: boolean;
+  isResizeOptionsOpen: boolean;
   onEdit: () => void;
   onAdjustSize: () => void;
   onRegenerate: () => void;
@@ -133,7 +135,7 @@ interface ImageActionsProps {
 }
 
 export function MediaOverlayImageActions(props: ImageActionsProps) {
-  const { disabled = false, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
+  const { disabled = false, isEditPromptOpen, isResizeOptionsOpen, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
   const { t } = useI18n();
 
   return (
@@ -145,9 +147,14 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
           onClick={onEdit}
           disabled={disabled}
           title={t("works.editImageHint")}
+          aria-expanded={isEditPromptOpen}
+          aria-controls={isEditPromptOpen ? "media-overlay-edit-form" : undefined}
         >
           <PencilSimple size={20} weight="regular" />
-          <span>{t("works.editImage")}…</span>
+          <span className="media-overlay-image-action-label">
+            {t("works.editImage")}
+            <CaretDown className="media-overlay-image-action-chevron" size={12} weight="regular" aria-hidden="true" />
+          </span>
         </button>
         <button
           type="button"
@@ -155,14 +162,18 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
           onClick={onAdjustSize}
           disabled={disabled}
           title={t("works.adjustImageSizeHint")}
+          aria-expanded={isResizeOptionsOpen}
+          aria-controls={isResizeOptionsOpen ? "media-overlay-resize-options" : undefined}
         >
           <Crop size={20} weight="regular" />
-          <span>{t("works.adjustImageSize")}…</span>
+          <span className="media-overlay-image-action-label">
+            {t("works.adjustImageSize")}
+            <CaretDown className="media-overlay-image-action-chevron" size={12} weight="regular" aria-hidden="true" />
+          </span>
         </button>
-        <span className="media-overlay-action-divider" aria-hidden="true" />
         <button
           type="button"
-          className="media-overlay-image-action media-overlay-image-action--primary"
+          className="media-overlay-image-action"
           onClick={onRegenerate}
           disabled={disabled}
           title={t("works.regenerateHint")}
@@ -172,7 +183,7 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
         </button>
         <button
           type="button"
-          className="media-overlay-image-action media-overlay-image-action--primary"
+          className="media-overlay-image-action"
           onClick={onGenerateHighResolutionCandidate}
           disabled={disabled}
           title={t("works.generateHighResolutionCandidateHint")}
@@ -181,8 +192,42 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
           <span>{t("works.highResolutionCandidateShort")}</span>
         </button>
       </div>
-      <p className="media-overlay-action-hint">{t("works.imageActionsHint")}</p>
     </div>
+  );
+}
+
+export function MediaOverlayEditComposer(props: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  pending: boolean;
+}) {
+  const { value, onChange, onSubmit, pending } = props;
+  const { t } = useI18n();
+  return (
+    <form id="media-overlay-edit-form" className="media-overlay-edit-form" onSubmit={(event) => {
+      event.preventDefault();
+      onSubmit();
+    }}>
+      <label htmlFor="media-overlay-edit-instruction">{t("works.editInstruction")}</label>
+      <textarea
+        id="media-overlay-edit-instruction"
+        aria-describedby="media-overlay-edit-hint"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={t("works.editInstructionPlaceholder")}
+        rows={3}
+        autoFocus
+        disabled={pending}
+      />
+      <div className="media-overlay-edit-form__actions">
+        <span id="media-overlay-edit-hint">{t("works.editOnlyCurrentImage")}</span>
+        <button type="submit" disabled={pending || !value.trim()}>
+          {pending ? t("works.editSubmitting") : t("works.submitEdit")}
+          <ArrowRight size={18} weight="regular" aria-hidden="true" />
+        </button>
+      </div>
+    </form>
   );
 }
 

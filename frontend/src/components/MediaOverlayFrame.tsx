@@ -48,6 +48,23 @@ export function MediaOverlayFrame(props: Props) {
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
   useEffect(() => {
+    const viewport = window.visualViewport;
+    const layout = layoutRef.current;
+    if (!viewport || !layout) return;
+    const updateViewport = () => {
+      layout.style.setProperty("--overlay-viewport-height", `${viewport.height}px`);
+      layout.style.setProperty("--overlay-keyboard-offset", `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    updateViewport();
+    viewport.addEventListener("resize", updateViewport);
+    viewport.addEventListener("scroll", updateViewport);
+    return () => {
+      viewport.removeEventListener("resize", updateViewport);
+      viewport.removeEventListener("scroll", updateViewport);
+    };
+  }, []);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 767px)");
     const handleViewportChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(event.matches);
@@ -257,7 +274,7 @@ export function MediaOverlayFrame(props: Props) {
           <X size={22} weight="regular" />
         </button>
         {topActions ? <div className="media-overlay-top-actions">{topActions}</div> : null}
-        {bottomActions ? <div className="media-overlay-bottom-actions">{bottomActions}</div> : null}
+        {bottomActions ? <div className="media-overlay-bottom-actions" data-overlay-scroll="allow">{bottomActions}</div> : null}
       </div>
     </div>
   );

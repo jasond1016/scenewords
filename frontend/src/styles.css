@@ -202,7 +202,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible:not(.composer-textarea) {
+:focus-visible:not(.composer-textarea, .media-overlay-edit-form textarea) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -1049,7 +1049,7 @@ select.input-base {
 
 .media-overlay-bottom-actions {
   right: 0;
-  bottom: max(16px, env(safe-area-inset-bottom));
+  bottom: calc(var(--overlay-keyboard-offset, 0px) + max(16px, env(safe-area-inset-bottom)) + var(--overlay-bottom-extra, 0px));
   left: 0;
   display: flex;
   justify-content: center;
@@ -1122,23 +1122,6 @@ select.input-base {
   gap: 12px;
 }
 
-.media-overlay-action-divider {
-  width: 1px;
-  height: 28px;
-  flex: 0 0 1px;
-  margin: 0 2px;
-  background: color-mix(in srgb, var(--c-on-media) 18%, transparent);
-}
-
-.media-overlay-action-hint {
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  background: var(--c-overlay-chip);
-  color: var(--c-on-media);
-  font-size: 0.75rem;
-}
-
 .media-overlay-generation-feedback {
   display: flex;
   width: 100%;
@@ -1172,42 +1155,62 @@ select.input-base {
 .media-overlay-action-stack {
   display: flex;
   width: min(calc(100% - 24px), 560px);
+  max-height: max(0px, calc(var(--overlay-viewport-height, 100dvh) - max(12px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)) - var(--overlay-bottom-extra, 0px) - 64px));
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
   pointer-events: auto;
+}
+
+.media-overlay-action-stack > * {
+  flex-shrink: 0;
 }
 
 .media-overlay-edit-form {
   display: grid;
   width: 100%;
-  gap: 8px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
-  padding: 10px;
-  background: color-mix(in srgb, var(--c-surface-raised) 94%, transparent);
-  color: var(--c-text);
+  min-width: 0;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--c-on-media) 14%, transparent);
+  border-radius: var(--radius-2xl);
+  padding: 16px;
+  background: color-mix(in srgb, var(--c-overlay-chip) 94%, transparent);
+  color: var(--c-on-media);
+  color-scheme: dark;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(14px);
 }
 
+.media-overlay-edit-form > label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--c-on-media) 80%, transparent);
+}
+
 .media-overlay-edit-form textarea {
   width: 100%;
-  resize: vertical;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-sm);
-  padding: 9px 11px;
-  background: var(--c-surface);
-  color: var(--c-text);
+  min-width: 0;
+  resize: none;
+  border: 1px solid color-mix(in srgb, var(--c-on-media) 16%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  background: color-mix(in srgb, var(--c-overlay-panel) 60%, transparent);
+  color: var(--c-on-media);
   font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.45;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.media-overlay-edit-form textarea::placeholder {
+  color: color-mix(in srgb, var(--c-on-media) 50%, transparent);
 }
 
 .media-overlay-edit-form textarea:focus-visible {
-  border-color: var(--c-accent);
-  outline: 2px solid color-mix(in srgb, var(--c-accent) 30%, transparent);
-  outline-offset: 1px;
+  border-color: color-mix(in srgb, var(--c-accent-ring) 45%, var(--c-overlay-muted));
+  outline: none;
 }
 
 .media-overlay-edit-form__actions {
@@ -1215,24 +1218,46 @@ select.input-base {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--c-text-secondary);
+  color: color-mix(in srgb, var(--c-on-media) 65%, transparent);
   font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.media-overlay-edit-form__actions > span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .media-overlay-edit-form__actions button {
+  display: inline-flex;
+  min-height: 44px;
   flex: 0 0 auto;
-  border: 1px solid var(--c-accent);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  background: var(--c-accent);
-  color: var(--c-surface);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  background: var(--c-cta);
+  color: var(--c-overlay-panel);
   font-size: 0.8125rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.media-overlay-edit-form__actions button:hover:not(:disabled) {
+  background: var(--c-cta-hover);
+}
+
+.media-overlay-edit-form__actions button:focus-visible {
+  outline: 2px solid var(--c-on-media);
+  outline-offset: 2px;
 }
 
 .media-overlay-edit-form__actions button:disabled {
-  cursor: wait;
-  opacity: 0.6;
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .media-overlay-resize-options {
@@ -1247,7 +1272,7 @@ select.input-base {
 .media-overlay-resize-options > p,
 .media-overlay-resize-options__empty {
   margin: 0;
-  color: var(--c-text-secondary);
+  color: color-mix(in srgb, var(--c-on-media) 65%, transparent);
   font-size: 0.75rem;
   line-height: 1.4;
 }
@@ -1259,12 +1284,12 @@ select.input-base {
 }
 
 .media-overlay-resize-options__list button {
-  min-height: 38px;
-  border: 1px solid var(--c-border);
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--c-on-media) 16%, transparent);
   border-radius: var(--radius-sm);
   padding: 6px 8px;
-  background: var(--c-surface);
-  color: var(--c-text);
+  background: color-mix(in srgb, var(--c-overlay-panel) 60%, transparent);
+  color: var(--c-on-media);
   font-size: 0.75rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -1272,7 +1297,7 @@ select.input-base {
 
 .media-overlay-resize-options__list button:hover:not(:disabled) {
   border-color: var(--c-accent);
-  background: var(--c-accent-bg);
+  background: color-mix(in srgb, var(--c-accent) 14%, transparent);
 }
 
 .media-overlay-resize-options__list button:disabled {
@@ -1299,12 +1324,29 @@ select.input-base {
   white-space: nowrap;
 }
 
-.media-overlay-image-action--primary {
-  background: color-mix(in srgb, var(--c-accent) 22%, transparent);
+.media-overlay-image-action-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.media-overlay-image-action-chevron {
+  flex-shrink: 0;
+  color: var(--c-overlay-muted);
 }
 
 .media-overlay-image-action:hover:not(:disabled) {
   background: color-mix(in srgb, var(--c-on-media) 14%, transparent);
+}
+
+.media-overlay-image-action[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--c-accent) 14%, transparent);
+  color: var(--c-accent-ring);
+}
+
+.media-overlay-image-action[aria-expanded="true"] .media-overlay-image-action-chevron {
+  transform: rotate(180deg);
+  color: inherit;
 }
 
 .media-overlay-image-action:focus-visible,
@@ -1323,6 +1365,17 @@ select.input-base {
     flex-direction: column;
     gap: 6px;
     font-size: 0.7rem;
+  }
+}
+
+@container overlay-actions (max-width: 360px) {
+  .media-overlay-edit-form__actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .media-overlay-edit-form__actions > span {
+    flex-basis: 100%;
   }
 }
 
@@ -3004,12 +3057,8 @@ select.input-base {
     right: max(12px, env(safe-area-inset-right));
   }
 
-  .media-overlay-bottom-actions {
-    bottom: max(16px, env(safe-area-inset-bottom));
-  }
-
-  .media-overlay-layout[data-android-device="true"] .media-overlay-bottom-actions {
-    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 32px);
+  .media-overlay-layout[data-android-device="true"] {
+    --overlay-bottom-extra: 32px;
   }
 
   .media-overlay-layout--with-sidebar .media-overlay-top-actions {
