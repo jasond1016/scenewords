@@ -2403,7 +2403,10 @@ export function CreatePage(props: Props) {
               (version.status === "queued" || version.status === "running");
             return (
               <article className="session-turn" key={version.task_id} id={`session-task-${version.task_id}`}>
-                <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                <div className="session-turn-prompt">
+                  <span className="session-turn-prompt-label">{t("create.sessions.myDescription")}</span>
+                  <p className="session-turn-prompt-text">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                </div>
                 {images.length ? (
                   <div className="session-turn-images">
                     {images.map((url) => {
