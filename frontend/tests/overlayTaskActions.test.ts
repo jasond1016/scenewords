@@ -115,6 +115,25 @@ test("resize creates a scene when absent and preserves explicit resolution", asy
   assert.equal(submitted.parent_version_id, null);
 });
 
+test("ratio resize preserves the API value and mapped label without changing model quality", async (t) => {
+  const edit = operation("edit", "image_file_ids");
+  edit.fields.find((field) => field.key === "resolution")!.options = [
+    { value: "16:9", label: "16:9 (1672x941)" },
+  ];
+  const capabilities = catalog([edit]);
+  const option = getImageResizeOptions(task, capabilities)[0];
+  const calls = mockFetch(t, [Response.json({ file_id: "ratio-reference" }), Response.json({ task_id: "ratio-task" })]);
+  await submitImageResize({ task, imageIndex: 2, resolution: option.value,
+    resolutionLabel: option.label, catalog: capabilities }, "");
+  const submitted = JSON.parse(String(calls[1].init.body));
+  assert.equal(submitted.resolution, "16:9");
+  assert.match(submitted.prompt, /Requested output size: 16:9 \(1672x941\)$/);
+  assert.deepEqual(submitted.provider_options, { quality: "high", image_file_ids: ["ratio-reference"] });
+  assert.equal(submitted.model, task.model);
+  assert.equal(submitted.parent_version_id, task.task_id);
+  assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
+});
+
 test("unsupported references fail before upload or task creation", async (t) => {
   const calls = mockFetch(t, []);
   await assert.rejects(submitImageEdit({ task, imageIndex: 0, instruction: "Edit",

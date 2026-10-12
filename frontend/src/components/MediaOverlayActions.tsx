@@ -1,7 +1,8 @@
 import { ArrowClockwise, ArrowRight, CaretDown, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import type { VideoTaskDetail } from "../types";
+import { getImageResizeOptions } from "../overlayTaskActions";
+import type { ProviderCatalogResponse, ProviderOperationOption, VideoTaskDetail } from "../types";
 
 interface ExportActionsProps {
   task: VideoTaskDetail;
@@ -227,6 +228,90 @@ export function MediaOverlayEditComposer(props: {
           <ArrowRight size={18} weight="regular" aria-hidden="true" />
         </button>
       </div>
+    </form>
+  );
+}
+
+export function MediaOverlayResizeComposer(props: {
+  task: VideoTaskDetail;
+  catalog?: ProviderCatalogResponse;
+  loading: boolean;
+  catalogError: boolean;
+  onReload: () => void;
+  pending: boolean;
+  disabled: boolean;
+  error?: string | null;
+  onSubmit: (option: ProviderOperationOption) => void;
+}) {
+  const { task, catalog, loading, catalogError, onReload, pending, disabled, error, onSubmit } = props;
+  const { t } = useI18n();
+  const [selectedValue, setSelectedValue] = useState("");
+  const options = useMemo(() => {
+    if (!catalog) return [];
+    try {
+      return getImageResizeOptions(task, catalog).filter((option) => option.value !== "auto");
+    } catch {
+      return [];
+    }
+  }, [task, catalog]);
+  const isRatio = options.length > 0 && options.every((option) => /^\d+:\d+$/.test(option.value));
+  const model = catalog?.providers.find((provider) => provider.id === task.provider)
+    ?.models.find((candidate) => candidate.name === task.model);
+  const selectedOption = options.find((option) => option.value === selectedValue);
+  const blocked = pending || disabled || loading || catalogError || !catalog;
+
+  return (
+    <form
+      id="media-overlay-resize-options"
+      className="media-overlay-edit-form media-overlay-resize-options"
+      aria-busy={pending || loading}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!blocked && selectedOption) onSubmit(selectedOption);
+      }}
+    >
+      <fieldset disabled={blocked} aria-describedby="media-overlay-resize-hint">
+        <legend>{t(isRatio ? "works.resizeChooseRatio" : "works.resizeChooseSize")}</legend>
+        <p className="media-overlay-resize-options__model">{t("works.resizeModel", { model: model?.display_name ?? task.model })}</p>
+        {catalogError ? (
+          <div className="media-overlay-resize-options__error" role="alert">
+            <span>{t("works.editOptionsUnavailable")}</span>
+          </div>
+        ) : loading ? (
+          <p className="media-overlay-resize-options__empty" role="status">{t("works.editOptionsLoading")}</p>
+        ) : options.length ? (
+          <div className="media-overlay-resize-options__list">
+            {options.map((option) => (
+              <label key={option.value}>
+                <input
+                  type="radio"
+                  name="media-overlay-resize-choice"
+                  value={option.value}
+                  checked={selectedValue === option.value}
+                  onChange={() => setSelectedValue(option.value)}
+                />
+                <span>{isRatio ? option.value : /^\d+x\d+$/.test(option.value) ? option.value.replace("x", " × ") : option.label}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="media-overlay-resize-options__empty" role="status">{t("works.noResizeOptions")}</p>
+        )}
+      </fieldset>
+      {catalogError ? (
+        <button type="button" className="media-overlay-resize-options__reload" onClick={onReload} disabled={pending || disabled || loading}>
+          {t("works.resizeReloadOptions")}
+        </button>
+      ) : null}
+      {error ? <p className="media-overlay-resize-options__error" role="alert">{t("works.resizeImageFailed", { message: error })}</p> : null}
+      <div className="media-overlay-edit-form__actions">
+        <span id="media-overlay-resize-hint">{t("works.resizeUsesCurrentImage")}</span>
+        <button type="submit" disabled={blocked || !selectedOption}>
+          {pending ? t("works.editSubmitting") : t("works.resizeSubmit")}
+          <ArrowRight size={18} weight="regular" aria-hidden="true" />
+        </button>
+      </div>
+      {pending ? <span className="sr-only" role="status">{t("works.editSubmitting")}</span> : null}
     </form>
   );
 }

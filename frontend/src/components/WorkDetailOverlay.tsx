@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { fetchCatalog, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
-import { MediaOverlayEditComposer, MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions } from "./MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions, MediaOverlayResizeComposer } from "./MediaOverlayActions";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
 import { MediaOverlayFrame } from "./MediaOverlayFrame";
 import { useI18n } from "../i18n";
@@ -30,7 +30,6 @@ import {
   type TaskActionPayload,
   runRetryTask,
   runTaskAction,
-  getImageResizeOptions,
   submitHighResolutionCandidate,
   submitImageEdit,
   submitImageResize,
@@ -134,18 +133,6 @@ export function WorkDetailOverlay(props: Props) {
     queryFn: () => fetchCatalog(settings.gatewayToken),
     staleTime: 5 * 60_000,
   });
-  const resizeOptions = useMemo(() => {
-    if (!currentLightboxTask || !catalogQuery.data) {
-      return [];
-    }
-    try {
-      return getImageResizeOptions(currentLightboxTask, catalogQuery.data).filter(
-        (option) => option.value !== "auto",
-      );
-    } catch {
-      return [];
-    }
-  }, [catalogQuery.data, currentLightboxTask]);
 
   const taskDetailQuery = useQuery({
     queryKey: [
@@ -391,6 +378,7 @@ export function WorkDetailOverlay(props: Props) {
                 }}
                 onAdjustSize={() => {
                   setIsEditPromptOpen(false);
+                  resizeMutation.reset();
                   setIsResizeOptionsOpen((open) => !open);
                 }}
                 onRegenerate={() => {
@@ -445,42 +433,27 @@ export function WorkDetailOverlay(props: Props) {
                 />
               ) : null}
               {isResizeOptionsOpen ? (
-                <div id="media-overlay-resize-options" className="media-overlay-edit-form media-overlay-resize-options">
-                  <strong>{t("works.resizeChooseSize")}</strong>
-                  <p>{t("works.resizeUsesCurrentImage")}</p>
-                  {resizeOptions.length ? (
-                    <div className="media-overlay-resize-options__list">
-                      {resizeOptions.map((option) => (
-                        <button
-                          type="button"
-                          key={option.value}
-                          disabled={resizeMutation.isPending || !catalogQuery.data}
-                          onClick={() => {
-                            if (!catalogQuery.data) {
-                              onHint?.(t("works.editOptionsUnavailable"));
-                              return;
-                            }
-                            resizeMutation.mutate({
-                              task: currentLightboxTask,
-                              imageIndex: lightboxItem.imageIndex ?? 0,
-                              resolution: option.value,
-                              resolutionLabel: option.label,
-                              catalog: catalogQuery.data,
-                            });
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="media-overlay-resize-options__empty">
-                      {catalogQuery.isPending
-                        ? t("works.editOptionsLoading")
-                        : t("works.noResizeOptions")}
-                    </span>
-                  )}
-                </div>
+                <MediaOverlayResizeComposer
+                  key={lightboxItem.key}
+                  task={currentLightboxTask}
+                  catalog={catalogQuery.data}
+                  loading={catalogQuery.isFetching && !catalogQuery.data}
+                  catalogError={catalogQuery.isError}
+                  onReload={() => void catalogQuery.refetch()}
+                  pending={resizeMutation.isPending}
+                  disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending}
+                  error={resizeMutation.variables?.task.task_id === currentLightboxTask.task_id && resizeMutation.variables.imageIndex === (lightboxItem.imageIndex ?? 0) ? resizeMutation.error?.message : null}
+                  onSubmit={(option) => {
+                    if (!catalogQuery.data) return;
+                    resizeMutation.mutate({
+                      task: currentLightboxTask,
+                      imageIndex: lightboxItem.imageIndex ?? 0,
+                      resolution: option.value,
+                      resolutionLabel: option.label,
+                      catalog: catalogQuery.data,
+                    });
+                  }}
+                />
               ) : null}
             </div>
           ) : null
