@@ -77,6 +77,21 @@ test("regeneration retries the whole source image request without importing a re
   assert.equal(source.provider_options.n, 3);
 });
 
+for (const assetType of ["image", "video"] as const) {
+  test(`failed ${assetType} retry preserves the source prompt and seed mode`, async (t) => {
+    const calls = mockFetch(t, [Response.json({ task_id: "retried-task", scene_id: "scene-2" })]);
+    const source: VideoTaskDetail = { ...task, asset_type: assetType, status: "failed", prompt: "失败任务的原始提示词" };
+    await runRetryTask({ task: source, mode: "same_seed" }, "");
+    assert.deepEqual(calls.map((call) => call.path), [`/v1/${assetType}/tasks/source%2F17/retry`]);
+    assert.equal(calls[0].init.method, "POST");
+    assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
+      retry_mode: "same_seed", prompt: "失败任务的原始提示词",
+    });
+    assert.equal(source.seed, 19);
+    assert.deepEqual(source.provider_options.image_file_ids, ["old"]);
+  });
+}
+
 for (const selected of ["edit", "custom", "generate"]) {
   test(`image edit selects ${selected} and replaces stale references`, async (t) => {
     const operations = [operation("generate", "input_reference_file_ids")];

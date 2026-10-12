@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
+  ArrowClockwise,
   CaretLeft,
   CaretRight,
   Check,
@@ -59,6 +60,7 @@ import type {
 } from "../types";
 import {
   durationOptionsFromField,
+  errorMessage,
   extractImageUrls,
   fieldKey,
   fieldStorageKey,
@@ -194,6 +196,8 @@ export function CreatePage(props: Props) {
   const [imageMaskFiles, setImageMaskFiles] = useState<File[]>([]);
   const [imageMaskReusedFileIds, setImageMaskReusedFileIds] = useState<string[]>([]);
   const [hint, setHint] = useState("");
+  const [expandedFailureTaskId, setExpandedFailureTaskId] = useState<string | null>(null);
+  const [queuedRetries, setQueuedRetries] = useState<Record<string, string>>({});
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
@@ -285,6 +289,17 @@ export function CreatePage(props: Props) {
       return hasInProgressGeneration
         ? ACTIVE_SESSION_POLL_INTERVAL_MS
         : IDLE_SESSION_POLL_INTERVAL_MS;
+    },
+  });
+  const retryMutation = useMutation({
+    mutationFn: (task: VideoTaskDetail) => runRetryTask({ task, mode: "same_seed" }, settings.gatewayToken),
+    onSuccess: async (response, task) => {
+      setQueuedRetries((previous) => ({ ...previous, [task.task_id]: response.task_id }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: sceneQueryKey(response.scene_id ?? "") }),
+      ]);
     },
   });
   const regenerateMutation = useMutation({
@@ -2401,6 +2416,9 @@ export function CreatePage(props: Props) {
             const isGeneratingImage =
               version.asset_type === "image" &&
               (version.status === "queued" || version.status === "running");
+            const isRetrying = retryMutation.isPending && retryMutation.variables?.task_id === version.task_id;
+            const retryError = retryMutation.variables?.task_id === version.task_id ? retryMutation.error : null;
+            const queuedRetryId = queuedRetries[version.task_id];
             return (
               <article className="session-turn" key={version.task_id} id={`session-task-${version.task_id}`}>
                 <div className="session-turn-prompt">
@@ -2444,9 +2462,52 @@ export function CreatePage(props: Props) {
                   </div>
                 ) : isGeneratingImage ? (
                   <SessionImage running={version.status === "running"} statusLabel={statusLabel(version)} />
-                ) : (
+                ) : version.status === "failed" ? null : (
                   <p className="session-turn-status">{statusLabel(version)}</p>
                 )}
+                {version.status === "failed" ? (
+                  <div className="session-turn-failure">
+                    <div className="session-turn-actions">
+                      <span className="session-turn-status">{statusLabel(version)}</span>
+                      <button
+                        type="button"
+                        className="btn-outline btn-outline-active"
+                        disabled={retryMutation.isPending || Boolean(queuedRetryId)}
+                        onClick={() => retryMutation.mutate(version)}
+                      >
+                        {queuedRetryId ? <Check size={16} /> : <ArrowClockwise size={16} />}
+                        {t(queuedRetryId ? "works.retryQueuedSticky" : isRetrying ? "create.failure.submitting" : "create.failure.retry")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-expanded={expandedFailureTaskId === version.task_id}
+                        aria-controls={`session-error-${version.task_id}`}
+                        onClick={() => setExpandedFailureTaskId((previous) => previous === version.task_id ? null : version.task_id)}
+                      >
+                        {t(expandedFailureTaskId === version.task_id ? "create.failure.hideReason" : "create.failure.viewReason")}
+                      </button>
+                    </div>
+                    <p id={`session-error-${version.task_id}`} className="session-turn-failure-reason" hidden={expandedFailureTaskId !== version.task_id}>
+                      {errorMessage(version, {
+                        fallbackMessage: t("error.defaultFailure"),
+                        providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
+                      }) ?? t("error.defaultFailure")}
+                    </p>
+                    {retryError ? (
+                      <span className="session-turn-action-feedback" role="alert">
+                        {t("works.retryFailed", { message: retryError.message })}
+                      </span>
+                    ) : queuedRetryId ? (
+                      <span className="session-turn-action-feedback" role="status">
+                        {t("works.retryQueuedSticky")}
+                        <button type="button" className="btn-ghost text-xs" onClick={() => {
+                          document.getElementById(`session-task-${queuedRetryId}`)?.scrollIntoView({ block: "nearest" });
+                        }}>{t("works.viewTask")}</button>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {version.asset_type === "image" && version.status === "succeeded" && images.length > 0 ? (
                   <div className="session-turn-actions">
                     <SessionResultActions
