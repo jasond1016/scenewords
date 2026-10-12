@@ -915,7 +915,7 @@ export function WorksPage(props: Props) {
             }
             bottomActions={
               lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
-                <div className="media-overlay-action-stack">
+                <div className="media-overlay-action-stack" data-overlay-scroll="allow">
                   <MediaOverlayImageActions
                     disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                     isEditPromptOpen={isEditPromptOpen}

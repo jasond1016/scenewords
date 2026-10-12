@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
+import { MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
 import {
   getImageResizeOptions,
   runRetryTask,
@@ -132,6 +135,39 @@ test("ratio resize preserves the API value and mapped label without changing mod
   assert.equal(submitted.model, task.model);
   assert.equal(submitted.parent_version_id, task.task_id);
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
+});
+
+test("resize ratio choices render true-scale outlined icons, unlike pixel presets", () => {
+  const ratios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "16:9", "9:16", "21:9", "9:21"];
+  const edit = operation("edit", "image_file_ids");
+  const field = edit.fields.find((field) => field.key === "resolution")!;
+  const render = () => renderToStaticMarkup(createElement(MediaOverlayResizeComposer, {
+    task, catalog: catalog([edit]), loading: false, catalogError: false,
+    onReload: () => undefined, pending: false, disabled: false, onSubmit: () => undefined,
+  }));
+  field.options = ratios.map((value) => ({ value, label: `${value} (target pixels)` }));
+  const choices = [...render().matchAll(/<label>(.*?)<\/label>/gs)].map((match) => match[1]);
+  assert.equal(choices.length, ratios.length);
+  for (const [index, choice] of choices.entries()) {
+    assert.match(choice, new RegExp(`<span>${ratios[index]}</span>`));
+    assert.ok(!choice.includes("target pixels"));
+    const svg = choice.match(/<svg[^>]*>/)![0];
+    assert.match(svg, /aria-hidden="true"/);
+    assert.match(svg, /fill="none"/);
+    const rect = choice.match(/<rect[^>]*>/)![0];
+    const width = Number(rect.match(/width="([^"]+)"/)![1]);
+    const height = Number(rect.match(/height="([^"]+)"/)![1]);
+    const [horizontal, vertical] = ratios[index].split(":").map(Number);
+    assert.ok(Math.abs(width * vertical - height * horizontal) < 1e-8, ratios[index]);
+    assert.equal(Math.max(width, height), 24);
+    assert.ok(Math.min(width, height) >= 10, "extreme ratios remain visible");
+    assert.equal(Number(rect.match(/x="([^"]+)"/)![1]) + width / 2, 16);
+    assert.equal(Number(rect.match(/y="([^"]+)"/)![1]) + height / 2, 16);
+  }
+  field.options = [{ value: "2048x1152", label: "2K" }];
+  const pixelChoice = render().match(/<label>(.*?)<\/label>/s)![1];
+  assert.match(pixelChoice, /2048 × 1152/);
+  assert.ok(!pixelChoice.includes("<svg"));
 });
 
 test("unsupported references fail before upload or task creation", async (t) => {

@@ -1,5 +1,5 @@
 import { ArrowClockwise, ArrowRight, CaretDown, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { getImageResizeOptions } from "../overlayTaskActions";
 import type { ProviderCatalogResponse, ProviderOperationOption, VideoTaskDetail } from "../types";
@@ -246,6 +246,23 @@ export function MediaOverlayResizeComposer(props: {
   const { task, catalog, loading, catalogError, onReload, pending, disabled, error, onSubmit } = props;
   const { t } = useI18n();
   const [selectedValue, setSelectedValue] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const form = formRef.current;
+    const stack = form?.parentElement;
+    if (!form || !stack) return;
+    const revealPanel = () => {
+      const style = getComputedStyle(form);
+      const contentHeight = form.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      form.dataset.compact = String(stack.clientHeight < contentHeight);
+      if (stack.scrollHeight > stack.clientHeight) stack.scrollTop = stack.scrollHeight;
+    };
+    const observer = new ResizeObserver(revealPanel);
+    observer.observe(form);
+    observer.observe(stack);
+    revealPanel();
+    return () => observer.disconnect();
+  }, []);
   const options = useMemo(() => {
     if (!catalog) return [];
     try {
@@ -262,6 +279,7 @@ export function MediaOverlayResizeComposer(props: {
 
   return (
     <form
+      ref={formRef}
       id="media-overlay-resize-options"
       className="media-overlay-edit-form media-overlay-resize-options"
       aria-busy={pending || loading}
@@ -270,46 +288,65 @@ export function MediaOverlayResizeComposer(props: {
         if (!blocked && selectedOption) onSubmit(selectedOption);
       }}
     >
-      <fieldset disabled={blocked} aria-describedby="media-overlay-resize-hint">
-        <legend>{t(isRatio ? "works.resizeChooseRatio" : "works.resizeChooseSize")}</legend>
+      <div className="media-overlay-resize-options__header">
+        <strong id="media-overlay-resize-title">{t(options.length ? isRatio ? "works.resizeChooseRatio" : "works.resizeChooseSize" : "works.adjustImageSize")}</strong>
         <p className="media-overlay-resize-options__model">{t("works.resizeModel", { model: model?.display_name ?? task.model })}</p>
+      </div>
+      <div
+        className="media-overlay-resize-options__body"
+        data-overlay-scroll="allow"
+        tabIndex={0}
+        role="region"
+        aria-labelledby="media-overlay-resize-title"
+      >
+        <fieldset disabled={blocked} aria-labelledby="media-overlay-resize-title" aria-describedby="media-overlay-resize-hint">
+          {catalogError ? (
+            <p className="media-overlay-resize-options__error" role="alert">{t("works.editOptionsUnavailable")}</p>
+          ) : loading ? (
+            <p className="media-overlay-resize-options__empty" role="status">{t("works.editOptionsLoading")}</p>
+          ) : options.length ? (
+            <div className="media-overlay-resize-options__list">
+              {options.map((option) => {
+                const ratio = isRatio ? option.value.split(":").map(Number) : null;
+                const scale = ratio ? 24 / Math.max(...ratio) : 0;
+                return (
+                  <label key={option.value}>
+                    <input
+                      type="radio"
+                      name="media-overlay-resize-choice"
+                      value={option.value}
+                      checked={selectedValue === option.value}
+                      onChange={() => setSelectedValue(option.value)}
+                    />
+                    {ratio ? (
+                      <svg className="media-overlay-resize-options__ratio" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
+                        <rect x={(32 - ratio[0] * scale) / 2} y={(32 - ratio[1] * scale) / 2} width={ratio[0] * scale} height={ratio[1] * scale} />
+                      </svg>
+                    ) : null}
+                    <span>{isRatio ? option.value : /^\d+x\d+$/.test(option.value) ? option.value.replace("x", " × ") : option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="media-overlay-resize-options__empty" role="status">{t("works.noResizeOptions")}</p>
+          )}
+        </fieldset>
+      </div>
+      <div className="media-overlay-resize-options__footer">
         {catalogError ? (
-          <div className="media-overlay-resize-options__error" role="alert">
-            <span>{t("works.editOptionsUnavailable")}</span>
-          </div>
-        ) : loading ? (
-          <p className="media-overlay-resize-options__empty" role="status">{t("works.editOptionsLoading")}</p>
-        ) : options.length ? (
-          <div className="media-overlay-resize-options__list">
-            {options.map((option) => (
-              <label key={option.value}>
-                <input
-                  type="radio"
-                  name="media-overlay-resize-choice"
-                  value={option.value}
-                  checked={selectedValue === option.value}
-                  onChange={() => setSelectedValue(option.value)}
-                />
-                <span>{isRatio ? option.value : /^\d+x\d+$/.test(option.value) ? option.value.replace("x", " × ") : option.label}</span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <p className="media-overlay-resize-options__empty" role="status">{t("works.noResizeOptions")}</p>
-        )}
-      </fieldset>
-      {catalogError ? (
-        <button type="button" className="media-overlay-resize-options__reload" onClick={onReload} disabled={pending || disabled || loading}>
-          {t("works.resizeReloadOptions")}
-        </button>
-      ) : null}
-      {error ? <p className="media-overlay-resize-options__error" role="alert">{t("works.resizeImageFailed", { message: error })}</p> : null}
-      <div className="media-overlay-edit-form__actions">
-        <span id="media-overlay-resize-hint">{t("works.resizeUsesCurrentImage")}</span>
-        <button type="submit" disabled={blocked || !selectedOption}>
-          {pending ? t("works.editSubmitting") : t("works.resizeSubmit")}
-          <ArrowRight size={18} weight="regular" aria-hidden="true" />
-        </button>
+          <button type="button" className="media-overlay-resize-options__reload" onClick={onReload} disabled={pending || disabled || loading}>
+            {t("works.resizeReloadOptions")}
+          </button>
+        ) : null}
+        {error ? <p className="media-overlay-resize-options__error" role="alert" data-overlay-scroll="allow" tabIndex={0}>{t("works.resizeImageFailed", { message: error })}</p> : null}
+        <div className="media-overlay-edit-form__actions">
+          <span id="media-overlay-resize-hint">{t("works.resizeUsesCurrentImage")}</span>
+          <button type="submit" disabled={blocked || !selectedOption}>
+            {pending ? t("works.editSubmitting") : t("works.resizeSubmit")}
+            <ArrowRight size={18} weight="regular" aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {pending ? <span className="sr-only" role="status">{t("works.editSubmitting")}</span> : null}
     </form>
