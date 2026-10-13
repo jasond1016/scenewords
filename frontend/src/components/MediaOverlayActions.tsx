@@ -305,7 +305,7 @@ export function MediaOverlayResizeComposer(props: {
           ) : loading ? (
             <p className="media-overlay-resize-options__empty" role="status">{t("works.editOptionsLoading")}</p>
           ) : options.length ? (
-            <div className="media-overlay-resize-options__list">
+            <div className={`media-overlay-resize-options__list${isRatio ? " media-overlay-resize-options__list--ratios" : ""}`}>
               {options.map((option) => {
                 const ratio = isRatio ? option.value.split(":").map(Number) : null;
                 const scale = ratio ? 24 / Math.max(...ratio) : 0;
@@ -313,6 +313,7 @@ export function MediaOverlayResizeComposer(props: {
                   <label key={option.value}>
                     <input
                       type="radio"
+                      className={isRatio ? "sr-only" : undefined}
                       name="media-overlay-resize-choice"
                       value={option.value}
                       checked={selectedValue === option.value}
