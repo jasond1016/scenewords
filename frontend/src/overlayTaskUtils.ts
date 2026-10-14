@@ -37,35 +37,6 @@ export function buildVersionEditPrompt(originalPrompt: string, instruction: stri
   ].join("\n");
 }
 
-export function buildTaskRequestPayload(task: VideoTaskDetail) {
-  return {
-    provider: task.provider,
-    model: task.model,
-    operation: task.operation ?? "generate",
-    scene_id: task.scene_id,
-    generation_id: task.generation_id,
-    parent_version_id: task.parent_version_id,
-    prompt: task.prompt,
-    negative_prompt: task.negative_prompt,
-    duration_sec: task.duration_sec,
-    resolution: task.resolution,
-    fps: task.fps,
-    seed: task.seed,
-    provider_options: task.provider_options ?? {},
-  };
-}
-
-export function formatRawDebugPayload(task: VideoTaskDetail): string {
-  if (task.status === "failed" && task.error) {
-    const rawError = task.error.raw_error;
-    if (rawError !== undefined) {
-      return JSON.stringify(rawError, null, 2);
-    }
-    return JSON.stringify(task.error, null, 2);
-  }
-  return JSON.stringify(task.result, null, 2);
-}
-
 export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     await navigator.clipboard.writeText(text);

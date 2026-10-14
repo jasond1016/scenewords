@@ -3,6 +3,7 @@ import { test, type TestContext } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
+import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
 import { MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
 import {
   getImageResizeOptions,
@@ -197,6 +198,38 @@ test("reference import failure prevents scene and generation requests", async (t
   await assert.rejects(submitImageEdit({ task: { ...task, scene_id: null }, imageIndex: 0,
     instruction: "Edit", catalog: catalog([operation("edit", "image_file_ids")]) }, ""), /Reference expired/);
   assert.equal(calls.length, 1);
+});
+
+test("details show the user's latest modification and honest request dimensions/cost without diagnostic clutter", async (t) => {
+  const capabilities = catalog([operation("edit", "image_file_ids")]);
+  const calls = mockFetch(t, [Response.json({ file_id: "reference" }), Response.json({ task_id: "edited" })]);
+  await submitImageEdit({ task, imageIndex: 0, instruction: "Warm lighting\nKeep the blue vase", catalog: capabilities }, "");
+  const prompt = JSON.parse(String(calls[1].init.body)).prompt;
+  const render = (overrides: Partial<VideoTaskDetail>) => renderToStaticMarkup(createElement(MediaDetailSidebar, {
+    task: { ...task, prompt, resolution: "1536x1000", actual_cost: 0.14, estimated_cost: 0.2, currency: "USD", cost_source: "provider_api", ...overrides },
+    catalog: capabilities, downloadUrl: "/image.png", statusLabel: "Succeeded", updatedAtLabel: "Yesterday",
+    onReuse() {}, onDelete() {},
+  }));
+  const html = render({});
+  assert.match(html, /Warm lighting\s+Keep the blue vase/);
+  assert.match(html, /<dd>Image<\/dd>/);
+  assert.match(html, /192:125/);
+  assert.match(html, /1536 × 1000/);
+  assert.match(html, /实际费用|Actual cost/);
+  assert.match(html, /0\.14/);
+  for (const hidden of ["Original scene", "Modification request:", "source/17", "Yesterday", "Diagnostics", "诊断信息", "Raw Result", "原始结果", "N/A", "Succeeded", "0.2"]) {
+    assert.ok(!html.includes(hidden), `Not default detail content: ${hidden}`);
+  }
+  const estimated = render({ actual_cost: null, resolution: "16:9" });
+  assert.match(estimated, /预估费用|Estimated cost/);
+  assert.match(estimated, /16:9/);
+  assert.doesNotMatch(estimated, /目标尺寸|Target size/, "a ratio is not an actual or inferred pixel size");
+  const localSettlement = render({ cost_source: "local_config" });
+  assert.match(localSettlement, /预估费用|Estimated cost/);
+  assert.doesNotMatch(localSettlement, /实际费用|Actual cost/, "settled local estimates are not provider-reported charges");
+  assert.match(render({ cost_source: "unknown" }), /参考费用|Indicative cost/);
+  const unknown = render({ resolution: "auto", actual_cost: null, estimated_cost: null });
+  assert.doesNotMatch(unknown, /目标尺寸|Target size|N\/A/);
 });
 
 test("high-resolution candidate submits Sunburst edit with source size and preservation options", async (t) => {

@@ -12,11 +12,6 @@ import {
   resolveInitialLightboxState,
 } from "../lightbox";
 import {
-  buildTaskRequestPayload,
-  copyText,
-  formatRawDebugPayload,
-} from "../overlayTaskUtils";
-import {
   buildReuseDraft,
   formatRetryErrorMessage,
   formatRetryQueuedMessage,
@@ -122,7 +117,6 @@ export function WorkDetailOverlay(props: Props) {
         : [],
     [currentLightboxTask?.generation_id, tasks],
   );
-  const [isRawResultOpen, setIsRawResultOpen] = useState(false);
   const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editInstruction, setEditInstruction] = useState("");
@@ -151,22 +145,10 @@ export function WorkDetailOverlay(props: Props) {
         currentLightboxTask.asset_type,
       );
     },
-    enabled:
-      Boolean(currentLightboxTask) &&
-      (isRawResultOpen || currentLightboxTask?.status === "failed"),
+    enabled: currentLightboxTask?.status === "failed",
     staleTime: 30_000,
   });
-  const rawResultTask = taskDetailQuery.data ?? currentLightboxTask;
-  const rawResultPayload = useMemo(() => {
-    if (!isRawResultOpen || !rawResultTask) {
-      return "";
-    }
-    return formatRawDebugPayload(rawResultTask);
-  }, [isRawResultOpen, rawResultTask]);
-
-  useEffect(() => {
-    setIsRawResultOpen(false);
-  }, [currentLightboxTask?.task_id]);
+  const errorTask = taskDetailQuery.data ?? currentLightboxTask;
 
   useEffect(() => {
     setQueuedRetryTaskId(null);
@@ -474,7 +456,8 @@ export function WorkDetailOverlay(props: Props) {
         sidebar={
           <MediaDetailSidebar
             task={currentLightboxTask}
-            versionTasks={versionTasks}
+            catalog={catalogQuery.data}
+            versionTasks={versionTasks.filter((version) => lightboxItems.some((item) => item.taskId === version.task_id))}
             onVersionSelect={(taskId) => {
               const nextIndex = lightboxItems.findIndex((item) => item.taskId === taskId);
               if (nextIndex >= 0) {
@@ -491,25 +474,12 @@ export function WorkDetailOverlay(props: Props) {
             deleteDisabled={sidebarActions.deleteDisabled}
             cancelAction={sidebarActions.cancelAction}
             retryActions={currentLightboxTask.asset_type === "image" && currentLightboxTask.status === "succeeded" ? undefined : retryActions}
-            onCopyRequestJson={() => {
-              const payload = buildTaskRequestPayload(currentLightboxTask);
-              const text = JSON.stringify(payload, null, 2);
-              void copyText(text).then(
-                () => onHint?.(t("works.copyJsonSuccess")),
-                () => onHint?.(t("works.copyJsonFailed")),
-              );
-            }}
-            isRawResultOpen={isRawResultOpen}
-            onRawResultOpenChange={setIsRawResultOpen}
-              rawResultPending={taskDetailQuery.isPending}
-              rawResultError={taskDetailQuery.error ? (taskDetailQuery.error as Error).message : null}
-              rawResultPayload={rawResultPayload}
-              errorText={
-                rawResultTask
-                  ? errorMessage(rawResultTask, {
-                      fallbackMessage: t("error.defaultFailure"),
-                      providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
-                    })
+            errorText={
+              errorTask
+                ? errorMessage(errorTask, {
+                    fallbackMessage: t("error.defaultFailure"),
+                    providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
+                  })
                 : null
             }
           />

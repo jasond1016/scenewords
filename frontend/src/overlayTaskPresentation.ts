@@ -164,35 +164,12 @@ export function deriveTaskFormatMeta(task: VideoTaskDetail): {
     fromResolution.size ||
     (providerWidth != null && providerHeight != null && providerWidth > 0 && providerHeight > 0
       ? summarizeResolution(providerWidth, providerHeight)
-      : inferResolutionFromModel(task.model));
+      : "");
 
   return {
     ratio: ratio || null,
     resolution: resolution || null,
   };
-}
-
-function inferResolutionFromModel(model: string): string {
-  const normalized = model.trim().toLowerCase();
-  if (!normalized) {
-    return "";
-  }
-  if (normalized.includes("4k")) {
-    return "4K";
-  }
-  if (normalized.includes("2k")) {
-    return "2K";
-  }
-  if (normalized.includes("720p")) {
-    return "720P";
-  }
-  if (
-    normalized.startsWith("gemini-3-pro-image-preview") ||
-    normalized.startsWith("gemini-3.1-flash-image-preview")
-  ) {
-    return "1K";
-  }
-  return "";
 }
 
 function parseResolutionMeta(raw: string | null): { ratio: string; size: string } {
@@ -202,7 +179,7 @@ function parseResolutionMeta(raw: string | null): { ratio: string; size: string 
   }
 
   const ratioMatch = normalized.match(/^(\d+)\s*:\s*(\d+)$/);
-  if (ratioMatch) {
+  if (ratioMatch && Number(ratioMatch[1]) > 0 && Number(ratioMatch[2]) > 0) {
     return {
       ratio: `${Number(ratioMatch[1])}:${Number(ratioMatch[2])}`,
       size: "",
@@ -221,28 +198,11 @@ function parseResolutionMeta(raw: string | null): { ratio: string; size: string 
     }
   }
 
-  const sizeMatch = normalized.match(/^(\d+)\s*p$/);
-  if (sizeMatch) {
-    return {
-      ratio: "",
-      size: `${Number(sizeMatch[1])}P`,
-    };
-  }
-
-  return {
-    ratio: raw?.trim() ?? "",
-    size: raw?.trim() ?? "",
-  };
+  return { ratio: "", size: "" };
 }
 
 function summarizeResolution(width: number, height: number): string {
-  if (Math.max(width, height) >= 3840 || Math.min(width, height) >= 2160) {
-    return "4K";
-  }
-  if (Math.max(width, height) >= 2560 || Math.min(width, height) >= 1440) {
-    return "2K";
-  }
-  return `${Math.min(width, height)}P`;
+  return `${width} × ${height}`;
 }
 
 function readNumber(source: Record<string, unknown>, key: string): number | null {
@@ -260,31 +220,6 @@ function readNumber(source: Record<string, unknown>, key: string): number | null
 }
 
 function normalizeAspectRatio(width: number, height: number): string {
-  const target = width / height;
-  const candidates: Array<[string, number]> = [
-    ["21:9", 21 / 9],
-    ["16:9", 16 / 9],
-    ["9:16", 9 / 16],
-    ["4:3", 4 / 3],
-    ["3:4", 3 / 4],
-    ["1:1", 1],
-    ["3:2", 3 / 2],
-    ["2:3", 2 / 3],
-    ["4:5", 4 / 5],
-    ["5:4", 5 / 4],
-  ];
-  let best = candidates[0];
-  let diff = Math.abs(target - best[1]);
-  for (let index = 1; index < candidates.length; index += 1) {
-    const currentDiff = Math.abs(target - candidates[index][1]);
-    if (currentDiff < diff) {
-      diff = currentDiff;
-      best = candidates[index];
-    }
-  }
-  if (diff <= 0.12) {
-    return best[0];
-  }
   const divisor = greatestCommonDivisor(width, height);
   return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
 }
@@ -298,4 +233,23 @@ function greatestCommonDivisor(left: number, right: number): number {
     b = remainder;
   }
   return a || 1;
+}
+
+export function describeTaskPrompt(prompt: string): { text: string; modification: boolean } {
+  const text = prompt.trim();
+  const modificationMarker = "\nModification request:\n";
+  if (text.startsWith("Edit the supplied image while preserving") && text.includes(modificationMarker)) {
+    return { text: text.slice(text.lastIndexOf(modificationMarker) + modificationMarker.length).trim(), modification: true };
+  }
+  if (text.startsWith("Create a higher-resolution version of the supplied image")) {
+    const original = text.indexOf("\nOriginal scene request:\n");
+    const size = text.lastIndexOf("\nRequested output size:");
+    if (original >= 0 && size > original) return describeTaskPrompt(text.slice(original + "\nOriginal scene request:\n".length, size));
+  }
+  if (text.startsWith("Create a high-resolution candidate based on the first supplied image")) {
+    const marker = "Original brief for context only; the supplied image takes priority: ";
+    const original = text.indexOf(marker);
+    if (original >= 0) return describeTaskPrompt(text.slice(original + marker.length));
+  }
+  return { text, modification: false };
 }

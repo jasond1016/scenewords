@@ -1,4 +1,5 @@
-import { Info, X } from "@phosphor-icons/react";
+import { ArrowsInSimple, ArrowsOutSimple, Info, X } from "@phosphor-icons/react";
+import { useI18n } from "../i18n";
 import {
   useEffect,
   useRef,
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function MediaOverlayFrame(props: Props) {
+  const { t } = useI18n();
   const {
     onClose,
     media,
@@ -39,6 +41,7 @@ export function MediaOverlayFrame(props: Props) {
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
   );
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [areActionsVisible, setAreActionsVisible] = useState(true);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const isPullingDownRef = useRef(false);
@@ -69,6 +72,7 @@ export function MediaOverlayFrame(props: Props) {
     const handleViewportChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(event.matches);
       setIsDetailsOpen(false);
+      setIsDetailsExpanded(false);
       setAreActionsVisible(true);
     };
     mediaQuery.addEventListener("change", handleViewportChange);
@@ -216,11 +220,12 @@ export function MediaOverlayFrame(props: Props) {
             : undefined
         }
         data-details-open={isDetailsOpen}
+        data-details-expanded={isDetailsExpanded}
         data-mobile-viewport={isMobileViewport}
         data-actions-visible={areActionsVisible || !isMobileViewport}
         data-android-device={isAndroidDevice}
       >
-        <div className="media-overlay-main relative flex min-w-0 flex-1 flex-col border-b border-border md:border-b-0">
+        <div className="media-overlay-main relative flex min-w-0 flex-1 flex-col">
           <div
             className="media-overlay-canvas relative flex min-h-0 flex-1 items-center justify-center bg-transparent"
             onClick={handleMediaClick}
@@ -235,19 +240,24 @@ export function MediaOverlayFrame(props: Props) {
           </div>
         </div>
         {sidebar ? (
-          <aside className="media-overlay-sidebar min-h-0 overflow-hidden bg-surface/72">
+          <aside className="media-overlay-sidebar min-h-0 overflow-hidden">
             <div className="media-overlay-sidebar-header">
               <strong>{detailsLabel}</strong>
+              {isMobileViewport ? <button type="button" className="media-detail-icon"
+                aria-label={t(isDetailsExpanded ? "works.detail.compactPanel" : "works.detail.expandPanel")}
+                aria-expanded={isDetailsExpanded} onClick={() => setIsDetailsExpanded((expanded) => !expanded)}>
+                {isDetailsExpanded ? <ArrowsInSimple size={18} weight="regular" /> : <ArrowsOutSimple size={18} weight="regular" />}
+              </button> : null}
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--c-text-secondary)] hover:bg-[var(--c-surface-hover)]"
+                className="media-detail-icon"
                 aria-label={closeDetailsLabel}
                 onClick={() => setIsDetailsOpen(false)}
               >
                 <X size={16} weight="regular" />
               </button>
             </div>
-            <div className="h-full min-h-0 overflow-y-auto px-4 py-4 md:px-5" data-overlay-scroll="allow">
+            <div className="media-overlay-sidebar-scroll" data-overlay-scroll="allow" tabIndex={0} aria-label={detailsLabel}>
               {sidebar}
             </div>
           </aside>
@@ -261,7 +271,7 @@ export function MediaOverlayFrame(props: Props) {
             title={detailsLabel}
             onClick={() => setIsDetailsOpen((open) => !open)}
           >
-            <Info size={16} weight="regular" />
+            <Info size={22} weight="regular" />
           </button>
         ) : null}
         <button
