@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from app.config import ProviderConfig
@@ -52,12 +53,6 @@ def build_model_operations(
             poll_default=poll_default,
             duration_options=model_duration_options,
         )
-    if provider_type == "gemini_veo_compatible":
-        return _gemini_veo_operations(
-            timeout_default=timeout_default,
-            poll_default=poll_default,
-            duration_options=model_duration_options,
-        )
     if provider_type == "vertex_veo":
         return _vertex_veo_operations(
             timeout_default=timeout_default,
@@ -96,6 +91,21 @@ def apply_operation_defaults_and_validate(
             value = field.default
         if field.required and _is_empty_value(value):
             raise CapabilityValidationError(f"Missing required field: {field.key}")
+        if field.input_type == "number" and not _is_empty_value(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError) as error:
+                raise CapabilityValidationError(f"Invalid number for {field.key}") from error
+            if isinstance(value, bool) or not math.isfinite(number):
+                raise CapabilityValidationError(f"Invalid finite number for {field.key}")
+            if field.min is not None and number < field.min:
+                raise CapabilityValidationError(f"{field.key} must be >= {field.min}")
+            if field.max is not None and number > field.max:
+                raise CapabilityValidationError(f"{field.key} must be <= {field.max}")
+            if field.step:
+                steps = (number - (field.min or 0)) / field.step
+                if not math.isfinite(steps) or not math.isclose(steps, round(steps), rel_tol=0, abs_tol=1e-9):
+                    raise CapabilityValidationError(f"{field.key} must match step {field.step}")
         if (
             not value_was_empty
             and field.input_type == "select"
@@ -954,54 +964,6 @@ def _comfyui_operations(
                     default=poll_default,
                     min_value=0.2,
                     step=0.2,
-                ),
-            ],
-        )
-    ]
-
-
-def _gemini_veo_operations(
-    *, timeout_default: float, poll_default: float, duration_options: list[int]
-) -> list[ProviderModelOperationInfo]:
-    return [
-        ProviderModelOperationInfo(
-            id="generate",
-            display_name="生成视频",
-            is_default=True,
-            fields=[
-                _field("prompt", "提示词", input_type="textarea", required=True),
-                _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _duration_field(
-                    default_value=4,
-                    min_value=1,
-                    max_value=20,
-                    step=1,
-                    options=duration_options,
-                ),
-                _resolution_field(),
-                _field(
-                    "api_key",
-                    "API Key",
-                    target="provider_options",
-                    input_type="password",
-                ),
-                _field(
-                    "timeout_sec",
-                    "超时(s)",
-                    target="provider_options",
-                    input_type="number",
-                    default=timeout_default,
-                    min_value=30,
-                    step=1,
-                ),
-                _field(
-                    "poll_interval_sec",
-                    "轮询间隔(s)",
-                    target="provider_options",
-                    input_type="number",
-                    default=poll_default,
-                    min_value=1,
-                    step=1,
                 ),
             ],
         )

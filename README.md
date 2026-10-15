@@ -56,7 +56,6 @@ uv sync --python 3.11
 ```bash
 export OPENAI_API_KEY="..."
 export GOOGLE_API_KEY="..."
-export RIGHT_CODES_API_KEY="..."
 export TUZI_API_KEY="..."
 export VIDEO_GATEWAY_BEARER_TOKEN="your-token"
 export VIDEO_GATEWAY_UPLOAD_DIR="data/uploads"
@@ -204,7 +203,7 @@ uv run --group dev pytest -q
 关键字段：
 
 - `id`: provider 唯一标识（前端选择值）
-- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `gemini_veo_compatible` / `tuzi_veo` / `tuzi_sora` / `tuzi_image`
+- `type`: `comfyui` / `openai_compatible` / `vertex_veo` / `tuzi_veo` / `tuzi_sora` / `tuzi_image`
 - `base_url`, `api_path`: 默认上游地址
 - `auth_env`: 默认 API Key 的环境变量名
 - `models`: 可选模型列表（前端可切换）
@@ -303,33 +302,6 @@ curl -X POST "http://127.0.0.1:8000/v1/video/generations" \
   - `base_url`: 网关访问 ComfyUI 的地址（同机可用 `http://127.0.0.1:8188`）
   - `public_base_url`: 返回给客户端播放视频的地址（如 `http://192.168.1.20:8188`）
 - 前端会按当前 `provider/model/operation` 动态显示可配置字段（包含 ComfyUI `workflow`）。
-
-## 第三方 Veo (Gemini-Compatible) 使用说明
-
-- 适用接口：`/models/{model}:predictLongRunning` + 轮询 operation。
-- 前端参数由后端 capabilities 驱动，按 provider/model 自动显示支持字段与默认值。
-- 推荐配置示例（已内置在 `config/providers.json`）：
-
-```json
-{
-  "id": "veo31_rightcodes",
-  "type": "gemini_veo_compatible",
-  "base_url": "https://right.codes/gemini/v1beta",
-  "api_path": "/models/{model}:predictLongRunning",
-  "auth_env": "RIGHT_CODES_API_KEY",
-  "api_key_header": "x-goog-api-key",
-  "default_timeout_sec": 1200,
-  "default_poll_interval_sec": 10
-}
-```
-
-- 请求级可覆盖字段（`provider_options`）：
-  - `api_key`, `api_key_header`
-  - `base_url`, `api_path`, `model`
-  - `timeout_sec`, `poll_interval_sec`
-  - `operation_base_url`, `operation_path`
-  - `extra_body`（用于透传第三方特定参数）
-- API Key 读取优先级：`provider_options.api_key` > `providers.json` 中 `api_key` > `auth_env` 环境变量。
 
 ## 注意事项
 

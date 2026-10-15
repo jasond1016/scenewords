@@ -41,6 +41,10 @@ class AppConfig:
     max_recent_tasks: int
     max_upload_mb: int
 
+    @property
+    def max_upload_bytes(self) -> int:
+        return max(1, self.max_upload_mb) * 1024 * 1024
+
 
 def load_app_config() -> AppConfig:
     provider_config_path = Path(

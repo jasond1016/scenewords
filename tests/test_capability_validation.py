@@ -54,3 +54,26 @@ def test_operation_validation_applies_valid_select_default() -> None:
     apply_operation_defaults_and_validate(request, [_operation_with_resolution_options()])
 
     assert request.resolution == "16:9"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "no", 0, 11, 1.5, 1e308])
+def test_number_constraints_reject_invalid_values(value) -> None:
+    request = VideoGenerationRequest(provider="demo", model="model", prompt="test",
+                                     provider_options={"count": value})
+    operation = ProviderModelOperationInfo(id="generate", display_name="Generate", fields=[
+        ProviderOperationField(key="count", label="Count", target="provider_options",
+                               input_type="number", min=1, max=10, step=1),
+    ])
+    with pytest.raises(CapabilityValidationError):
+        apply_operation_defaults_and_validate(request, [operation])
+
+
+def test_fractional_step_preserves_numeric_string_history() -> None:
+    request = VideoGenerationRequest(provider="demo", model="model", prompt="test",
+                                     provider_options={"interval": "0.6"})
+    operation = ProviderModelOperationInfo(id="generate", display_name="Generate", fields=[
+        ProviderOperationField(key="interval", label="Interval", target="provider_options",
+                               input_type="number", min=0.2, step=0.2),
+    ])
+    apply_operation_defaults_and_validate(request, [operation])
+    assert request.provider_options["interval"] == "0.6"

@@ -24,6 +24,17 @@ from app.schemas import VideoGenerationRequest
 ARCHIVE_LOGGER = logging.getLogger("uvicorn.error")
 
 
+def generation_unavailable_reason(
+    provider_configs: dict[str, ProviderConfig], provider_id: str, model: str,
+) -> str | None:
+    config = provider_configs.get(provider_id)
+    if not config or not config.enabled or config.provider_type not in PROVIDER_TYPE_REGISTRY:
+        return f"Provider unavailable: {provider_id} (removed, unconfigured or disabled)"
+    if not any(item.name == model for item in config.models):
+        return f"Model unavailable: {model} for provider {provider_id} (removed or unconfigured)"
+    return None
+
+
 class TaskWorker:
     def __init__(
         self,
@@ -102,11 +113,12 @@ class TaskWorker:
 
         provider_id = task["provider"]
         provider_config = self.provider_configs.get(provider_id)
-        if not provider_config or not provider_config.enabled:
+        unavailable = generation_unavailable_reason(self.provider_configs, provider_id, task["model"])
+        if unavailable:
             self.store.set_error(
                 task_id=task_id,
-                code="unknown_provider",
-                message=f"Provider {provider_id} not found or disabled",
+                code="generation_unavailable",
+                message=unavailable,
                 raw_error={"provider": provider_id},
             )
             return

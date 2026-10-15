@@ -24,16 +24,16 @@
                                  │           │                      │
                                  │  ┌────────▼───────────────────┐  │
                                  │  │ Provider 适配层             │  │
-                                 │  │ ComfyUI / Tuzi / Gemini... │  │
+                                 │  │ ComfyUI / Tuzi / OpenAI... │  │
                                  │  └────────────────────────────┘  │
                                  │                                  │
                                  │  SQLite (tasks.db) 任务持久化    │
                                  └──────────────────────────────────┘
                                           │
-                      ┌───────────────────┼──────────────────┐
-                      ▼                   ▼                  ▼
-               本地 ComfyUI        Tuzi API (兔子)    Right Codes API
-               (WAN2.2/HunyuanVideo)  (Sora2/Veo3.1)   (Gemini Veo)
+                      ┌───────────────────┤
+                      ▼                   ▼
+               本地 ComfyUI        Tuzi API (兔子)
+               (WAN2.2/HunyuanVideo)  (Sora2/Veo3.1)
 ```
 
 ---
@@ -54,7 +54,7 @@
 
 ## Provider 适配器 (`app/providers/`)
 
-支持 **7 种 Provider 类型**：
+支持 **6 种 Provider 类型**：
 
 | Provider 类型 | 类名 | 说明 |
 |---------------|------|------|
@@ -62,7 +62,6 @@
 | `tuzi_veo` | `TuziVeoProvider` | 兔子 API 的 Veo 3.1 视频生成（支持首尾帧参考图） |
 | `tuzi_sora` | `TuziSoraProvider` | 兔子 API 的 Sora 2 视频生成（generate / storyboard / remix / create_character） |
 | `tuzi_image` | `TuziImageProvider` | 兔子 API 的图片生成（Gemini 3 Pro Image，支持同步/异步模式） |
-| `gemini_veo_compatible` | `GeminiVeoCompatibleProvider` | Gemini/Vertex Veo 兼容 API（通过 Right Codes 等第三方代理） |
 | `openai_compatible` | `OpenAICompatibleProvider` | OpenAI 兼容 API |
 | `vertex_veo` | `VertexVeoProvider` | 原生 Google Vertex Veo API |
 
@@ -80,7 +79,6 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 | `nano_banana2` | Nano Banana 2 (Tuzi) | `tuzi_image` | Gemini 3 Pro Image (1K/2K/4K, 同步/异步) |
 | `sora2` | Sora 2 (Tuzi) | `tuzi_sora` | Sora 2 / Sora 2 Pro / 4s/8s/12s 变体 |
 | `veo31` | Veo 3.1 (Tuzi) | `tuzi_veo` | Veo 3.1 / Veo 3.1 4K / Veo 3.1 Components |
-| `veo31_rightcodes` | Veo 3.1 (Right Codes) | `gemini_veo_compatible` | veo-3.1-generate-preview |
 
 ---
 
@@ -125,7 +123,6 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 8. 调用对应 Provider.generate()：
    - ComfyUI: 提交 workflow → WebSocket 监听进度 → 下载输出
    - Tuzi: POST 提交 → 轮询状态 → 获取 URL
-   - Gemini: POST predictLongRunning → 轮询 operation → 获取结果
 9. 生成成功 → 下载远程媒体到 data/outputs/assets/{task_id}/
 10. 更新 SQLite: status=succeeded, result 包含 local_video_url / local_image_urls
 11. 前端定时轮询 GET /v1/video/tasks 发现状态变化 → 刷新作品列表与任务状态
@@ -281,7 +278,6 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 | `VIDEO_GATEWAY_ALLOW_ENDPOINT_OVERRIDE` | `true` | 是否允许请求级覆盖 endpoint |
 | `OPENAI_API_KEY` | — | OpenAI API Key |
 | `GOOGLE_API_KEY` | — | Google API Key |
-| `RIGHT_CODES_API_KEY` | — | Right Codes API Key |
 | `TUZI_API_KEY` | — | 兔子 API Key |
 
 ---

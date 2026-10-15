@@ -1064,3 +1064,96 @@ def test_delete_in_progress_image_task_allowed(client_factory) -> None:
         list_response = client.get("/v1/image/tasks?limit=50")
     assert delete_response.status_code == 204
     assert all(task["task_id"] != task_id for task in list_response.json())
+
+
+@pytest.mark.parametrize("asset_type", ["video", "image"])
+@pytest.mark.parametrize("missing", ["provider", "model"])
+def test_unavailable_history_and_restart(client_factory, asset_type, missing) -> None:
+    with client_factory() as client:
+        store = client.app.state.store
+        provider = "veo31_rightcodes" if missing == "provider" else "demo_provider"
+        request = {"provider": provider, "model": "removed-model", "prompt": "historical",
+                   "provider_options": {"legacy_option": "original"}}
+        result = {"mode": "gemini_veo_compatible", "video_url": "https://example.com/old.mp4"}
+        for state in ["succeeded", "queued", "running"]:
+            task_id = uuid4().hex
+            store.create_task(task_id, provider, "removed-model", "generate", "historical", request,
+                              asset_type=asset_type)
+            store.set_result(task_id, result)
+            store.set_status(task_id, state)
+            if state == "running":
+                store.set_provider_progress(task_id, provider_job_id="old-job",
+                                            provider_query_endpoint="https://example.com/job")
+            response = client.get(f"/v1/{asset_type}/tasks/{task_id}")
+            assert response.status_code == 200
+            assert response.json()["result"] == result
+            retry = client.post(f"/v1/{asset_type}/tasks/{task_id}/retry", json={})
+            assert retry.status_code == 503
+            assert "unavailable" in retry.json()["detail"]
+            submitted = []
+            async def record_submit(task_id):
+                submitted.append(task_id)
+            original_submit = client.app.state.worker.submit
+            client.app.state.worker.submit = record_submit
+            try:
+                client.portal.call(app_main._recover_unfinished_tasks_after_restart, client.app)
+            finally:
+                client.app.state.worker.submit = original_submit
+            saved = store.get_task(task_id)
+            assert saved["request"] == request
+            assert saved["result"] == result
+            assert saved["status"] == ("succeeded" if state == "succeeded" else "failed")
+            if state != "succeeded":
+                assert saved["error"]["code"] == "generation_unavailable"
+            assert submitted == []
+
+
+@pytest.mark.parametrize("options", [
+    {"n": 0}, {"n": 11}, {"n": 1.5}, {"n": True}, {"n": "NaN"}, {"n": "Infinity"},
+    {"n": "invalid"}, {"output_compression": -1}, {"output_compression": 101},
+    {"output_compression": 50.5}, {"output_format": "jpeg", "background": "transparent"},
+    {"output_format": "png", "output_compression": 80},
+])
+def test_official_options_rejected_before_enqueue(client_factory, options) -> None:
+    with client_factory() as client:
+        response = client.post("/v1/image/generations", json={
+            "provider": "tuzi_image_demo", "model": "gpt-image-2.5", "prompt": "test",
+            "provider_options": options,
+        })
+        assert response.status_code == 400
+        assert client.get("/v1/image/tasks").json() == []
+
+
+@pytest.mark.parametrize("options", [
+    {"n": 1}, {"n": 10}, {"n": 3, "background": "transparent", "output_format": "webp",
+                            "output_compression": 0},
+    {"output_format": "jpeg", "output_compression": 100},
+])
+def test_official_options_preserved(client_factory, options) -> None:
+    with client_factory() as client:
+        async def no_submit(task_id):
+            pass
+        client.app.state.worker.submit = no_submit
+        response = client.post("/v1/image/generations", json={
+            "provider": "tuzi_image_demo", "model": "gpt-image-2.5", "prompt": "test",
+            "provider_options": options,
+        })
+        assert response.status_code == 200
+        saved = client.app.state.store.get_task(response.json()["task_id"])
+        for key, value in options.items():
+            assert saved["request"]["provider_options"][key] == value
+        retry = client.post(f"/v1/image/tasks/{saved['task_id']}/retry", json={})
+        assert retry.status_code == 200
+        retried = client.app.state.store.get_task(retry.json()["task_id"])
+        assert retried["request"]["provider_options"] == saved["request"]["provider_options"]
+
+
+@pytest.mark.parametrize("limit_mb", [0, 2, 3])
+def test_models_runtime_upload_limit(client_factory, monkeypatch, limit_mb) -> None:
+    client = client_factory()
+    monkeypatch.setenv("VIDEO_GATEWAY_MAX_UPLOAD_MB", str(limit_mb))
+    with client:
+        expected = max(1, limit_mb) * 1024 * 1024
+        assert client.get("/v1/models").json()["max_upload_bytes"] == expected
+        response = client.post("/v1/files", files={"file": ("image.png", b"x" * (expected + 1), "image/png")})
+        assert response.status_code == 413

@@ -86,6 +86,7 @@ class ProviderInfo(BaseModel):
 
 class ProviderCatalogResponse(BaseModel):
     providers: list[ProviderInfo]
+    max_upload_bytes: int | None = None
 
 
 class ProviderOperationOption(BaseModel):

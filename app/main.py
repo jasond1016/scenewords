@@ -31,6 +31,9 @@ from app.db import TaskStore
 from app.pricing import PricingCatalog
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider
+from app.providers.base import ProviderError
+from app.providers.tuzi_image import _validate_official_image_options
+from app.providers.tuzi_image_models import GPT_IMAGE_25_OFFICIAL_MODELS
 from app.schemas import (
     PricingCatalogResponse,
     PricingEntryResponse,
@@ -53,7 +56,7 @@ from app.schemas import (
     VideoTaskDetail,
     VideoTaskResponse,
 )
-from app.worker import TaskWorker, build_provider_clients
+from app.worker import TaskWorker, build_provider_clients, generation_unavailable_reason
 
 if os.name == "nt" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     # The default Proactor loop on Windows can emit noisy ConnectionResetError
@@ -264,7 +267,7 @@ def create_app() -> FastAPI:
                     ],
                 )
             )
-        return ProviderCatalogResponse(providers=providers)
+        return ProviderCatalogResponse(providers=providers, max_upload_bytes=app.state.config.max_upload_bytes)
 
     def _build_queue_position_map(asset_type: str | None = None) -> dict[str, int]:
         active_tasks = app.state.store.list_active_tasks(asset_type=asset_type)
@@ -321,7 +324,9 @@ def create_app() -> FastAPI:
         )
         try:
             apply_operation_defaults_and_validate(request=payload, operations=operations)
-        except CapabilityValidationError as error:
+            if provider_config.provider_type == "tuzi_image" and payload.model.lower() in GPT_IMAGE_25_OFFICIAL_MODELS:
+                _validate_official_image_options(payload.provider_options)
+        except (CapabilityValidationError, ProviderError) as error:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(error),
@@ -437,6 +442,9 @@ def create_app() -> FastAPI:
         if task.get("asset_type", "video") != "video":
             raise HTTPException(status_code=404, detail="Task not found")
 
+        unavailable = generation_unavailable_reason(app.state.provider_configs, task["provider"], task["model"])
+        if unavailable:
+            raise HTTPException(status_code=503, detail=unavailable)
         source_request = VideoGenerationRequest.model_validate(task["request"])
         source_request.provider_options = _strip_internal_provider_options(
             source_request.provider_options
@@ -596,6 +604,9 @@ def create_app() -> FastAPI:
         if task.get("asset_type", "video") != "image":
             raise HTTPException(status_code=404, detail="Task not found")
 
+        unavailable = generation_unavailable_reason(app.state.provider_configs, task["provider"], task["model"])
+        if unavailable:
+            raise HTTPException(status_code=503, detail=unavailable)
         source_request = VideoGenerationRequest.model_validate(task["request"])
         source_request.provider_options = _strip_internal_provider_options(
             source_request.provider_options
@@ -907,7 +918,7 @@ def create_app() -> FastAPI:
         file: UploadFile = File(...), _: None = Depends(require_auth)
     ) -> UploadedFileResponse:
         app_config: AppConfig = app.state.config
-        max_size_bytes = max(1, app_config.max_upload_mb) * 1024 * 1024
+        max_size_bytes = app_config.max_upload_bytes
         file_bytes = await file.read(max_size_bytes + 1)
         if not file_bytes:
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
@@ -1515,6 +1526,11 @@ async def _recover_unfinished_tasks_after_restart(app: FastAPI) -> None:
     for task in active_tasks:
         task_id = task["task_id"]
         status = task.get("status")
+        unavailable = generation_unavailable_reason(app.state.provider_configs, task["provider"], task["model"])
+        if unavailable:
+            store.set_error(task_id, "generation_unavailable", unavailable, {"reason": "gateway_restart"})
+            interrupted_count += 1
+            continue
         if status == "queued":
             await worker.submit(task_id)
             requeued_count += 1
