@@ -18,7 +18,6 @@ type SettingCategory =
 
 const SETTINGS_STORE_KEY = "scenewords_gateway_settings_v1";
 const SCENEWORDS_CACHE_PREFIX = "scenewords_";
-const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 
 export function SettingsPage(props: Props) {
   const { locale, t } = useI18n();
@@ -43,7 +42,7 @@ export function SettingsPage(props: Props) {
     () =>
       props.providers.filter(
         (provider) =>
-          !isImageProviderType(provider.type) && !HIDDEN_VIDEO_PROVIDER_IDS.has(provider.id),
+          !isImageProviderType(provider.type),
       ),
     [props.providers],
   );
@@ -103,7 +102,6 @@ export function SettingsPage(props: Props) {
       defaultRatio: "16:9",
       defaultDurationSec: 8,
       defaultQuality: "standard",
-      defaultNegativePrompt: "",
       restoreLastSession: true,
       retryModeDefault: "same_seed",
       showBothRetryActions: true,

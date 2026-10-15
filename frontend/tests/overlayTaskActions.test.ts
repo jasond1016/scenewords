@@ -25,6 +25,7 @@ const task: VideoTaskDetail = {
   provider_options: {
     image_file_ids: ["old"], input_reference_file_ids: ["old"], image: "old",
     images: ["old"], input_references: ["old"], mask_file_id: "old-mask", quality: "high",
+    api_key: "old-key", timeout_sec: 300, response_format: "b64_json", moderation: "low", watermark: true,
   },
   subject_bindings: [], estimated_cost: null, actual_cost: null, currency: null,
   cost_source: "unknown", result: null, error: null,
@@ -108,6 +109,7 @@ for (const selected of ["edit", "custom", "generate"]) {
     assert.equal(submitted.operation, selected);
     assert.deepEqual(submitted.provider_options, {
       quality: "high", [selected === "generate" ? "input_reference_file_ids" : "image_file_ids"]: ["new-reference"],
+      response_format: "url", moderation: "auto", watermark: false,
     });
     assert.equal(submitted.resolution, "1536x1024");
     assert.equal(submitted.scene_id, "scene-2");
@@ -117,6 +119,8 @@ for (const selected of ["edit", "custom", "generate"]) {
     assert.match(submitted.prompt, /Modification request:\nChange lighting$/);
     assert.equal(new Headers(calls[0].init.headers).get("Authorization"), "Bearer token");
     assert.deepEqual(task.provider_options.image_file_ids, ["old"]);
+    assert.equal(task.provider_options.response_format, "b64_json");
+    assert.equal(task.provider_options.mask_file_id, "old-mask");
   });
 }
 
@@ -147,7 +151,9 @@ test("ratio resize preserves the API value and mapped label without changing mod
   const submitted = JSON.parse(String(calls[1].init.body));
   assert.equal(submitted.resolution, "16:9");
   assert.match(submitted.prompt, /Requested output size: 16:9 \(1672x941\)$/);
-  assert.deepEqual(submitted.provider_options, { quality: "high", image_file_ids: ["ratio-reference"] });
+  assert.deepEqual(submitted.provider_options, {
+    quality: "high", image_file_ids: ["ratio-reference"], response_format: "url", moderation: "auto", watermark: false,
+  });
   assert.equal(submitted.model, task.model);
   assert.equal(submitted.parent_version_id, task.task_id);
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
@@ -274,6 +280,7 @@ test("high-resolution candidate submits Sunburst edit with source size and prese
     background: "auto",
     output_format: "png",
     input_fidelity: "high",
+    response_format: "url", moderation: "auto", watermark: false,
   });
   assert.match(submitted.prompt, /Create a high-resolution candidate/);
   assert.match(submitted.prompt, /Small visual differences may occur/);

@@ -10,6 +10,7 @@ import {
   type DragEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import Lightbox from "yet-another-react-lightbox";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -60,6 +61,7 @@ import type {
 } from "../types";
 import {
   durationOptionsFromField,
+  cleanComposerStorage,
   errorMessage,
   extractImageUrls,
   fieldKey,
@@ -81,6 +83,7 @@ import { buildLightboxItems } from "../lightbox";
 import { buildVersionEditPrompt } from "../overlayTaskUtils";
 import { runRetryTask, submitHighResolutionCandidate, type HighResolutionCandidatePayload } from "../overlayTaskActions";
 import { providerSupportsSeedRetry } from "../overlayTaskPresentation";
+import { isComposerField, sanitizeComposerOptions, sanitizeComposerValues } from "../composerOptions";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -95,10 +98,8 @@ const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 4_000;
 const IDLE_SESSION_POLL_INTERVAL_MS = 20_000;
-const HIDDEN_VIDEO_PROVIDER_IDS = new Set(["veo31_rightcodes"]);
 const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
-const SHARED_IMAGE_MASK_FIELD_KEY = "shared_image_mask_file_id";
 
 interface RecentPromptEntry {
   text: string;
@@ -145,25 +146,6 @@ interface VideoModelFamily {
   variants: VideoModelVariant[];
 }
 
-interface AdvancedGroup {
-  id: "prompt" | "inputs" | "behavior" | "runtime" | "developer" | "misc";
-  fields: ProviderOperationField[];
-}
-
-interface ComposerClearSnapshot {
-  promptField: ProviderOperationField | null;
-  promptValue: string | null;
-  versionEditBasePrompt: string | null;
-  modificationInstruction: string;
-  selectedSubjectIds: string[];
-  files: Record<string, File[]>;
-  reusedFileIds: Record<string, string[]>;
-  imageSourceFiles: File[];
-  imageSourceReusedFileIds: string[];
-  imageMaskFiles: File[];
-  imageMaskReusedFileIds: string[];
-}
-
 interface ModelSelectorChoice {
   key: string;
   label: string;
@@ -193,15 +175,17 @@ export function CreatePage(props: Props) {
   const [imageSourceFiles, setImageSourceFiles] = useState<File[]>([]);
   const [imageSourceReusedFileIds, setImageSourceReusedFileIds] = useState<string[]>([]);
   const [sessionContextFileIds, setSessionContextFileIds] = useState<string[]>([]);
-  const [imageMaskFiles, setImageMaskFiles] = useState<File[]>([]);
-  const [imageMaskReusedFileIds, setImageMaskReusedFileIds] = useState<string[]>([]);
   const [hint, setHint] = useState("");
+  const maxUploadBytes = catalog?.max_upload_bytes ?? 10 * 1024 * 1024;
+  const uploadHelp = t("create.uploadHelp", { size: Number((maxUploadBytes / 1024 / 1024).toFixed(2)) });
+  useEffect(cleanComposerStorage, []);
   const [expandedFailureTaskId, setExpandedFailureTaskId] = useState<string | null>(null);
   const [queuedRetries, setQueuedRetries] = useState<Record<string, string>>({});
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
   const skipNextPendingClearHydrationRef = useRef(false);
+  const skipUnhydratedSessionSaveRef = useRef(false);
   const openSessionRequestRef = useRef(0);
   const latestSessionReferenceTaskIdRef = useRef("");
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -211,9 +195,12 @@ export function CreatePage(props: Props) {
   const settingsPopoverRef = useRef<HTMLDivElement | null>(null);
   const [openPopover, setOpenPopover] = useState<"add" | "settings" | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [composerClearSnapshot, setComposerClearSnapshot] = useState<ComposerClearSnapshot | null>(null);
-  const composerClearTimerRef = useRef<number | null>(null);
-  const applyingComposerClearRef = useRef(false);
+  const advancedDialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!showAdvanced) return;
+    advancedDialogRef.current?.showModal();
+    return () => settingsButtonRef.current?.focus();
+  }, [showAdvanced]);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -232,21 +219,6 @@ export function CreatePage(props: Props) {
   const [modificationInstruction, setModificationInstruction] = useState("");
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const dismissComposerClear = () => {
-    if (composerClearTimerRef.current !== null) {
-      window.clearTimeout(composerClearTimerRef.current);
-      composerClearTimerRef.current = null;
-    }
-    setComposerClearSnapshot(null);
-  };
-  useEffect(
-    () => () => {
-      if (composerClearTimerRef.current !== null) {
-        window.clearTimeout(composerClearTimerRef.current);
-      }
-    },
-    [],
-  );
   useEffect(() => {
     if (!settings.pendingReuseError) {
       return;
@@ -462,57 +434,19 @@ export function CreatePage(props: Props) {
     if (!selectedOperation) {
       return [];
     }
-    const excluded = new Set<string>();
-    if (promptField) {
-      excluded.add(fieldKey(promptField));
+    if (usesOfficialGptImage25Parameters) {
+      return selectedOperation.fields.filter((field) =>
+        ["output_format", "n", ...(selectedOperation.id === "edit" ? ["input_fidelity"] : [])].includes(field.key));
     }
-    if (durationField) {
-      excluded.add(fieldKey(durationField));
+    if (selectedProvider?.type === "tuzi_veo") {
+      return selectedOperation.fields.filter((field) =>
+        field.key === "input_reference_file_ids" ||
+        (field.key === "end_frame_file_id" &&
+          ((files["provider_options:start_frame_file_id"]?.length ?? 0) > 0 ||
+            (reusedFileIds["provider_options:start_frame_file_id"]?.length ?? 0) > 0)));
     }
-    if (resolutionField) {
-      excluded.add(fieldKey(resolutionField));
-    }
-    if (qualityField) {
-      excluded.add(fieldKey(qualityField));
-    }
-    if (backgroundField && usesOfficialGptImage25Parameters) {
-      excluded.add(fieldKey(backgroundField));
-    }
-    if (orientationField) {
-      excluded.add(fieldKey(orientationField));
-    }
-    for (const field of quickMediaFields) {
-      excluded.add(fieldKey(field));
-    }
-    if (selectedProvider && isImageProviderType(selectedProvider.type)) {
-      for (const field of selectedOperation.fields) {
-        if (
-          field.input_type === "file" ||
-          field.input_type === "file_list" ||
-          field.key === "image" ||
-          field.key === "mask_file_id"
-        ) {
-          excluded.add(fieldKey(field));
-        }
-      }
-    }
-    return selectedOperation.fields.filter((field) => !excluded.has(fieldKey(field)));
-  }, [
-    backgroundField,
-    durationField,
-    orientationField,
-    promptField,
-    qualityField,
-    quickMediaFields,
-    resolutionField,
-    selectedProvider,
-    selectedOperation,
-    usesOfficialGptImage25Parameters,
-  ]);
-  const advancedGroups = useMemo(
-    () => groupAdvancedFields(advancedFields),
-    [advancedFields],
-  );
+    return [];
+  }, [files, reusedFileIds, selectedProvider?.type, selectedOperation, usesOfficialGptImage25Parameters]);
   const imageProviders = useMemo(
     () => listVisibleProvidersByKind(providers, "image"),
     [providers],
@@ -870,37 +804,14 @@ export function CreatePage(props: Props) {
     }),
     [t],
   );
-  const sharedImageMaskField = useMemo<ProviderOperationField>(
-    () => ({
-      key: SHARED_IMAGE_MASK_FIELD_KEY,
-      label: t("create.imageMaskField"),
-      target: "provider_options",
-      input_type: "file",
-      required: false,
-      default: null,
-      placeholder: null,
-      help_text: t("create.imageMaskHelp"),
-      min: null,
-      max: null,
-      step: null,
-      options: [],
-    }),
-    [t],
-  );
   const composerMediaFields = useMemo(() => {
     if (currentGenerationKind !== "image") {
       return quickMediaFields;
     }
-    const fields = [sharedImageSourceField];
-    if (selectedOperation?.id === "edit") {
-      fields.push(sharedImageMaskField);
-    }
-    return fields;
+    return [sharedImageSourceField];
   }, [
     currentGenerationKind,
     quickMediaFields,
-    selectedOperation?.id,
-    sharedImageMaskField,
     sharedImageSourceField,
   ]);
   const uiFiles = useMemo(() => {
@@ -910,14 +821,11 @@ export function CreatePage(props: Props) {
     return {
       ...files,
       [fieldKey(sharedImageSourceField)]: imageSourceFiles,
-      [fieldKey(sharedImageMaskField)]: imageMaskFiles,
     };
   }, [
     currentGenerationKind,
     files,
-    imageMaskFiles,
     imageSourceFiles,
-    sharedImageMaskField,
     sharedImageSourceField,
   ]);
   const uiReusedFileIds = useMemo(() => {
@@ -927,16 +835,14 @@ export function CreatePage(props: Props) {
     return {
       ...reusedFileIds,
       [fieldKey(sharedImageSourceField)]: Array.from(
-        new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
+        new Set([...imageSourceReusedFileIds, ...sessionContextFileIds, ...activeSubjectReferenceFileIds]),
       ),
-      [fieldKey(sharedImageMaskField)]: imageMaskReusedFileIds,
     };
   }, [
     currentGenerationKind,
-    imageMaskReusedFileIds,
     imageSourceReusedFileIds,
+    sessionContextFileIds,
     reusedFileIds,
-    sharedImageMaskField,
     sharedImageSourceField,
     activeSubjectReferenceFileIds,
   ]);
@@ -1017,8 +923,6 @@ export function CreatePage(props: Props) {
     setImageSourceFiles([]);
     setImageSourceReusedFileIds([]);
     setSessionContextFileIds([]);
-    setImageMaskFiles([]);
-    setImageMaskReusedFileIds([]);
   }, [currentGenerationKind]);
 
   useEffect(() => {
@@ -1275,6 +1179,7 @@ export function CreatePage(props: Props) {
     const hydrated: Record<string, string> = {};
     const hydratedReusedFileIds: Record<string, string[]> = {};
     for (const field of selectedOperation.fields) {
+      if (!isComposerField(field.target, field.key)) continue;
       const key = fieldKey(field);
       const existingReused = reusedFileIds[key];
       if (
@@ -1308,7 +1213,6 @@ export function CreatePage(props: Props) {
 
     const pending = settings.pendingReuseDraft;
     let pendingImageSourceFileIds: string[] = [];
-    let pendingImageMaskFileIds: string[] = [];
     if (
       pending &&
       pending.provider === providerId &&
@@ -1318,7 +1222,6 @@ export function CreatePage(props: Props) {
       const applied = applyDraft(hydrated, selectedOperation, pending);
       Object.assign(hydratedReusedFileIds, applied.reusedFileIds);
       pendingImageSourceFileIds = extractDraftImageSourceFileIds(pending.providerOptions);
-      pendingImageMaskFileIds = extractDraftImageMaskFileIds(pending.providerOptions);
       skipNextPendingClearHydrationRef.current = true;
       settings.setPendingReuseDraft(null);
       setHint(
@@ -1374,14 +1277,13 @@ export function CreatePage(props: Props) {
     }
     applySettingDefaults(hydrated, selectedOperation, settings, providerId);
 
-    setValues(hydrated);
+    skipUnhydratedSessionSaveRef.current = true;
+    setValues(sanitizeComposerValues(hydrated));
     setFiles({});
     setReusedFileIds(hydratedReusedFileIds);
-    if (pendingImageSourceFileIds.length || pendingImageMaskFileIds.length) {
+    if (pendingImageSourceFileIds.length) {
       setImageSourceFiles([]);
-      setImageMaskFiles([]);
       setImageSourceReusedFileIds(pendingImageSourceFileIds);
-      setImageMaskReusedFileIds(pendingImageMaskFileIds);
     }
   }, [
     currentGenerationKind,
@@ -1393,7 +1295,6 @@ export function CreatePage(props: Props) {
     settings.defaultDurationSec,
     settings.defaultQuality,
     settings.defaultRatio,
-    settings.defaultNegativePrompt,
     settings.historyRetentionDays,
     settings.pendingReuseDraft,
     settings.providerDefaults,
@@ -1412,6 +1313,12 @@ export function CreatePage(props: Props) {
 
   useEffect(() => {
     if (!selectedProvider || !selectedModel || !selectedOperation) {
+      return;
+    }
+    // Hydration schedules values for the next render; do not overwrite the
+    // saved draft with this render's empty or previous-model values meanwhile.
+    if (skipUnhydratedSessionSaveRef.current) {
+      skipUnhydratedSessionSaveRef.current = false;
       return;
     }
     const nextProviderDefaults = captureProviderDefaultsFromValues(
@@ -1441,8 +1348,7 @@ export function CreatePage(props: Props) {
     const defaultsUnchanged =
       currentDefaults?.defaultRatio === nextProviderDefaults.defaultRatio &&
       currentDefaults?.defaultDurationSec === nextProviderDefaults.defaultDurationSec &&
-      currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality &&
-      currentDefaults?.defaultNegativePrompt === nextProviderDefaults.defaultNegativePrompt;
+      currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality;
     if (providerUnchanged && videoProviderUnchanged && defaultsUnchanged) {
       saveSession(currentGenerationKind, {
         provider: providerId,
@@ -1475,26 +1381,22 @@ export function CreatePage(props: Props) {
       if (!selectedOperation) {
         throw new Error(t("create.errorNoOperation"));
       }
-      let resolvedSceneId = sceneId;
-      if (!resolvedSceneId) {
-        const title = (promptValue.trim() || (locale === "zh-CN" ? "新会话" : "New chat")).slice(0, 160);
-        const session = await createScene({ title, description: "" }, settings.gatewayToken);
-        resolvedSceneId = session.scene_id;
-        setSceneId(session.scene_id);
-        await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
-      }
       const payload: VideoGenerationRequest = {
         provider: providerId,
         model: modelName,
         operation: selectedOperation.id,
-        scene_id: resolvedSceneId,
-        generation_id: resolvedSceneId ? generationId : null,
-        parent_version_id: resolvedSceneId ? parentVersionId : null,
+        scene_id: sceneId || null,
+        generation_id: sceneId ? generationId : null,
+        parent_version_id: sceneId ? parentVersionId : null,
         provider_options: {},
       };
       const requestPayload = payload as unknown as Record<string, unknown>;
 
       for (const field of selectedOperation.fields) {
+        if (!isComposerField(field.target, field.key)) continue;
+        if (field.key === "end_frame_file_id" &&
+          !files["provider_options:start_frame_file_id"]?.length &&
+          !reusedFileIds["provider_options:start_frame_file_id"]?.length) continue;
         const key = fieldKey(field);
         if (field.input_type === "file" || field.input_type === "file_list") {
           const {
@@ -1516,8 +1418,6 @@ export function CreatePage(props: Props) {
                       ...activeSubjectReferenceFileIds,
                     ]),
                   ),
-                  maskFiles: imageMaskFiles,
-                  maskReusedFileIds: imageMaskReusedFileIds,
                 }
               : null,
           );
@@ -1561,10 +1461,15 @@ export function CreatePage(props: Props) {
         }
 
         const raw = values[key] ?? "";
-        const parsed = parseFieldValue(field, raw, {
+        const inputField = { ...field, label: t(`create.field.${field.key}`) };
+        const parsed = parseFieldValue(inputField, raw, {
           numberRequired: (label) => t("error.numberRequired", { label }),
+          numberRange: (label, min, max, step) => t("error.numberRange", { label, min: min ?? "—", max: max ?? "—", step: step ?? "—" }),
           invalidJson: (label) => t("error.invalidJson", { label }),
         });
+        if (field.required && isFieldEmpty(parsed, field)) {
+          throw new Error(t("create.errorRequired", { label: inputField.label }));
+        }
         if (!field.required && isFieldEmpty(parsed, field)) {
           continue;
         }
@@ -1643,6 +1548,14 @@ export function CreatePage(props: Props) {
           payload.prompt = buildPromptWithSubjects(payload.prompt ?? "", selectedSubjects);
         }
       }
+      payload.provider_options = sanitizeComposerOptions(payload.provider_options);
+      if (!sceneId) {
+        const title = (promptValue.trim() || (locale === "zh-CN" ? "新会话" : "New chat")).slice(0, 160);
+        const session = await createScene({ title, description: "" }, settings.gatewayToken);
+        payload.scene_id = session.scene_id;
+        setSceneId(session.scene_id);
+        await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
+      }
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
     onSuccess: async (response) => {
@@ -1655,10 +1568,9 @@ export function CreatePage(props: Props) {
       setReusedFileIds({});
       setImageSourceFiles([]);
       setImageSourceReusedFileIds([]);
-      setImageMaskFiles([]);
-      setImageMaskReusedFileIds([]);
       setSelectedSubjectIds([]);
       setOpenPopover(null);
+      setShowAdvanced(false);
       requestAnimationFrame(autoResizeTextarea);
       if (response.scene_id) {
         setSceneId(response.scene_id);
@@ -1696,22 +1608,8 @@ export function CreatePage(props: Props) {
   });
 
   const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
-    if (!applyingComposerClearRef.current) {
-      dismissComposerClear();
-    }
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
       setImageSourceFiles(nextFiles);
-      if (nextFiles.length) {
-        setImageSourceReusedFileIds([]);
-        setSessionContextFileIds([]);
-      }
-      return;
-    }
-    if (field.key === SHARED_IMAGE_MASK_FIELD_KEY) {
-      setImageMaskFiles(nextFiles.slice(0, 1));
-      if (nextFiles.length) {
-        setImageMaskReusedFileIds([]);
-      }
       return;
     }
     const key = fieldKey(field);
@@ -1729,22 +1627,9 @@ export function CreatePage(props: Props) {
   };
 
   const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
-    if (!applyingComposerClearRef.current) {
-      dismissComposerClear();
-    }
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
-      setImageSourceReusedFileIds(nextFileIds);
-      if (nextFileIds.length) {
-        setImageSourceFiles([]);
-        setSessionContextFileIds([]);
-      }
-      return;
-    }
-    if (field.key === SHARED_IMAGE_MASK_FIELD_KEY) {
-      setImageMaskReusedFileIds(nextFileIds.slice(0, 1));
-      if (nextFileIds.length) {
-        setImageMaskFiles([]);
-      }
+      setImageSourceReusedFileIds(nextFileIds.filter((id) => !sessionContextFileIds.includes(id)));
+      setSessionContextFileIds((current) => current.filter((id) => nextFileIds.includes(id)));
       return;
     }
     const key = fieldKey(field);
@@ -1765,13 +1650,6 @@ export function CreatePage(props: Props) {
     field: ProviderOperationField,
     nextValue: string,
   ) => {
-    if (
-      !applyingComposerClearRef.current &&
-      promptField &&
-      fieldKey(field) === fieldKey(promptField)
-    ) {
-      dismissComposerClear();
-    }
     const key = fieldKey(field);
     setValues((current) => ({ ...current, [key]: nextValue }));
     if (field.input_type === "password" || field.input_type === "file" || field.input_type === "file_list") {
@@ -1790,7 +1668,11 @@ export function CreatePage(props: Props) {
     const paddingTop = Number.parseFloat(style.paddingTop) || 0;
     const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
     const minHeight = lineHeight * COMPOSER_PROMPT_MIN_ROWS + paddingTop + paddingBottom;
-    const maxHeight = lineHeight * COMPOSER_PROMPT_MAX_ROWS + paddingTop + paddingBottom;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const maxHeight = Math.max(minHeight, Math.min(
+      lineHeight * COMPOSER_PROMPT_MAX_ROWS + paddingTop + paddingBottom,
+      viewportHeight / 4,
+    ));
     const isFocused = document.activeElement === el;
     const isCaretAtEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
 
@@ -1800,6 +1682,9 @@ export function CreatePage(props: Props) {
 
     if (el.scrollHeight > maxHeight && (!isFocused || isCaretAtEnd)) {
       el.scrollTop = el.scrollHeight;
+    }
+    if (isFocused) {
+      formRef.current?.scrollIntoView({ block: "nearest" });
     }
   };
   const removeVersionEditBasePrompt = () => {
@@ -1812,79 +1697,30 @@ export function CreatePage(props: Props) {
     setModificationInstruction("");
     requestAnimationFrame(autoResizeTextarea);
   };
-  const clearComposer = () => {
-    const snapshot: ComposerClearSnapshot = {
-      promptField,
-      promptValue: promptField ? promptValue : null,
-      versionEditBasePrompt,
-      modificationInstruction,
-      selectedSubjectIds,
-      files,
-      reusedFileIds,
-      imageSourceFiles,
-      imageSourceReusedFileIds,
-      imageMaskFiles,
-      imageMaskReusedFileIds,
-    };
-
-    dismissComposerClear();
-    applyingComposerClearRef.current = true;
-    try {
-      setHint("");
-      if (promptField) {
-        onFieldChanged(promptField, "");
-      }
-      setVersionEditBasePrompt(null);
-      setModificationInstruction("");
-      for (const field of composerMediaFields) {
-        onFileFieldChanged(field, []);
-        onReusedFileIdsChanged(field, []);
-      }
-      setSelectedSubjectIds([]);
-      setOpenPopover(null);
-    } finally {
-      applyingComposerClearRef.current = false;
-    }
-
-    setComposerClearSnapshot(snapshot);
-    composerClearTimerRef.current = window.setTimeout(() => {
-      composerClearTimerRef.current = null;
-      setComposerClearSnapshot(null);
-    }, 5000);
-    requestAnimationFrame(autoResizeTextarea);
-  };
-  const undoComposerClear = () => {
-    const snapshot = composerClearSnapshot;
-    if (!snapshot) {
-      return;
-    }
-
-    dismissComposerClear();
-    applyingComposerClearRef.current = true;
-    try {
-      if (snapshot.promptField && snapshot.promptValue !== null) {
-        onFieldChanged(snapshot.promptField, snapshot.promptValue);
-      }
-      setVersionEditBasePrompt(snapshot.versionEditBasePrompt);
-      setModificationInstruction(snapshot.modificationInstruction);
-      setSelectedSubjectIds(snapshot.selectedSubjectIds);
-      setFiles(snapshot.files);
-      setReusedFileIds(snapshot.reusedFileIds);
-      setImageSourceFiles(snapshot.imageSourceFiles);
-      setImageSourceReusedFileIds(snapshot.imageSourceReusedFileIds);
-      setImageMaskFiles(snapshot.imageMaskFiles);
-      setImageMaskReusedFileIds(snapshot.imageMaskReusedFileIds);
-    } finally {
-      applyingComposerClearRef.current = false;
-    }
-    requestAnimationFrame(autoResizeTextarea);
-  };
-
   // Restore textarea height when the prompt changes on mount / route return.
   useEffect(() => {
     // Defer to next frame so the DOM has rendered the value.
     requestAnimationFrame(autoResizeTextarea);
   }, [modificationInstruction, promptValue]);
+  useEffect(() => {
+    let frame = 0;
+    const resize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const stage = formRef.current?.closest<HTMLElement>(".create-stage");
+        stage?.style.setProperty("--composer-viewport-height", `${window.visualViewport?.height ?? window.innerHeight}px`);
+        autoResizeTextarea();
+      });
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+    };
+  }, []);
   const removeInlineFile = (item: typeof inlineFilePreviews[number]) => {
     const key = item.fieldKey;
     if (item.source === "reused" && item.fileId) {
@@ -1901,22 +1737,23 @@ export function CreatePage(props: Props) {
   };
   const handleInlineFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!primaryFileField) return;
-    const picked = Array.from(event.target.files ?? []).filter(
-      (f) => f.type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(f.name),
-    );
+    const picked = Array.from(event.target.files ?? []);
+    event.currentTarget.value = "";
+    if (picked.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size === 0 || file.size > maxUploadBytes)) {
+      setHint(t("create.uploadInvalid", { help: uploadHelp }));
+      return;
+    }
     if (!picked.length) return;
     const key = fieldKey(primaryFileField);
     const isMulti = primaryFileField.input_type === "file_list";
     const current = uiFiles[key] ?? [];
     const next = isMulti ? [...current, ...picked] : [picked[0]];
     onFileFieldChanged(primaryFileField, next);
-    event.currentTarget.value = "";
   };
   const onGenerationKindChanged = (nextKind: "image" | "video") => {
     if (nextKind === currentGenerationKind) {
       return;
     }
-    dismissComposerClear();
     setCurrentGenerationKind(nextKind);
     const restoredSession = restoreSession(settings.restoreLastSession, nextKind);
     if (restoredSession) {
@@ -1961,7 +1798,6 @@ export function CreatePage(props: Props) {
     if (!nextVariant) {
       return;
     }
-    dismissComposerClear();
     if (providerId !== nextVariant.provider.id) {
       setProviderId(nextVariant.provider.id);
     }
@@ -1985,7 +1821,6 @@ export function CreatePage(props: Props) {
     if (!nextVariant) {
       return;
     }
-    dismissComposerClear();
     if (providerId !== nextVariant.provider.id) {
       setProviderId(nextVariant.provider.id);
     }
@@ -2078,7 +1913,6 @@ export function CreatePage(props: Props) {
   );
   const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
   const startNewSession = () => {
-    dismissComposerClear();
     setSceneId("");
     setGenerationId(null);
     setParentVersionId(null);
@@ -2090,8 +1924,6 @@ export function CreatePage(props: Props) {
     setImageSourceFiles([]);
     setImageSourceReusedFileIds([]);
     setSessionContextFileIds([]);
-    setImageMaskFiles([]);
-    setImageMaskReusedFileIds([]);
     setSelectedSubjectIds([]);
     setCurrentGenerationKind("image");
     setHistoryOpen(false);
@@ -2111,7 +1943,6 @@ export function CreatePage(props: Props) {
         .flatMap((generation) => generation.versions)
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
       const latestVersion = sessionVersions[0];
-      dismissComposerClear();
       setSceneId(sessionId);
       setGenerationId(latestVersion?.generation_id ?? null);
       setParentVersionId(latestVersion?.task_id ?? null);
@@ -2123,8 +1954,6 @@ export function CreatePage(props: Props) {
       setImageSourceFiles([]);
       setImageSourceReusedFileIds([]);
       setSessionContextFileIds([]);
-      setImageMaskFiles([]);
-      setImageMaskReusedFileIds([]);
       setSelectedSubjectIds([]);
       if (promptField) {
         setValues((current) => ({
@@ -2380,13 +2209,7 @@ export function CreatePage(props: Props) {
   const subjectReferencesSupported =
     currentGenerationKind === "image" &&
     Boolean(currentImageVariant?.editOperation || supportsInlineImageInput);
-  const hasComposerContent = Boolean(
-    (versionEditBasePrompt !== null ? modificationInstruction : promptValue) ||
-      selectedSubjectIds.length > 0 ||
-      inlineFilePreviews.length > 0,
-  );
   const toggleSubject = (subjectId: string) => {
-    dismissComposerClear();
     setSelectedSubjectIds((ids) =>
       ids.includes(subjectId) ? ids.filter((id) => id !== subjectId) : [...ids, subjectId],
     );
@@ -2558,7 +2381,7 @@ export function CreatePage(props: Props) {
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
-          void submitMutation.mutateAsync();
+          submitMutation.mutate();
         }}
       >
         {openPopover ? (
@@ -2566,16 +2389,6 @@ export function CreatePage(props: Props) {
         ) : null}
 
         <div className="composer-card">
-          {hasComposerContent ? (
-            <button
-              type="button"
-              className="composer-clear"
-              aria-label={t("common.clear")}
-              onClick={clearComposer}
-            >
-              {t("common.clear")}
-            </button>
-          ) : null}
           {primaryFileField ? (
             <input
               ref={inlineFileInputRef}
@@ -2589,7 +2402,7 @@ export function CreatePage(props: Props) {
 
           <div className="composer-body">
             {selectedSubjects.length > 0 || attachmentPreviews.length > 0 ? (
-              <div className={`composer-refs ${hasComposerContent ? "composer-refs-clearable" : ""}`}>
+              <div className="composer-refs">
                 {selectedSubjects.map((subject) => (
                   <SubjectRefChip
                     key={subject.subject_id}
@@ -2631,11 +2444,10 @@ export function CreatePage(props: Props) {
                 </div>
                 <textarea
                   ref={textareaRef}
-                  className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
+                  className="composer-textarea"
                   rows={COMPOSER_PROMPT_MIN_ROWS}
                   value={modificationInstruction}
                   onChange={(event) => {
-                    dismissComposerClear();
                     setModificationInstruction(event.target.value);
                     autoResizeTextarea();
                   }}
@@ -2645,10 +2457,10 @@ export function CreatePage(props: Props) {
             ) : promptField ? (
               <textarea
                 ref={textareaRef}
-                className={`composer-textarea ${hasComposerContent ? "composer-textarea-clearable" : ""}`}
+                className="composer-textarea"
                 rows={COMPOSER_PROMPT_MIN_ROWS}
                 value={promptValue}
-                aria-label={promptField.label}
+                aria-label={t("create.field.prompt")}
                 onChange={(e) => {
                   onFieldChanged(promptField, e.target.value);
                   autoResizeTextarea();
@@ -2722,8 +2534,8 @@ export function CreatePage(props: Props) {
                     <UploadSimple size={15} />
                     <span>{t("create.add.upload")}</span>
                   </span>
-                  <span className="composer-menu-item__meta">JPG · PNG · WEBP</span>
                 </button>
+                <p className="composer-upload-help">{uploadHelp}</p>
               </div>
             ) : null}
             <div className="composer-popover-section">
@@ -2838,7 +2650,6 @@ export function CreatePage(props: Props) {
                       key={choice.key}
                       className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
                       onClick={() => {
-                        dismissComposerClear();
                         if (currentGenerationKind === "image" && choice.familyId) {
                           selectImageVariant(choice.familyId);
                         } else if (
@@ -3051,12 +2862,12 @@ export function CreatePage(props: Props) {
                     <select
                       className="input-base py-1.5 text-xs"
                       value={resolutionValue}
-                      aria-label={resolutionField.label}
-                      title={resolutionField.label}
+                      aria-label={t("create.field.resolution")}
+                      title={t("create.field.resolution")}
                       onChange={(event) => onFieldChanged(resolutionField, event.target.value)}
                     >
                       {resolutionField.options.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>{locale === "en" ? option.value === "auto" ? "Auto" : option.value.replace("x", " × ") : option.label}</option>
                       ))}
                     </select>
                   ) : null}
@@ -3064,12 +2875,12 @@ export function CreatePage(props: Props) {
                     <select
                       className="input-base py-1.5 text-xs"
                       value={qualityValue}
-                      aria-label={qualityField.label}
-                      title={qualityField.label}
+                      aria-label={t("works.detail.quality")}
+                      title={t("works.detail.quality")}
                       onChange={(event) => onFieldChanged(qualityField, event.target.value)}
                     >
                       {qualityField.options.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>{locale === "en" ? option.value === "xhigh" ? "Extra high" : option.value.charAt(0).toUpperCase() + option.value.slice(1) : option.label}</option>
                       ))}
                     </select>
                   ) : null}
@@ -3094,7 +2905,7 @@ export function CreatePage(props: Props) {
               </div>
             ) : null}
 
-            {advancedFields.length > 0 || composerMediaFields.length > 0 ? (
+            {advancedFields.length > 0 ? (
               <div className="composer-popover-section">
                 <button
                   type="button"
@@ -3105,7 +2916,7 @@ export function CreatePage(props: Props) {
                   }}
                 >
                   <Faders size={13} />
-                  {t("create.advancedLabel")}
+                  {t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}
                 </button>
               </div>
             ) : null}
@@ -3115,62 +2926,42 @@ export function CreatePage(props: Props) {
           : null}
 
         {hint ? <p className="composer-hint">{hint}</p> : null}
-        {composerClearSnapshot ? (
-          <button
-            type="button"
-            className="composer-clear"
-            aria-label={t("create.undo")}
-            title={t("create.undo")}
-            onClick={undoComposerClear}
-          >
-            {t("create.undo")}
-          </button>
-        ) : null}
       </form>
 
       </div>
 
       {/* ── Advanced Panel (slide-up overlay) ────────── */}
-      {showAdvanced && (advancedFields.length > 0 || composerMediaFields.length > 0) ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay"
-          onClick={() => setShowAdvanced(false)}
+      {showAdvanced && advancedFields.length > 0 ? (
+        <dialog
+          ref={advancedDialogRef}
+          className="composer-advanced"
+          aria-labelledby="composer-advanced-title"
+          onClose={() => setShowAdvanced(false)}
+          onClick={(event) => { if (event.target === event.currentTarget) setShowAdvanced(false); }}
         >
-          <div
-            className="w-full max-w-[820px] max-h-[70vh] overflow-y-auto rounded-t-2xl border border-border bg-surface p-5 shadow-[var(--shadow-overlay)] animate-enter"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{t("create.advancedLabel")}</h3>
+          <form noValidate onSubmit={(event) => { event.preventDefault(); submitMutation.mutate(); }}>
+            <header className="composer-advanced-header">
+              <h3 id="composer-advanced-title" className="m-0 text-sm font-semibold">{t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}</h3>
               <button type="button" className="btn-ghost text-xs" onClick={() => setShowAdvanced(false)}>
                 {t("common.close")}
               </button>
-            </div>
-
-            {/* Quick media fields (full version with drag-drop) */}
-            {composerMediaFields.length > 0 ? (
-              <div className="mb-4 space-y-3 rounded-xl border border-border bg-surface-raised p-4">
-                <p className="m-0 text-label">{t("create.referenceAssets")}</p>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {composerMediaFields.map((field) =>
-                    renderField(field, values, uiFiles, uiReusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, "compact"),
-                  )}
-                </div>
+            </header>
+            <div className="composer-advanced-body">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {advancedFields.map((field) =>
+                  renderField(field, values, uiFiles, uiReusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged, t, maxUploadBytes, (message) => setHint(message)),
+                )}
               </div>
-            ) : null}
-
-            {advancedGroups.map((group) => (
-              <section key={group.id} className="mb-4 rounded-xl border border-border bg-surface-raised p-4">
-                <p className="m-0 mb-3 text-label">{t(`create.advancedGroup.${group.id}`)} ({group.fields.length})</p>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {group.fields.map((field) =>
-                    renderField(field, values, uiFiles, uiReusedFileIds, onFieldChanged, onFileFieldChanged, onReusedFileIdsChanged),
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
+              {selectedProvider?.type === "tuzi_veo" ? <p className="composer-upload-help">{uploadHelp}</p> : null}
+              {hint ? <p role="status" className="composer-hint">{hint}</p> : null}
+            </div>
+            <footer className="composer-advanced-footer">
+              <button type="submit" className="btn-primary" disabled={submitMutation.isPending || !promptValue.trim()}>
+                {t(submitMutation.isPending ? "create.submitting" : currentGenerationKind === "image" ? "create.generateImage" : "create.generateVideo")}
+              </button>
+            </footer>
+          </form>
+        </dialog>
       ) : null}
 
       {sessionImagePreview && sceneId ? (
@@ -3198,9 +2989,12 @@ function InlineThumb({
   onRemove: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const { t } = useI18n();
   const gatewayToken = useAppSettingsStore((s) => s.gatewayToken);
 
   useEffect(() => {
+    setUrl(null);
     if (item.source === "local" && item.file) {
       const objectUrl = URL.createObjectURL(item.file);
       setUrl(objectUrl);
@@ -3208,21 +3002,25 @@ function InlineThumb({
     }
     if (item.source === "reused" && item.fileId) {
       let active = true;
+      let objectUrl: string | undefined;
       fetchUploadedFileBinary(item.fileId, gatewayToken).then(({ blob }) => {
         if (!active) return;
-        const objectUrl = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
       }).catch(() => {});
-      return () => { active = false; };
+      return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
     }
   }, [item.source, item.file, item.fileId, gatewayToken]);
 
   return (
-    <span className="ref-chip">
-      {url ? <img src={url} alt="" className="ref-chip-thumb" /> : <span className="ref-chip-thumb" />}
+    <span className="ref-chip ref-chip-attachment">
+      <button type="button" className="ref-chip-preview" disabled={!url} aria-label={t("create.previewRef")} onClick={() => setPreviewOpen(true)}>
+        {url ? <img src={url} alt="" className="ref-chip-thumb" /> : <span className="ref-chip-thumb" />}
+      </button>
       <button type="button" className="ref-chip-remove" onClick={onRemove} aria-label={removeLabel}>
         <X size={10} weight="regular" />
       </button>
+      {url && previewOpen ? <Lightbox open close={() => setPreviewOpen(false)} slides={[{ src: url }]} carousel={{ finite: true }} render={{ buttonPrev: () => null, buttonNext: () => null }} labels={{ Close: t("common.close") }} /> : null}
     </span>
   );
 }
@@ -3261,6 +3059,8 @@ function DynamicInput(props: {
   reusedFileIds?: string[];
   onReusedFileIdsChange?: (fileIds: string[]) => void;
   placeholder?: string;
+  maxUploadBytes: number;
+  onUploadError: (message: string) => void;
 }) {
   const { t } = useI18n();
   const gatewayToken = useAppSettingsStore((state) => state.gatewayToken);
@@ -3436,15 +3236,12 @@ function DynamicInput(props: {
     const hasReusedFiles = reusedFileIds.length > 0;
     const hasFiles = hasLocalFiles || hasReusedFiles;
     const triggerPick = () => fileInputRef.current?.click();
-    const isImageFile = (item: File): boolean => {
-      const type = item.type.toLowerCase();
-      if (type.startsWith("image/")) {
-        return true;
-      }
-      return /\.(jpg|jpeg|png|webp)$/i.test(item.name);
-    };
     const mergeFiles = (picked: File[]) => {
       if (!picked.length) {
+        return;
+      }
+      if (picked.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size === 0 || file.size > props.maxUploadBytes)) {
+        props.onUploadError(t("create.uploadInvalid", { help: t("create.uploadHelp", { size: Number((props.maxUploadBytes / 1024 / 1024).toFixed(2)) }) }));
         return;
       }
       const nextFiles = isMulti ? [...selectedFiles, ...picked] : [picked[0]];
@@ -3452,10 +3249,6 @@ function DynamicInput(props: {
     };
     const removeAt = (index: number) => {
       onFileChange(selectedFiles.filter((_, currentIndex) => currentIndex !== index));
-    };
-    const clearAll = () => {
-      onFileChange([]);
-      onReusedFileIdsChange?.([]);
     };
     const removeReusedFile = (fileId: string) => {
       if (!onReusedFileIdsChange) {
@@ -3469,7 +3262,7 @@ function DynamicInput(props: {
       onReusedFileIdsChange(next);
     };
     const handleFilePicked = (event: ChangeEvent<HTMLInputElement>) => {
-      const picked = Array.from(event.target.files ?? []).filter((item) => isImageFile(item));
+      const picked = Array.from(event.target.files ?? []);
       mergeFiles(picked);
       event.currentTarget.value = "";
     };
@@ -3492,13 +3285,13 @@ function DynamicInput(props: {
       event.preventDefault();
       event.stopPropagation();
       setIsDragOver(false);
-      const dropped = Array.from(event.dataTransfer.files ?? []).filter((item) => isImageFile(item));
+      const dropped = Array.from(event.dataTransfer.files ?? []);
       mergeFiles(dropped);
     };
 
     return (
       <div
-        className={`rounded-xl border-2 border-dashed p-4 transition-colors ${isDragOver ? "border-accent bg-accent-bg" : "border-border bg-surface-raised"
+        className={`min-w-0 rounded-lg transition-colors ${isDragOver ? "bg-accent-bg" : ""
           }`}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
@@ -3513,7 +3306,7 @@ function DynamicInput(props: {
           multiple={isMulti}
           onChange={handleFilePicked}
         />
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
           <button
             type="button"
             className="btn-secondary text-xs"
@@ -3526,51 +3319,41 @@ function DynamicInput(props: {
                 ? t("create.fileAddImage")
                 : t("create.fileReplaceImage")}
           </button>
-          {hasFiles ? (
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              onClick={clearAll}
-            >
-              {t("create.fileClearAll")}
-            </button>
-          ) : null}
-          <span className="text-[11px] text-[var(--c-text-tertiary)]">
+          {hasFiles ? <span className="text-[11px] text-[var(--c-text-tertiary)]">
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
                 ? t("create.fileSelectedCount", { count: selectedFiles.length + reusedFileIds.length })
-                : t("create.fileOnlyImages")}
-          </span>
+                : t("create.fileSelectedCount", { count: 1 })}
+          </span> : null}
         </div>
 
         {hasFiles ? (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="flex flex-wrap gap-2">
             {reusedFileIds.map((fileId, index) => {
               const item = reusedPreviewMap.get(fileId);
               const previewIndexForItem = previewIndexByKey.get(`reused_${fileId}`) ?? -1;
               return (
-                <article key={`${fileId}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
+                <article key={`${fileId}_${index}`} className="ref-chip ref-chip-attachment">
                   {item ? (
                     <button
                       type="button"
-                      className="w-full bg-transparent border-none p-0 cursor-pointer"
+                      className="ref-chip-preview"
+                      aria-label={t("create.previewRef")}
                       onClick={() => {
                         if (previewIndexForItem >= 0) {
                           setPreviewIndex(previewIndexForItem);
                         }
                       }}
                     >
-                      <img className="w-full aspect-square object-cover block" src={item.url} alt={item.name} />
+                      <img className="ref-chip-thumb" src={item.url} alt="" />
                     </button>
                   ) : (
-                    <div className="aspect-square flex items-center justify-center text-xs text-[var(--c-text-tertiary)]">{t("create.fileReusedCount", { count: 1 })}</div>
+                    <span className="ref-chip-thumb" />
                   )}
-                  <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                    <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item?.name ?? fileId}>{item?.name ?? fileId}</p>
                     <button
                       type="button"
-                      className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
+                      className="ref-chip-remove"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -3578,17 +3361,17 @@ function DynamicInput(props: {
                       }}
                       aria-label={t("create.fileRemove")}
                     >
-                      {t("create.fileRemove")}
+                      <X size={10} weight="regular" />
                     </button>
-                  </div>
                 </article>
               );
             })}
             {filePreviews.map((item, index) => (
-              <article key={`${item.file.name}_${item.file.size}_${index}`} className="overflow-hidden rounded-lg border border-border bg-surface">
+              <article key={`${item.file.name}_${item.file.size}_${index}`} className="ref-chip ref-chip-attachment">
                 <button
                   type="button"
-                  className="w-full bg-transparent border-none p-0 cursor-pointer"
+                  className="ref-chip-preview"
+                  aria-label={t("create.previewRef")}
                   onClick={() => {
                     const previewIndexForItem =
                       previewIndexByKey.get(`local_${item.file.name}_${item.file.size}_${index}`) ?? -1;
@@ -3597,13 +3380,11 @@ function DynamicInput(props: {
                     }
                   }}
                 >
-                  <img className="w-full aspect-square object-cover block" src={item.url} alt={item.file.name} />
+                  <img className="ref-chip-thumb" src={item.url} alt="" />
                 </button>
-                <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                  <p className="m-0 flex-1 truncate text-[10px] text-[var(--c-text-tertiary)]" title={item.file.name}>{item.file.name}</p>
                   <button
                     type="button"
-                    className="shrink-0 cursor-pointer border-none bg-transparent text-[10px] text-error-text transition-colors duration-150 hover:opacity-70"
+                    className="ref-chip-remove"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -3611,17 +3392,12 @@ function DynamicInput(props: {
                     }}
                     aria-label={t("create.fileRemove")}
                   >
-                    {t("create.fileRemove")}
+                    <X size={10} weight="regular" />
                   </button>
-                </div>
               </article>
             ))}
           </div>
-        ) : (
-          <button type="button" className="w-full cursor-pointer border-none bg-transparent py-8 text-xs text-[var(--c-text-tertiary)] transition-colors duration-150 hover:text-[var(--c-text-secondary)]" onClick={triggerPick}>
-            {t("create.fileOnlyImages")}
-          </button>
-        )}
+        ) : null}
 
         {previewIndex != null && activePreviewItems[previewIndex] ? (
           <div
@@ -3746,11 +3522,7 @@ function listVisibleProvidersByKind(
   if (kind === "image") {
     return filtered;
   }
-  const visible = filtered.filter((provider) => !HIDDEN_VIDEO_PROVIDER_IDS.has(provider.id));
-  if (!visible.length) {
-    return [];
-  }
-  return sortProvidersByPriority(visible, VIDEO_PROVIDER_PRIORITY);
+  return sortProvidersByPriority(filtered, VIDEO_PROVIDER_PRIORITY);
 }
 
 function collectImageModelFamilies(providers: ProviderInfo[]): ImageModelFamily[] {
@@ -4265,28 +4037,27 @@ function renderField(
   onFieldChanged: (field: ProviderOperationField, nextValue: string) => void,
   onFileChanged: (field: ProviderOperationField, nextFiles: File[]) => void,
   onReusedFileIdsChanged: (field: ProviderOperationField, nextFileIds: string[]) => void,
-  variant: "default" | "compact" = "default",
+  t: ReturnType<typeof useI18n>["t"],
+  maxUploadBytes: number,
+  onUploadError: (message: string) => void,
 ) {
   const key = fieldKey(field);
   const value = values[key] ?? "";
   const selectedFiles = files[key] ?? [];
   const reusedIds = reusedFileIds[key] ?? [];
+  const localizedField = { ...field, label: t(`create.field.${field.key}`), placeholder: null,
+    options: field.options.map((option) => ({ ...option, label:
+      field.key === "input_fidelity" ? t(`create.fidelity.${option.value || "default"}`) : option.label })) };
   const inputField =
     field.target === "provider_options" &&
     field.key === "output_format" &&
     values["provider_options:background"] === "transparent"
-      ? { ...field, options: field.options.filter((option) => option.value !== "jpeg") }
-      : field;
-  const className =
-    variant === "compact"
-      ? "flex flex-col gap-1"
-      : isPromptLike(field)
-        ? "flex flex-col gap-1 col-span-full"
-        : "flex flex-col gap-1";
+      ? { ...localizedField, options: localizedField.options.filter((option) => option.value !== "jpeg") }
+      : localizedField;
   const Wrapper = field.input_type === "file" || field.input_type === "file_list" ? "div" : "label";
   return (
-    <Wrapper key={key} className={className}>
-    <span className="text-label">{field.label}</span>
+    <Wrapper key={key} className="flex min-w-0 flex-col gap-2">
+    <span id={`composer-field-${field.key}`} className="text-label">{inputField.label}</span>
       <DynamicInput
         field={inputField}
         value={value}
@@ -4295,14 +4066,12 @@ function renderField(
         onReusedFileIdsChange={(nextFileIds) => onReusedFileIdsChanged(field, nextFileIds)}
         onValueChange={(next) => onFieldChanged(field, next)}
         onFileChange={(nextFiles) => onFileChanged(field, nextFiles)}
+        maxUploadBytes={maxUploadBytes}
+        onUploadError={onUploadError}
       />
-      {field.help_text ? <small className="text-xs text-[var(--c-text-tertiary)]">{field.help_text}</small> : null}
+      {["end_frame_file_id", "input_reference_file_ids", "input_fidelity"].includes(field.key) ? <small className="text-xs text-[var(--c-text-secondary)]">{t(`create.help.${field.key}`)}</small> : null}
     </Wrapper>
   );
-}
-
-function isPromptLike(field: ProviderOperationField): boolean {
-  return field.target === "request" && (field.key === "prompt" || field.key === "negative_prompt");
 }
 
 function applySettingDefaults(
@@ -4320,14 +4089,6 @@ function applySettingDefaults(
       values[key] = String(resolvedDefaults.defaultDurationSec);
     }
   }
-  const negativeField = findField(operation, "negative_prompt");
-  if (negativeField && resolvedDefaults.defaultNegativePrompt) {
-    const key = fieldKey(negativeField);
-    if (!values[key]) {
-      values[key] = resolvedDefaults.defaultNegativePrompt;
-    }
-  }
-
   const qualityField =
     operation.fields.find(
       (field) =>
@@ -4382,7 +4143,6 @@ function captureProviderDefaultsFromValues(
   let nextRatio = fallback.defaultRatio;
   let nextDurationSec = fallback.defaultDurationSec;
   let nextQuality = fallback.defaultQuality;
-  let nextNegativePrompt = fallback.defaultNegativePrompt;
 
   const durationField = findField(operation, "duration_sec");
   if (durationField) {
@@ -4390,11 +4150,6 @@ function captureProviderDefaultsFromValues(
     if (Number.isFinite(parsed) && parsed > 0) {
       nextDurationSec = parsed;
     }
-  }
-
-  const negativeField = findField(operation, "negative_prompt");
-  if (negativeField) {
-    nextNegativePrompt = values[fieldKey(negativeField)] ?? "";
   }
 
   const qualityField =
@@ -4435,7 +4190,6 @@ function captureProviderDefaultsFromValues(
     defaultRatio: nextRatio,
     defaultDurationSec: nextDurationSec,
     defaultQuality: nextQuality,
-    defaultNegativePrompt: nextNegativePrompt,
   };
 }
 
@@ -4446,15 +4200,12 @@ function resolveGenerationDefaults(
   defaultRatio: "16:9" | "9:16";
   defaultDurationSec: number;
   defaultQuality: string;
-  defaultNegativePrompt: string;
 } {
   const providerDefaults = providerId ? settings.providerDefaults[providerId] : undefined;
   return {
     defaultRatio: providerDefaults?.defaultRatio ?? settings.defaultRatio,
     defaultDurationSec: providerDefaults?.defaultDurationSec ?? settings.defaultDurationSec,
     defaultQuality: providerDefaults?.defaultQuality ?? settings.defaultQuality,
-    defaultNegativePrompt:
-      providerDefaults?.defaultNegativePrompt ?? settings.defaultNegativePrompt,
   };
 }
 
@@ -4488,6 +4239,7 @@ function applyDraft(
 ): { reusedFileIds: Record<string, string[]>; reusedFileCount: number } {
   const reusedFileIds: Record<string, string[]> = {};
   for (const field of operation.fields) {
+    if (!isComposerField(field.target, field.key)) continue;
     const key = fieldKey(field);
     if (field.input_type === "file" || field.input_type === "file_list") {
       if (field.target === "provider_options") {
@@ -4574,10 +4326,6 @@ function extractDraftImageSourceFileIds(providerOptions: Record<string, unknown>
   );
 }
 
-function extractDraftImageMaskFileIds(providerOptions: Record<string, unknown>): string[] {
-  return normalizeUnknownToStringList(providerOptions.mask_file_id).slice(0, 1);
-}
-
 function resolveSubmitFileState(
   field: ProviderOperationField,
   baseState: {
@@ -4587,8 +4335,6 @@ function resolveSubmitFileState(
   imageState: {
     sourceFiles: File[];
     sourceReusedFileIds: string[];
-    maskFiles: File[];
-    maskReusedFileIds: string[];
   } | null,
 ): { selectedFiles: File[]; reusableIds: string[] } {
   if (imageState) {
@@ -4598,99 +4344,12 @@ function resolveSubmitFileState(
         reusableIds: imageState.sourceReusedFileIds,
       };
     }
-    if (field.key === "mask_file_id") {
-      return {
-        selectedFiles: imageState.maskFiles,
-        reusableIds: imageState.maskReusedFileIds,
-      };
-    }
   }
   const key = fieldKey(field);
   return {
     selectedFiles: baseState.files[key] ?? [],
     reusableIds: baseState.reusedFileIds[key] ?? [],
   };
-}
-
-function groupAdvancedFields(fields: ProviderOperationField[]): AdvancedGroup[] {
-  const groups: AdvancedGroup[] = [
-    { id: "inputs", fields: [] },
-    { id: "prompt", fields: [] },
-    { id: "behavior", fields: [] },
-    { id: "runtime", fields: [] },
-    { id: "developer", fields: [] },
-    { id: "misc", fields: [] },
-  ];
-  const byId = new Map(groups.map((group) => [group.id, group]));
-
-  for (const field of fields) {
-    const key = field.key.toLowerCase();
-    let id: AdvancedGroup["id"] = "misc";
-    if (isRuntimeKey(key, field)) {
-      id = "runtime";
-    } else if (isInputKey(key, field)) {
-      id = "inputs";
-    } else if (isDeveloperKey(key, field)) {
-      id = "developer";
-    } else if (isPromptControlKey(key)) {
-      id = "prompt";
-    } else if (isBehaviorKey(key, field)) {
-      id = "behavior";
-    }
-    byId.get(id)?.fields.push(field);
-  }
-
-  return groups.filter((group) => group.fields.length > 0);
-}
-
-function isRuntimeKey(key: string, field: ProviderOperationField): boolean {
-  if (field.input_type === "password") {
-    return true;
-  }
-  return (
-    key.includes("timeout") ||
-    key.includes("poll_interval") ||
-    key === "api_key"
-  );
-}
-
-function isInputKey(key: string, field: ProviderOperationField): boolean {
-  if (field.input_type === "file" || field.input_type === "file_list") {
-    return true;
-  }
-  return (
-    key.includes("reference") ||
-    key.includes("image") ||
-    key.includes("frame") ||
-    key.includes("mask") ||
-    key.includes("source_video")
-  );
-}
-
-function isDeveloperKey(key: string, field: ProviderOperationField): boolean {
-  if (field.input_type === "json") {
-    return true;
-  }
-  return (
-    key.includes("workflow") ||
-    key.includes("node_id") ||
-    key.includes("input_key")
-  );
-}
-
-function isPromptControlKey(key: string): boolean {
-  return key.includes("negative_prompt") || key === "seed";
-}
-
-function isBehaviorKey(key: string, field: ProviderOperationField): boolean {
-  return (
-    key.includes("character") ||
-    key === "watermark" ||
-    key === "response_format" ||
-    key === "user" ||
-    key === "fps" ||
-    field.input_type === "boolean"
-  );
 }
 
 function appendRecentPrompt(input: {

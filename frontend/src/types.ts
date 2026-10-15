@@ -60,6 +60,7 @@ export interface ProviderInfo {
 
 export interface ProviderCatalogResponse {
   providers: ProviderInfo[];
+  max_upload_bytes?: number;
 }
 
 export interface VideoGenerationRequest {

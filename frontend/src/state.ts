@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { RetryMode } from "./types";
+import { sanitizeComposerOptions } from "./composerOptions";
 
 export type LanguagePreference = "system" | "zh-CN" | "en";
 
@@ -8,7 +9,6 @@ export interface ProviderGenerationDefaults {
   defaultRatio: "16:9" | "9:16";
   defaultDurationSec: number;
   defaultQuality: string;
-  defaultNegativePrompt: string;
 }
 
 export interface CreateDraft {
@@ -37,7 +37,6 @@ export interface AppSettingsState {
   defaultRatio: "16:9" | "9:16";
   defaultDurationSec: number;
   defaultQuality: string;
-  defaultNegativePrompt: string;
   restoreLastSession: boolean;
   retryModeDefault: RetryMode;
   showBothRetryActions: boolean;
@@ -66,7 +65,6 @@ const defaults: Omit<
   defaultRatio: "16:9",
   defaultDurationSec: 8,
   defaultQuality: "standard",
-  defaultNegativePrompt: "",
   restoreLastSession: true,
   retryModeDefault: "same_seed",
   showBothRetryActions: true,
@@ -81,7 +79,7 @@ const defaults: Omit<
   pendingReuseError: null,
 };
 
-const SETTINGS_STORAGE_VERSION = 3;
+const SETTINGS_STORAGE_VERSION = 4;
 
 function stripLegacyNotificationSettings(
   state: Record<string, unknown>,
@@ -95,6 +93,15 @@ function stripLegacyNotificationSettings(
   delete rest.showEstimatedCostPreSubmit;
   delete rest.showActualCostPostDone;
   delete rest.pricingVersion;
+  delete rest.defaultNegativePrompt;
+  if (rest.providerDefaults && typeof rest.providerDefaults === "object") {
+    rest.providerDefaults = Object.fromEntries(Object.entries(rest.providerDefaults).map(([id, value]) => {
+      const { defaultNegativePrompt: _, ...defaults } = value as Record<string, unknown>;
+      return [id, defaults];
+    }));
+  }
+  // Drafts are transient; never resurrect an old persisted provider payload.
+  delete rest.pendingReuseDraft;
   return rest;
 }
 
@@ -107,7 +114,13 @@ export const useAppSettingsStore = create<AppSettingsState>()(
           ...state,
           ...partial,
         })),
-      setPendingReuseDraft: (draft) => set(() => ({ pendingReuseDraft: draft })),
+      setPendingReuseDraft: (draft) => set(() => ({ pendingReuseDraft: draft ? {
+        ...draft,
+        negativePrompt: "",
+        fps: null,
+        seed: null,
+        providerOptions: sanitizeComposerOptions(draft.providerOptions),
+      } : null })),
       setPendingReuseLoading: (loading) => set(() => ({ pendingReuseLoading: loading })),
       setPendingReuseError: (error) => set(() => ({ pendingReuseError: error })),
     }),
@@ -129,7 +142,6 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         defaultRatio: state.defaultRatio,
         defaultDurationSec: state.defaultDurationSec,
         defaultQuality: state.defaultQuality,
-        defaultNegativePrompt: state.defaultNegativePrompt,
         restoreLastSession: state.restoreLastSession,
         retryModeDefault: state.retryModeDefault,
         showBothRetryActions: state.showBothRetryActions,

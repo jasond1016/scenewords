@@ -2483,13 +2483,15 @@ select.input-base {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-content: safe center;
   width: 100%;
   min-width: 0;
-  height: calc(100dvh - 56px);
-  min-height: calc(100dvh - 56px);
+  height: calc(var(--composer-viewport-height, 100dvh) - 56px);
+  min-height: calc(var(--composer-viewport-height, 100dvh) - 56px);
   padding: 24px clamp(16px, 11vw, 116px) 20px;
   box-sizing: border-box;
   overflow: hidden;
+  overflow-y: auto;
 }
 
 .create-stage-session {
@@ -3114,34 +3116,6 @@ select.input-base {
   padding: 6px 2px 12px;
 }
 
-.composer-clear {
-  position: absolute;
-  top: 12px;
-  right: 18px;
-  z-index: 1;
-  min-height: 26px;
-  padding: 2px 8px;
-  border: none;
-  background: transparent;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--c-text-secondary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--duration-fast) var(--ease-out-expo),
-    color var(--duration-fast) var(--ease-out-expo);
-}
-
-.composer-clear:hover {
-  background: var(--c-surface-hover);
-  color: var(--c-accent-text);
-}
-
-.composer-refs-clearable {
-  padding-right: 56px;
-}
-
 .composer-refs {
   display: flex;
   flex-wrap: wrap;
@@ -3194,10 +3168,120 @@ select.input-base {
   color: var(--c-text);
 }
 
+.ref-chip-attachment {
+  height: 44px;
+}
+
+.ref-chip-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ref-chip-attachment .ref-chip-thumb {
+  width: 44px;
+  height: 44px;
+}
+
+.ref-chip-attachment .ref-chip-remove {
+  width: 44px;
+  height: 44px;
+}
+
+.ref-chip-preview:focus-visible,
+.ref-chip-attachment .ref-chip-remove:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -3px;
+}
+
+.composer-upload-help {
+  margin: 8px 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.composer-advanced {
+  position: fixed;
+  inset: auto 0 0;
+  margin: auto auto max(12px, env(safe-area-inset-bottom));
+  width: min(620px, calc(100% - 24px));
+  max-width: none;
+  max-height: min(640px, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-xl);
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+}
+
+.composer-advanced::backdrop {
+  background: var(--c-overlay);
+}
+
+.composer-advanced form {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+  min-height: 0;
+}
+
+.composer-advanced-header,
+.composer-advanced-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+.composer-advanced-header {
+  border-bottom: 1px solid var(--c-border);
+}
+
+.composer-advanced-body {
+  min-height: 0;
+  padding: 20px;
+  padding-right: 28px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.composer-advanced .input-base {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+}
+
+.composer-advanced .text-label {
+  color: var(--c-text-secondary);
+}
+
+.composer-advanced button {
+  min-height: 44px;
+}
+
+.composer-advanced-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--c-border);
+}
+
 .composer-textarea {
   width: 100%;
   min-height: calc(1.7em * 1);
-  max-height: calc(1.7em * 8);
+  max-height: min(calc(1.7em * 8), 25dvh);
   resize: none;
   overflow-y: hidden;
   border: none;
@@ -3212,10 +3296,6 @@ select.input-base {
 
 .composer-textarea::placeholder {
   color: var(--c-text-tertiary);
-}
-
-.composer-textarea-clearable {
-  padding-right: 56px;
 }
 
 .composer-base-prompt {
@@ -3874,16 +3954,6 @@ select.input-base {
   .composer-card {
     min-height: 0;
     padding: 12px 14px 10px;
-  }
-
-  .composer-clear {
-    top: 9px;
-    right: 14px;
-  }
-
-  .composer-refs-clearable,
-  .composer-textarea-clearable {
-    padding-right: 48px;
   }
 
   .composer-body {

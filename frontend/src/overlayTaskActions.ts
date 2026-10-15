@@ -15,6 +15,7 @@ import type {
   VideoTaskResponse,
 } from "./types";
 import { buildVersionEditPrompt, toDraft } from "./overlayTaskUtils";
+import { sanitizeComposerOptions } from "./composerOptions";
 
 export interface TaskActionPayload {
   taskId: string;
@@ -142,13 +143,9 @@ async function submitImageTaskFromReference(
         },
         gatewayToken,
       );
-  const providerOptions: Record<string, unknown> = { ...(task.provider_options ?? {}) };
+  const providerOptions = sanitizeComposerOptions(task.provider_options ?? {});
   delete providerOptions.image_file_ids;
   delete providerOptions.input_reference_file_ids;
-  delete providerOptions.image;
-  delete providerOptions.images;
-  delete providerOptions.input_references;
-  delete providerOptions.mask_file_id;
   providerOptions[referenceField.key] = [imported.file_id];
   const resolutionField = operation.fields.find((field) => field.key === "resolution");
   const effectiveResolution =
@@ -264,13 +261,13 @@ export async function submitHighResolutionCandidate(
         : typeof resolutionField?.default === "string"
           ? resolutionField.default
           : "auto",
-      provider_options: {
+      provider_options: sanitizeComposerOptions({
         [referenceField.key]: [imported.file_id],
         quality: "xhigh",
         background: "auto",
         output_format: "png",
         input_fidelity: "high",
-      },
+      }),
       subject_bindings: payload.task.subject_bindings,
     },
     gatewayToken,

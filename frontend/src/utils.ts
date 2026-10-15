@@ -5,6 +5,8 @@ import type {
   VideoTaskDetail,
 } from "./types";
 
+import { isComposerField, sanitizeComposerValues } from "./composerOptions";
+
 export const SESSION_STORAGE_KEY = "scenewords_last_session_v3";
 export const FIELD_STORAGE_PREFIX = "scenewords_field_v3";
 export type SessionKind = "image" | "video";
@@ -43,6 +45,7 @@ export function parseFieldValue(
   raw: string,
   texts?: {
     numberRequired?: (label: string) => string;
+    numberRange?: (label: string, min: number | null, max: number | null, step: number | null) => string;
     invalidJson?: (label: string) => string;
   },
 ): unknown {
@@ -58,6 +61,15 @@ export function parseFieldValue(
       throw new Error(
         texts?.numberRequired?.(field.label) ?? `${field.label} must be a number`,
       );
+    }
+    const steps = field.step ? (parsed - (field.min ?? 0)) / field.step : 0;
+    if (
+      (field.min != null && parsed < field.min) ||
+      (field.max != null && parsed > field.max) ||
+      (field.step != null && Math.abs(steps - Math.round(steps)) > 1e-9)
+    ) {
+      throw new Error(texts?.numberRange?.(field.label, field.min, field.max, field.step)
+        ?? `${field.label}: min ${field.min}, max ${field.max}, step ${field.step}`);
     }
     return parsed;
   }
@@ -450,8 +462,22 @@ function sortUniqueNumbers(values: number[]): number[] {
 
 export function saveSession(kind: SessionKind, snapshot: SessionSnapshot): void {
   const current = readSessionSnapshotMap();
-  current[kind] = snapshot;
+  current[kind] = { ...snapshot, values: sanitizeComposerValues(snapshot.values) };
   localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(current));
+}
+
+export function cleanComposerStorage(): void {
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    .filter((key): key is string => key != null && key.startsWith(`${FIELD_STORAGE_PREFIX}__`));
+  for (const key of keys) {
+    const parts = key.split("__");
+    if (!isComposerField(parts[parts.length - 2] ?? "", parts[parts.length - 1] ?? "")) localStorage.removeItem(key);
+  }
+  const sessions = readSessionSnapshotMap();
+  for (const snapshot of Object.values(sessions)) {
+    if (isSessionSnapshot(snapshot)) snapshot.values = sanitizeComposerValues(snapshot.values ?? {});
+  }
+  if (localStorage.getItem(SESSION_STORAGE_KEY)) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
 }
 
 export function restoreSession(enabled: boolean, kind: SessionKind): SessionSnapshot | null {
@@ -463,7 +489,7 @@ export function restoreSession(enabled: boolean, kind: SessionKind): SessionSnap
   if (!snapshot) {
     return null;
   }
-  return isSessionSnapshot(snapshot) ? snapshot : null;
+  return isSessionSnapshot(snapshot) ? { ...snapshot, values: sanitizeComposerValues(snapshot.values ?? {}) } : null;
 }
 
 function readSessionSnapshotMap(): SessionSnapshotMap {
