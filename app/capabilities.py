@@ -47,12 +47,6 @@ def build_model_operations(
             poll_default=poll_default,
             model_name=model_name,
         )
-    if provider_type == "comfyui":
-        return _comfyui_operations(
-            timeout_default=timeout_default,
-            poll_default=poll_default,
-            duration_options=model_duration_options,
-        )
     if provider_type == "vertex_veo":
         return _vertex_veo_operations(
             timeout_default=timeout_default,
@@ -885,89 +879,6 @@ def _tuzi_image_operations(
 
 def _is_tuzi_image_async_model(model_name: str) -> bool:
     return model_name.lower().endswith("-async")
-
-
-def _comfyui_operations(
-    *, timeout_default: float, poll_default: float, duration_options: list[int]
-) -> list[ProviderModelOperationInfo]:
-    return [
-        ProviderModelOperationInfo(
-            id="generate",
-            display_name="生成视频",
-            is_default=True,
-            fields=[
-                _field("prompt", "提示词", input_type="textarea", required=True),
-                _field("negative_prompt", "负向提示词", input_type="textarea"),
-                _duration_field(
-                    default_value=4,
-                    min_value=1,
-                    max_value=60,
-                    step=1,
-                    options=duration_options,
-                ),
-                _field(
-                    "fps",
-                    "FPS",
-                    input_type="number",
-                    required=True,
-                    default=24,
-                    min_value=1,
-                    max_value=120,
-                    step=1,
-                ),
-                _field(
-                    "resolution",
-                    "分辨率",
-                    input_type="select",
-                    required=True,
-                    default="854x480",
-                    options=[
-                        _option("854x480", "854x480"),
-                        _option("1024x576", "1024x576"),
-                        _option("1280x720", "1280x720"),
-                        _option("720x1280", "720x1280"),
-                    ],
-                ),
-                _field(
-                    "workflow",
-                    "Workflow JSON",
-                    target="provider_options",
-                    input_type="json",
-                    placeholder='{"6":{"inputs":{"text":"..."}}}',
-                ),
-                _field(
-                    "prompt_node_id",
-                    "Prompt 节点 ID",
-                    target="provider_options",
-                    default="6",
-                ),
-                _field(
-                    "prompt_input_key",
-                    "Prompt 输入 Key",
-                    target="provider_options",
-                    default="text",
-                ),
-                _field(
-                    "timeout_sec",
-                    "超时(s)",
-                    target="provider_options",
-                    input_type="number",
-                    default=timeout_default,
-                    min_value=30,
-                    step=1,
-                ),
-                _field(
-                    "poll_interval_sec",
-                    "轮询间隔(s)",
-                    target="provider_options",
-                    input_type="number",
-                    default=poll_default,
-                    min_value=0.2,
-                    step=0.2,
-                ),
-            ],
-        )
-    ]
 
 
 def _vertex_veo_operations(

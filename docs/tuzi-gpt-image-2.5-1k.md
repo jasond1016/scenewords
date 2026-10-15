@@ -8,8 +8,7 @@
 - 生图接口：https://tuzi-api.apifox.cn/343647071e0
 - 编辑接口：https://tuzi-api.apifox.cn/343647072e0
 
-`gpt-image-2.5-1k` 是兔子平台的路由别名。它替换原默认模型
-`gpt-image-2-vip`；旧 `gpt-image-2` 和 VIP 的本地价格条目同时移除。
+`gpt-image-2.5-1k` 是兔子平台的路由别名，作为当前默认图片模型。
 Provider ID 仍为 `nano_banana2`。
 
 继续使用 `/v1/images/generations` JSON 生图和 `/v1/images/edits`

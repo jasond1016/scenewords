@@ -5,30 +5,6 @@
   "entries": [
     {
       "provider": "nano_banana2",
-      "model": "gemini-3.1-flash-image-preview",
-      "fixed_cost": 0.254,
-      "discount_rate": 0.7,
-      "currency": "RMB",
-      "effective_from": "2026-04-18"
-    },
-    {
-      "provider": "nano_banana2",
-      "model": "gemini-3.1-flash-image-preview-2k",
-      "fixed_cost": 0.254,
-      "discount_rate": 0.7,
-      "currency": "RMB",
-      "effective_from": "2026-04-18"
-    },
-    {
-      "provider": "nano_banana2",
-      "model": "gemini-3.1-flash-image-preview-4k",
-      "fixed_cost": 0.254,
-      "discount_rate": 0.7,
-      "currency": "RMB",
-      "effective_from": "2026-04-18"
-    },
-    {
-      "provider": "nano_banana2",
       "model": "gpt-image-2.5-1k",
       "fixed_cost": 0.02,
       "discount_rate": 0.7,

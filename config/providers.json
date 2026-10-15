@@ -1,32 +1,6 @@
 {
   "providers": [
     {
-      "id": "local_comfy",
-      "display_name": "Local ComfyUI",
-      "type": "comfyui",
-      "enabled": false,
-      "base_url": "http://127.0.0.1:8188",
-      "public_base_url": "http://192.168.50.139:8188",
-      "api_path": "/prompt",
-      "default_timeout_sec": 900,
-      "latent_node_id": "55",
-      "fps_node_id": "57",
-      "length_mode": "duration_fps_plus_one",
-      "default_workflow_path": "workflows/video_wan2_2_5B_ti2v.json",
-       "models": [
-        {
-          "name": "wan2.2-5b-lowmem",
-          "display_name": "WAN2.2 5B (Low VRAM)",
-          "default": true
-        },
-        {
-          "name": "hunyuanvideo-experimental",
-          "display_name": "HunyuanVideo (Experimental)",
-          "default": false
-        }
-      ]
-    },
-    {
       "id": "nano_banana2",
       "display_name": "Nano Banana 2 (Tuzi)",
       "type": "tuzi_image",
@@ -64,21 +38,6 @@
         {
           "name": "gpt-image-2.5-sunburst",
           "display_name": "GPT Image 2.5 Sunburst",
-          "default": false
-        },
-        {
-          "name": "gemini-3.1-flash-image-preview",
-          "display_name": "Nano Banana 2",
-          "default": false
-        },
-        {
-          "name": "gemini-3.1-flash-image-preview-2k",
-          "display_name": "Nano Banana 2 2K",
-          "default": false
-        },
-        {
-          "name": "gemini-3.1-flash-image-preview-4k",
-          "display_name": "Nano Banana 2 4K",
           "default": false
         },
         {

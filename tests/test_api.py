@@ -51,7 +51,7 @@ def _write_test_configs(
                         "models": [
                             {
                                 "name": "gemini-3-pro-image-preview",
-                                "display_name": "Nano Banana 2",
+                                "display_name": "Nano Banana Pro (1K)",
                                 "default": True,
                             },
                             {
@@ -1157,3 +1157,65 @@ def test_models_runtime_upload_limit(client_factory, monkeypatch, limit_mb) -> N
         assert client.get("/v1/models").json()["max_upload_bytes"] == expected
         response = client.post("/v1/files", files={"file": ("image.png", b"x" * (expected + 1), "image/png")})
         assert response.status_code == 413
+
+
+@pytest.mark.parametrize("asset_type,provider,model", [
+    ("image", "nano_banana2", "gemini-3.1-flash-image-preview"),
+    ("image", "nano_banana2", "gemini-3.1-flash-image-preview-2k"),
+    ("image", "nano_banana2", "gemini-3.1-flash-image-preview-4k"),
+    ("image", "nano_banana2", "gpt-image-2-vip"),
+    ("image", "nano_banana2", "gpt-image-2"),
+    ("video", "local_comfy", "wan2.2-5b-lowmem"),
+    ("video", "local_comfy", "hunyuanvideo-experimental"),
+])
+def test_retired_models_unavailable_without_losing_history(
+    client_factory, monkeypatch, asset_type, provider, model,
+) -> None:
+    client = client_factory()
+    monkeypatch.setenv("VIDEO_GATEWAY_CONFIG", str(Path(__file__).resolve().parents[1] / "config/providers.json"))
+    with client:
+        catalog = client.get("/v1/models").json()["providers"]
+        assert "local_comfy" not in {item["id"] for item in catalog}
+        assert model not in {item["name"] for entry in catalog for item in entry["models"]}
+        image_models = next(item["models"] for item in catalog if item["id"] == "nano_banana2")
+        assert {item["name"] for item in image_models if item["name"].startswith("gpt-")} == {
+            "gpt-image-2.5-1k", "gpt-image-2.5", "gpt-image-2.5-vip",
+            "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+        }
+        request = {"provider": provider, "model": model, "prompt": "historical",
+                   "provider_options": {"legacy_option": "original"}}
+        response = client.post(f"/v1/{asset_type}/generations", json=request)
+        assert response.status_code == 503
+        assert "unavailable" in response.json()["detail"]
+        assert client.get(f"/v1/{asset_type}/tasks").json() == []
+
+        if asset_type == "image":
+            async def no_submit(task_id):
+                pass
+            client.app.state.worker.submit = no_submit
+            for options in ({"model": model}, {"extra_body": {"model": model}}):
+                overridden = {**request, "model": "gpt-image-2.5", "provider_options": options}
+                response = client.post("/v1/image/generations", json=overridden)
+                assert response.status_code == 503
+                assert "unavailable" in response.json()["detail"]
+            assert client.get("/v1/image/tasks").json() == []
+
+        store = client.app.state.store
+        task_id = uuid4().hex
+        result = {"image_urls": ["https://example.com/original.png"]} if asset_type == "image" else {
+            "video_url": "https://example.com/original.mp4",
+        }
+        store.create_task(task_id, provider, model, "generate", "historical", request, asset_type=asset_type)
+        store.set_result(task_id, result)
+        before = store.get_task(task_id)
+        detail = client.get(f"/v1/{asset_type}/tasks/{task_id}")
+        assert detail.status_code == 200
+        assert detail.json()["model"] == model
+        assert detail.json()["result"] == result
+        assert detail.json()["provider_options"] == request["provider_options"]
+        assert client.get(f"/v1/{asset_type}/tasks/{task_id}/result").status_code == 200
+        retry = client.post(f"/v1/{asset_type}/tasks/{task_id}/retry", json={})
+        assert retry.status_code == 503
+        assert "unavailable" in retry.json()["detail"]
+        assert store.get_task(task_id) == before
+        assert len(client.get(f"/v1/{asset_type}/tasks").json()) == 1

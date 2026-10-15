@@ -6,7 +6,7 @@
 
 ## 一句话概述
 
-**SceneWords** 是一个面向 iPad 使用的 **多模态（视频/图片）AI 生成网关**，运行在本地 Windows PC 上，通过统一 API 在多个本地和第三方 AI 模型之间切换并提交生成任务。
+**SceneWords** 是一个面向 iPad 使用的 **多模态（视频/图片）AI 生成网关**，运行在本地 Windows PC 上，通过统一 API 在多个第三方 AI 模型之间切换并提交生成任务。
 
 ---
 
@@ -24,16 +24,16 @@
                                  │           │                      │
                                  │  ┌────────▼───────────────────┐  │
                                  │  │ Provider 适配层             │  │
-                                 │  │ ComfyUI / Tuzi / OpenAI... │  │
+                                 │  │ Tuzi / OpenAI / Vertex... │  │
                                  │  └────────────────────────────┘  │
                                  │                                  │
                                  │  SQLite (tasks.db) 任务持久化    │
                                  └──────────────────────────────────┘
                                           │
-                      ┌───────────────────┤
-                      ▼                   ▼
-               本地 ComfyUI        Tuzi API (兔子)
-               (WAN2.2/HunyuanVideo)  (Sora2/Veo3.1)
+                                          │
+                                          ▼
+                                   Tuzi API (兔子)
+                                  (GPT / Gemini Pro / Veo)
 ```
 
 ---
@@ -54,11 +54,10 @@
 
 ## Provider 适配器 (`app/providers/`)
 
-支持 **6 种 Provider 类型**：
+注册 **5 种 Provider 类型**（不代表全部配置启用）：
 
 | Provider 类型 | 类名 | 说明 |
 |---------------|------|------|
-| `comfyui` | `ComfyUIProvider` | 本地 ComfyUI（注入 workflow JSON，支持 WAN2.2、HunyuanVideo 等本地模型） |
 | `tuzi_veo` | `TuziVeoProvider` | 兔子 API 的 Veo 3.1 视频生成（支持首尾帧参考图） |
 | `tuzi_sora` | `TuziSoraProvider` | 兔子 API 的 Sora 2 视频生成（generate / storyboard / remix / create_character） |
 | `tuzi_image` | `TuziImageProvider` | 兔子 API 的图片生成（Gemini 3 Pro Image，支持同步/异步模式） |
@@ -75,10 +74,11 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 
 | Provider ID | 显示名 | 类型 | 模型 |
 |-------------|--------|------|------|
-| `local_comfy` | Local ComfyUI | `comfyui` | WAN2.2 5B / HunyuanVideo |
-| `nano_banana2` | Nano Banana 2 (Tuzi) | `tuzi_image` | Gemini 3 Pro Image (1K/2K/4K, 同步/异步) |
-| `sora2` | Sora 2 (Tuzi) | `tuzi_sora` | Sora 2 / Sora 2 Pro / 4s/8s/12s 变体 |
+| `nano_banana2` | Nano Banana 2 (Tuzi) | `tuzi_image` | GPT Image 2.5 五款 / Gemini 3 Pro Image 六款 (1K/2K/4K, 同步/异步) |
 | `veo31` | Veo 3.1 (Tuzi) | `tuzi_veo` | Veo 3.1 / Veo 3.1 4K / Veo 3.1 Components |
+
+已移除或禁用的 Provider / 型号不在能力目录中；历史任务仍可读取，不改写请求或结果。
+新建与精确重试统一返回明确的 `503 unavailable`。启动恢复不再提交这些型号的未完成任务。
 
 ---
 
@@ -121,7 +121,6 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 6. 立即返回 { task_id, status: "queued" } 给前端
 7. Worker 从队列取出 task_id → 设为 running
 8. 调用对应 Provider.generate()：
-   - ComfyUI: 提交 workflow → WebSocket 监听进度 → 下载输出
    - Tuzi: POST 提交 → 轮询状态 → 获取 URL
 9. 生成成功 → 下载远程媒体到 data/outputs/assets/{task_id}/
 10. 更新 SQLite: status=succeeded, result 包含 local_video_url / local_image_urls
@@ -256,7 +255,6 @@ Provider 注册表位于 `app/providers/__init__.py` 的 `PROVIDER_TYPE_REGISTRY
 |------|------|
 | `config/providers.json` | Provider 与模型配置（ID、类型、URL、模型列表等） |
 | `config/pricing.json` | 本地价格表 |
-| `config/workflows/*.json` | ComfyUI workflow 模板 |
 | `.cloudflared/config.yml` | Cloudflare Tunnel 配置 |
 | `pyproject.toml` | Python 项目配置（uv 管理依赖） |
 | `frontend/vite.config.ts` | Vite 构建配置 |

@@ -20,7 +20,7 @@ test("ordinary composer reuse and persisted sessions discard hidden overrides wi
     api_key: "old-credential", user: "old-user", timeout_sec: 150, submit_timeout_sec: 100,
     poll_interval_sec: 2, response_format: "b64_json", moderation: "low", watermark: true,
     output_compression: 70, image: ["https://example.com/manual.png"], input_references: ["manual"],
-    mask_file_id: "old-mask", __debug: true, workflow: { secret: true },
+    mask_file_id: "old-mask", __debug: true, extra_body: { secret: true },
     n: 4, output_format: "webp", input_fidelity: "high", image_file_ids: ["ref-a", "ref-b"],
   };
   const session = { provider: "image", model: "model", operation: "edit", values: {

@@ -98,7 +98,7 @@ const LAST_SUBMITTED_TASK_KEY = "scenewords_last_submitted_task_v1";
 const LAST_SUBMITTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 4_000;
 const IDLE_SESSION_POLL_INTERVAL_MS = 20_000;
-const VIDEO_PROVIDER_PRIORITY = ["veo31", "local_comfy"];
+const VIDEO_PROVIDER_PRIORITY = ["veo31"];
 const SHARED_IMAGE_SOURCE_FIELD_KEY = "shared_image_source_file_ids";
 
 interface RecentPromptEntry {

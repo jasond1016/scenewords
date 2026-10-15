@@ -287,16 +287,21 @@ def create_app() -> FastAPI:
         allowed_provider_types: set[str] | None = None,
     ) -> tuple[ProviderConfig, ProviderModelOperationInfo]:
         provider_configs: dict[str, ProviderConfig] = app.state.provider_configs
-        if payload.provider not in provider_configs:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown provider: {payload.provider}",
-            )
-        if not provider_configs[payload.provider].enabled:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Provider disabled: {payload.provider}",
-            )
+        models = [payload.model]
+        extra_body = payload.provider_options.get("extra_body")
+        for override in (
+            payload.provider_options.get("model"),
+            extra_body.get("model") if isinstance(extra_body, dict) else None,
+        ):
+            if isinstance(override, str) and override.strip():
+                models.append(override.strip())
+        for model in models:
+            unavailable = generation_unavailable_reason(provider_configs, payload.provider, model)
+            if unavailable:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=unavailable,
+                )
         provider_config = provider_configs[payload.provider]
         if (
             allowed_provider_types
@@ -310,17 +315,8 @@ def create_app() -> FastAPI:
                     f"Allowed: {accepted}"
                 ),
             )
-        model_config = next(
-            (model for model in provider_config.models if model.name == payload.model),
-            None,
-        )
-        if not model_config:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown model for provider {payload.provider}: {payload.model}",
-            )
         operations = build_model_operations(
-            provider_config=provider_config, model_name=model_config.name
+            provider_config=provider_config, model_name=payload.model
         )
         try:
             apply_operation_defaults_and_validate(request=payload, operations=operations)

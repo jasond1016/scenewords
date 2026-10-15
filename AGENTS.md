@@ -37,7 +37,7 @@
 | `config/pricing.json` | 本地价格表 |
 | `app/main.py` | FastAPI 入口，所有 REST 路由 |
 | `app/worker.py` | 异步任务队列引擎 |
-| `app/providers/` | Provider 适配器（ComfyUI / Tuzi / Gemini 等） |
+| `app/providers/` | Provider 适配器（Tuzi / OpenAI-compatible / Vertex 等） |
 
 ## 常用 API 端点
 
