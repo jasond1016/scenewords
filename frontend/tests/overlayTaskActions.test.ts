@@ -212,6 +212,8 @@ test("details show the user's latest modification and honest request dimensions/
   }));
   const html = render({});
   assert.match(html, /Warm lighting\s+Keep the blue vase/);
+  assert.match(html, /本次修改|This modification/);
+  assert.match(render({ prompt: "A quiet scene" }), /我的描述|My description/);
   assert.match(html, /<dd>Image<\/dd>/);
   assert.match(html, /192:125/);
   assert.match(html, /1536 × 1000/);

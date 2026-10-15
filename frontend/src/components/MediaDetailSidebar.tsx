@@ -194,7 +194,7 @@ export function MediaDetailSidebar(props: Props) {
       ) : null}
 
       <section className="media-detail-description">
-        <h3>{t(description.modification ? "works.detail.modification" : "create.sessions.myDescription")}</h3>
+        <h3>{t(description.modification ? "works.detail.modification" : "works.detail.myDescription")}</h3>
         <p ref={descriptionRef} id="media-detail-description" data-expanded={descriptionOpen}>{(descriptionOpen ? description.text : summaryText) || t("works.emptyPrompt")}</p>
         {description.text ? <div className="media-detail-text-actions">
           {descriptionTruncated ? <button type="button" className="media-detail-link" aria-expanded={descriptionOpen} aria-controls="media-detail-description" onClick={() => setDescriptionOpen((open) => !open)}>{t(descriptionOpen ? "works.detail.collapse" : "works.detail.expand")}</button> : null}
