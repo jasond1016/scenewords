@@ -202,7 +202,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible:not(.composer-textarea, .media-overlay-edit-form textarea) {
+:focus-visible:not(.composer-textarea, .media-overlay-edit-form textarea, .media-overlay-resize-options__body, .media-overlay-resize-options__footer button[type="submit"]) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -1316,6 +1316,7 @@ select.input-base {
   min-height: min-content;
   max-height: 420px;
   flex-shrink: 1;
+  background: var(--c-overlay-panel);
 }
 
 .media-overlay-resize-options:has(.media-overlay-resize-options__list--ratios) {
@@ -1346,8 +1347,8 @@ select.input-base {
 }
 
 .media-overlay-resize-options__body:focus-visible {
-  outline: 1px solid var(--c-overlay-muted);
-  outline-offset: 2px;
+  outline: 1px solid var(--c-accent-ring);
+  outline-offset: -1px;
   border-radius: var(--radius-sm);
 }
 
@@ -1373,7 +1374,28 @@ select.input-base {
   bottom: 0;
   display: grid;
   gap: 10px;
-  background: var(--c-overlay-panel);
+  /* Match the list's 3px inset and 12px safety gap + 5px scrollbar. */
+  padding: 8px 17px 8px 3px;
+  background: inherit;
+}
+
+.media-overlay-resize-options__footer .media-overlay-edit-form__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.media-overlay-resize-options__footer .media-overlay-edit-form__actions > span {
+  flex-basis: 160px;
+}
+
+.media-overlay-resize-options__footer button[type="submit"] {
+  border: 1px solid color-mix(in srgb, var(--c-cta) 80%, var(--c-on-media));
+  background-clip: padding-box;
+}
+
+.media-overlay-resize-options__footer button[type="submit"]:focus-visible {
+  border-radius: var(--radius-lg);
+  outline-color: var(--c-accent-ring);
 }
 
 .media-overlay-resize-options__footer > .media-overlay-resize-options__error {
