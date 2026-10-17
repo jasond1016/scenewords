@@ -1,6 +1,7 @@
 import { ArrowsInSimple, ArrowsOutSimple, Info, X } from "@phosphor-icons/react";
 import { useI18n } from "../i18n";
 import {
+  createContext,
   useEffect,
   useRef,
   useState,
@@ -9,6 +10,8 @@ import {
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
 } from "react";
+
+export const MediaOverlayFeedbackContext = createContext<HTMLElement | null>(null);
 
 interface Props {
   onClose: () => void;
@@ -43,12 +46,48 @@ export function MediaOverlayFrame(props: Props) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [areActionsVisible, setAreActionsVisible] = useState(true);
+  const [feedbackTarget, setFeedbackTarget] = useState<HTMLDivElement | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const isPullingDownRef = useRef(false);
   const closeAfterPullTimerRef = useRef<number | null>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+
+  useEffect(() => {
+    const layout = layoutRef.current;
+    if (!layout || !feedbackTarget) return;
+    const actions = layout.querySelector<HTMLElement>(".media-overlay-bottom-actions");
+    const details = layout.querySelector<HTMLElement>(".media-overlay-sidebar");
+    const main = layout.querySelector<HTMLElement>(".media-overlay-main")!;
+    const positionFeedback = () => {
+      const bounds = layout.getBoundingClientRect();
+      const media = main.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      let anchor = Math.min(bounds.bottom, viewport ? viewport.height + viewport.offsetTop : innerHeight) - 16;
+      for (const obstacle of [actions, isMobileViewport ? details : null]) {
+        if (!obstacle || getComputedStyle(obstacle).display === "none" || getComputedStyle(obstacle).visibility === "hidden") continue;
+        anchor = Math.min(anchor, obstacle.getBoundingClientRect().top - 12);
+      }
+      const close = layout.querySelector<HTMLElement>(".media-overlay-close")!;
+      const top = Math.max(close.getBoundingClientRect().bottom + 12, anchor - feedbackTarget.offsetHeight);
+      feedbackTarget.style.top = `${top - bounds.top}px`;
+      feedbackTarget.style.left = `${media.left - bounds.left + 12}px`;
+      feedbackTarget.style.width = `${Math.max(0, media.width - 24)}px`;
+    };
+    const observer = new ResizeObserver(positionFeedback);
+    for (const element of [layout, main, actions, details, feedbackTarget]) {
+      if (element) observer.observe(element);
+    }
+    positionFeedback();
+    window.visualViewport?.addEventListener("resize", positionFeedback);
+    window.visualViewport?.addEventListener("scroll", positionFeedback);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", positionFeedback);
+      window.visualViewport?.removeEventListener("scroll", positionFeedback);
+    };
+  }, [feedbackTarget, isMobileViewport, isDetailsOpen, isDetailsExpanded, areActionsVisible]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -200,6 +239,7 @@ export function MediaOverlayFrame(props: Props) {
   };
 
   return (
+    <MediaOverlayFeedbackContext.Provider value={feedbackTarget}>
     <div
       className="media-overlay-frame fixed inset-0 z-50 h-dvh"
       role="dialog"
@@ -285,8 +325,10 @@ export function MediaOverlayFrame(props: Props) {
         </button>
         {topActions ? <div className="media-overlay-top-actions">{topActions}</div> : null}
         {bottomActions ? <div className="media-overlay-bottom-actions" data-overlay-scroll="allow">{bottomActions}</div> : null}
+        <div ref={setFeedbackTarget} className="media-overlay-feedback" aria-live="polite" aria-atomic="true" />
       </div>
     </div>
+    </MediaOverlayFeedbackContext.Provider>
   );
 }
 

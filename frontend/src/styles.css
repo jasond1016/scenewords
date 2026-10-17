@@ -202,7 +202,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible:not(.composer-textarea, .media-overlay-edit-form textarea, .media-overlay-resize-options__body, .media-overlay-resize-options__footer button[type="submit"]) {
+:focus-visible:not(.composer-textarea, .media-overlay-icon-button, .media-overlay-edit-form textarea, .media-overlay-resize-options__body, .media-overlay-resize-options__footer button[type="submit"]) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -1143,9 +1143,18 @@ select.input-base {
 }
 
 .media-overlay-icon-button:disabled,
+.media-overlay-icon-button[aria-disabled="true"],
 .media-overlay-image-action:disabled {
   cursor: wait;
   opacity: 0.62;
+}
+
+.media-overlay-export-spinner {
+  animation: media-export-spin 900ms linear infinite;
+}
+
+@keyframes media-export-spin {
+  to { transform: rotate(360deg); }
 }
 
 .media-overlay-image-actions {
@@ -1610,34 +1619,51 @@ select.input-base {
   }
 }
 
-.media-overlay-share-error {
+.media-overlay-feedback {
   position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 2;
+  z-index: 60;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: max-content;
-  max-width: min(80vw, 360px);
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  background: var(--c-error-bg);
-  color: var(--c-error-text);
-  box-shadow: var(--shadow-md);
-  font-size: 0.72rem;
+  justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom);
+  pointer-events: none;
 }
 
-.media-overlay-share-error-dismiss {
+.media-overlay-export-toast {
+  display: flex;
+  min-height: 44px;
+  max-width: min(100%, 420px);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--c-on-media) 18%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 6px 14px;
+  background: var(--c-overlay-panel);
+  color: var(--c-on-media);
+  box-shadow: var(--shadow-md);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.media-overlay-export-toast[data-error="true"] {
+  border-color: var(--c-error-text);
+}
+
+.media-overlay-export-toast button {
   display: inline-flex;
   flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   border: 0;
-  padding: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
   background: transparent;
-  color: inherit;
+  color: var(--c-accent-ring);
+  text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
 }
 

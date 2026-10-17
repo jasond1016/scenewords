@@ -3,6 +3,7 @@ import { test, type TestContext } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
+import { prepareMediaFile, shareMedia } from "../src/mediaExport";
 import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
 import { MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
 import {
@@ -347,3 +348,64 @@ for (const [body, message] of [
     await assert.rejects(fetchCatalog(""), { message });
   });
 }
+
+test("export preserves original file bytes and MIME type, and rejects failed downloads", async (t) => {
+  mockFetch(t, [new Response(new Uint8Array([137, 80, 78, 71, 13, 10]), { headers: { "Content-Type": "image/png" } }), new Response("Denied", { status: 403 })]);
+  const file = await prepareMediaFile("/result.png", task, new AbortController().signal);
+  assert.equal(file.type, "image/png");
+  assert.match(file.name, /\.png$/);
+  assert.deepEqual([...new Uint8Array(await file.arrayBuffer())], [137, 80, 78, 71, 13, 10]);
+  await assert.rejects(prepareMediaFile("/denied.png", task, new AbortController().signal), /HTTP 403/);
+});
+
+test("export shares files or absolute URLs, copies only on unsupported sharing, and distinguishes cancellation from real failures", async (t) => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  t.after(() => {
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else Reflect.deleteProperty(globalThis, "navigator");
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { href: "https://studio.test/create" } } });
+  const file = new File(["image bytes"], "portrait.png", { type: "image/png" });
+  let shared: ShareData | undefined;
+  let copied: string | undefined;
+  let complete: (() => void) | undefined;
+  let handedOff = false;
+  const browser = {
+    canShare: (data: ShareData) => !!data.files,
+    share: async (data: ShareData) => { shared = data; await new Promise<void>((resolve) => { complete = resolve; }); },
+    clipboard: { writeText: async (value: string) => { copied = value; } },
+  };
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: browser });
+  const result = shareMedia("/result.png", "My image", file, () => { handedOff = true; });
+  assert.equal(handedOff, true, "preparation ends when handed to the browser, not when the user closes its sheet");
+  assert.equal(shared?.files?.[0], file);
+  assert.equal(shared?.title, "My image");
+  complete!();
+  assert.equal(await result, "shared");
+  assert.equal(copied, undefined);
+
+  browser.canShare = (data) => !!data.url;
+  browser.share = async (data) => { shared = data; };
+  assert.equal(await shareMedia("/result.png", "URL only", file, () => {}), "shared");
+  assert.deepEqual(shared, { title: "URL only", url: "https://studio.test/result.png" });
+  browser.canShare = () => false;
+  assert.equal(await shareMedia("/result.png", "Copy", file, () => {}), "copied");
+  assert.equal(copied, "https://studio.test/result.png");
+  copied = undefined;
+
+  browser.canShare = () => true;
+  for (const name of ["AbortError", "NotAllowedError", "DataError"]) {
+    browser.share = async () => { throw new DOMException("Native failure", name); };
+    if (name === "AbortError") assert.equal(await shareMedia("/result.png", "Cancel", file, () => {}), "canceled");
+    else await assert.rejects(shareMedia("/result.png", "Failure", file, () => {}), { name });
+    assert.equal(copied, undefined, "native rejection must not silently become a link-copy success");
+  }
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: browser.clipboard } });
+  assert.equal(await shareMedia("/result.png", "No Web Share", null, () => {}), "copied");
+  assert.equal(copied, "https://studio.test/result.png");
+  browser.clipboard.writeText = async () => { throw new DOMException("Clipboard denied", "NotAllowedError"); };
+  await assert.rejects(shareMedia("/result.png", "Denied", null, () => {}), { name: "NotAllowedError" });
+});

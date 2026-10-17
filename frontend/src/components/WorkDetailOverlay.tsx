@@ -344,7 +344,7 @@ export function WorkDetailOverlay(props: Props) {
         mediaToggleLabel={t("works.toggleOverlayActions")}
         isImage={lightboxItem.kind === "image"}
         topActions={
-          <MediaOverlayExportActions task={currentLightboxTask} downloadUrl={lightboxItem.url} />
+          <MediaOverlayExportActions key={lightboxItem.key} task={currentLightboxTask} downloadUrl={lightboxItem.url} />
         }
         bottomActions={
           lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (

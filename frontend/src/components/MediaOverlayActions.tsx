@@ -1,7 +1,10 @@
-import { ArrowClockwise, ArrowRight, CaretDown, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowClockwise, ArrowRight, CaretDown, Check, CircleNotch, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle } from "@phosphor-icons/react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { getImageResizeOptions } from "../overlayTaskActions";
+import { prepareMediaFile, shareMedia, startMediaDownload } from "../mediaExport";
+import { MediaOverlayFeedbackContext } from "./MediaOverlayFrame";
 import type { ProviderCatalogResponse, ProviderOperationOption, VideoTaskDetail } from "../types";
 
 interface ExportActionsProps {
@@ -11,66 +14,91 @@ interface ExportActionsProps {
 
 export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsProps) {
   const { t } = useI18n();
+  const feedbackTarget = useContext(MediaOverlayFeedbackContext);
+  const [downloadState, setDownloadState] = useState<"idle" | "pending" | "success">("idle");
   const [isSharing, setIsSharing] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ key: string; retry?: "download" | "share" } | null>(null);
+  const [toastPaused, setToastPaused] = useState(false);
+  // aria-disabled preserves keyboard focus; these locks reject repeated activation immediately.
+  const busy = useRef({ download: false, share: false });
+  const fileRef = useRef<File | null | undefined>(undefined);
+  const request = useRef<AbortController | null>(null);
+  const downloadButton = useRef<HTMLButtonElement>(null);
+  const shareButton = useRef<HTMLButtonElement>(null);
+  const downloadSpinner = useDelayedBusy(downloadState === "pending");
+  const shareSpinner = useDelayedBusy(isSharing);
 
   useEffect(() => {
-    if (!shareError) {
-      return;
-    }
-    const timeoutId = window.setTimeout(() => setShareError(null), 5000);
+    const controller = new AbortController();
+    request.current = controller;
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!toast || toastPaused) return;
+    const timeoutId = window.setTimeout(() => setToast(null), toast.retry ? 3000 : 1500);
     return () => window.clearTimeout(timeoutId);
-  }, [shareError]);
+  }, [toast, toastPaused]);
+
+  useEffect(() => {
+    if (downloadState !== "success") return;
+    const timeoutId = window.setTimeout(() => setDownloadState("idle"), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [downloadState]);
+
+  const handleDownload = async () => {
+    const signal = request.current?.signal;
+    if (!downloadUrl || !signal || busy.current.download) return;
+    busy.current.download = true;
+    setDownloadState("pending");
+    setToast(null);
+    setToastPaused(false);
+    try {
+      const file = fileRef.current ?? await prepareMediaFile(downloadUrl, task, signal);
+      if (signal.aborted) return;
+      fileRef.current = file;
+      startMediaDownload(file);
+      setDownloadState("success");
+      setToast({ key: "works.downloadStarted" });
+    } catch {
+      if (!signal.aborted) {
+        setDownloadState("idle");
+        setToast({ key: "works.downloadFailed", retry: "download" });
+      }
+    } finally {
+      busy.current.download = false;
+    }
+  };
 
   const handleShare = async () => {
-    if (!downloadUrl || typeof navigator === "undefined") {
-      return;
-    }
-    if (typeof navigator.share !== "function") {
-      setShareError(
-        typeof window !== "undefined" && window.isSecureContext === false
-          ? t("works.shareRequiresHttps")
-          : t("works.shareUnavailable"),
-      );
-      return;
-    }
-
+    const signal = request.current?.signal;
+    if (!downloadUrl || !signal || busy.current.share) return;
+    busy.current.share = true;
     setIsSharing(true);
-    setShareError(null);
+    setToast(null);
+    setToastPaused(false);
     try {
-      let shared = false;
-      try {
-        const response = await fetch(downloadUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+      if (fileRef.current === undefined && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+        try {
+          fileRef.current = await prepareMediaFile(downloadUrl, task, signal);
+        } catch {
+          // A missing/CORS-blocked file can still be shared as a URL. Native share failures cannot.
+          if (signal.aborted) return;
+          fileRef.current = null;
         }
-        const blob = await response.blob();
-        const file = new File([blob], buildSharedFileName(task, blob.type), {
-          type: blob.type || undefined,
-        });
-        const canShareFiles =
-          typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
-        if (canShareFiles) {
-          await navigator.share({ files: [file], title: task.prompt || t("works.share") });
-          shared = true;
-        }
-      } catch (error) {
-        if (isShareCanceled(error)) {
-          throw error;
-        }
-        // Fall back to sharing the result URL when file sharing is unavailable.
       }
-
-      if (!shared) {
-        await navigator.share({ title: task.prompt || t("works.share"), url: downloadUrl });
+      if (signal.aborted) return;
+      const outcome = await shareMedia(downloadUrl, task.prompt || t("works.share"), fileRef.current ?? null, () => {
+        if (!signal.aborted) setIsSharing(false);
+      });
+      if (!signal.aborted && outcome === "copied") {
+        setToast({ key: "works.linkCopied" });
       }
-    } catch (error) {
-      if (isShareCanceled(error)) {
-        return;
-      }
-      setShareError(t("works.shareFailed"));
+    } catch {
+      if (!signal.aborted) setToast({ key: "works.shareFailed", retry: "share" });
     } finally {
-      setIsSharing(false);
+      busy.current.share = false;
+      if (!signal.aborted) setIsSharing(false);
     }
   };
 
@@ -80,49 +108,62 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
 
   return (
     <div className="media-overlay-export-actions" role="toolbar" aria-label={t("works.exportActions")}>
-      <a
-        href={downloadUrl}
-        download
+      <button
+        ref={downloadButton}
+        type="button"
         className="media-overlay-icon-button"
-        aria-label={t("works.download")}
+        onClick={() => void handleDownload()}
+        aria-disabled={downloadState === "pending"}
+        aria-busy={downloadState === "pending"}
+        aria-label={t(downloadState === "pending" ? "works.downloading" : downloadState === "success" ? "works.downloadStarted" : "works.download")}
         title={t("works.download")}
       >
-        <DownloadSimple size={22} weight="regular" />
-      </a>
+        {downloadState === "pending" && downloadSpinner ? <CircleNotch className="media-overlay-export-spinner" size={22} aria-hidden="true" />
+          : downloadState === "success" ? <Check size={22} aria-hidden="true" /> : <DownloadSimple size={22} weight="regular" aria-hidden="true" />}
+      </button>
       <button
+        ref={shareButton}
         type="button"
         className="media-overlay-icon-button"
         onClick={() => void handleShare()}
-        disabled={isSharing}
+        aria-disabled={isSharing}
+        aria-busy={isSharing}
         aria-label={isSharing ? t("works.sharing") : t("works.share")}
         title={t("works.share")}
       >
-        <ShareNetwork size={22} weight="regular" />
+        {isSharing && shareSpinner ? <CircleNotch className="media-overlay-export-spinner" size={22} aria-hidden="true" /> : <ShareNetwork size={22} weight="regular" aria-hidden="true" />}
       </button>
-      {shareError ? (
-        <span className="media-overlay-share-error" role="status">
-          <span>{shareError}</span>
-          <button
-            type="button"
-            className="media-overlay-share-error-dismiss"
-            aria-label={t("common.close")}
-            onClick={() => setShareError(null)}
-          >
-            <X size={16} weight="regular" />
-          </button>
-        </span>
+      {toast && feedbackTarget ? createPortal(
+        <div className="media-overlay-export-toast" data-error={!!toast.retry} data-overlay-scroll="allow"
+          onMouseEnter={() => setToastPaused(true)} onMouseLeave={(event) => setToastPaused(event.currentTarget.matches(":focus-within"))}
+          onFocus={() => setToastPaused(true)} onBlur={(event) => setToastPaused(event.currentTarget.matches(":hover"))}>
+          <span id="media-overlay-export-message">{t(toast.key)}</span>
+          {toast.retry ? <button type="button" aria-describedby="media-overlay-export-message" onClick={() => {
+            const retry = toast.retry;
+            setToastPaused(false);
+            if (retry === "download") {
+              downloadButton.current?.focus();
+              void handleDownload();
+            } else {
+              shareButton.current?.focus();
+              void handleShare();
+            }
+          }}>{t("works.exportRetry")}</button> : null}
+        </div>, feedbackTarget,
       ) : null}
     </div>
   );
 }
 
-function isShareCanceled(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "AbortError"
-  );
+function useDelayedBusy(pending: boolean): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    setVisible(false);
+    if (!pending) return;
+    const timer = window.setTimeout(() => setVisible(true), 300);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
+  return visible;
 }
 
 interface ImageActionsProps {
@@ -372,17 +413,4 @@ export function MediaOverlayGenerationFeedback(props: {
       ) : null}
     </div>
   );
-}
-
-function buildSharedFileName(task: VideoTaskDetail, contentType?: string): string {
-  const base = `${task.provider || "scenewords"}_${task.task_id.slice(0, 8)}`;
-  const normalizedType = contentType?.toLowerCase() ?? "";
-  if (normalizedType.includes("png")) return `${base}.png`;
-  if (normalizedType.includes("webp")) return `${base}.webp`;
-  if (normalizedType.includes("gif")) return `${base}.gif`;
-  if (normalizedType.includes("jpeg") || normalizedType.includes("jpg")) return `${base}.jpg`;
-  if (normalizedType.includes("quicktime")) return `${base}.mov`;
-  if (normalizedType.includes("webm")) return `${base}.webm`;
-  if (normalizedType.includes("mp4")) return `${base}.mp4`;
-  return task.asset_type === "image" ? `${base}.jpg` : `${base}.mp4`;
 }
