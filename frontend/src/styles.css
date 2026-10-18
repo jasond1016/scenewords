@@ -42,6 +42,13 @@
     --c-accent-text: #9A7045;
     --c-accent-ring: #C4A077;
 
+    /* User messages — quiet caramel, subordinate to the send CTA */
+    --c-user-message-bg: #F6EFE5;
+    --c-user-message-text: #4B3827;
+    --c-user-message-border: #E6D8C5;
+    --c-user-message-selection-bg: #E6C99F;
+    --c-user-message-selection-text: #382819;
+
     /* Status */
     --c-success-bg: #EEF3EA;
     --c-success-text: #4B6B3C;
@@ -118,6 +125,12 @@
     --c-accent-bg: rgba(199, 154, 100, 0.12);
     --c-accent-text: #D9B283;
     --c-accent-ring: #A98158;
+
+    --c-user-message-bg: #30271F;
+    --c-user-message-text: #F0DDC4;
+    --c-user-message-border: #514130;
+    --c-user-message-selection-bg: #705232;
+    --c-user-message-selection-text: #FFF3E2;
 
     --c-success-bg: rgba(75, 107, 60, 0.18);
     --c-success-text: #A9C79A;
@@ -2771,15 +2784,19 @@ select.input-base {
   min-width: 0;
   max-width: min(90%, 42rem);
   padding: 10px 18px;
-  border: 1px solid var(--c-border);
-  border-inline-end: 2px solid var(--c-accent);
+  border: 1px solid var(--c-user-message-border);
   border-radius: var(--radius-lg);
-  background: var(--c-surface-elevated);
-  color: var(--c-text);
+  background: var(--c-user-message-bg);
+  color: var(--c-user-message-text);
   font-size: 0.8125rem;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.session-turn-prompt::selection {
+  background: var(--c-user-message-selection-bg);
+  color: var(--c-user-message-selection-text);
 }
 
 .session-turn-images {
