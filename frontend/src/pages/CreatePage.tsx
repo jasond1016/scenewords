@@ -2244,7 +2244,11 @@ export function CreatePage(props: Props) {
             const queuedRetryId = queuedRetries[version.task_id];
             return (
               <article className="session-turn" key={version.task_id} id={`session-task-${version.task_id}`}>
-                <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                <div className="session-message-row session-message-row--user">
+                  <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                </div>
+                <div className="session-message-row session-message-row--assistant">
+                  <div className="session-message-group">
                 {images.length ? (
                   <div className="session-turn-images">
                     {images.map((url) => {
@@ -2366,6 +2370,8 @@ export function CreatePage(props: Props) {
                     ) : null)}
                   </div>
                 ) : null}
+                  </div>
+                </div>
               </article>
             );
           })}
