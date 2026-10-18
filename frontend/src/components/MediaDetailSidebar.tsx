@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useI18n, type TranslateFn } from "../i18n";
 import { describeTaskPrompt, deriveTaskFormatMeta } from "../overlayTaskPresentation";
 import { copyText } from "../overlayTaskUtils";
+import { useFeedbackTimeout } from "../useActionFeedback";
 import type { ProviderCatalogResponse, VideoTaskDetail } from "../types";
 import { extractImageUrls, formatCostAmount, formatTime, resolveTaskCostState } from "../utils";
 
@@ -58,14 +59,21 @@ export function MediaDetailSidebar(props: Props) {
   const [parametersOpen, setParametersOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
-  const [copyMessage, setCopyMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const copyRequest = useRef(0);
+  const clearCopyMessage = useCallback(() => setCopyMessage(null), []);
+  useFeedbackTimeout(clearCopyMessage, copyMessage, !!copyMessage && !copyMessage.error);
+  useEffect(() => {
+    copyRequest.current += 1;
+    return () => { copyRequest.current += 1; };
+  }, [task.task_id]);
   const closeComparison = useCallback(() => setIsComparing(false), []);
   useEffect(() => {
     rootRef.current?.closest<HTMLElement>("[data-overlay-scroll='allow']")?.scrollTo(0, 0);
     setDescriptionOpen(false);
     setParametersOpen(false);
     if (menuRef.current) menuRef.current.open = false;
-    setCopyMessage("");
+    setCopyMessage(null);
     setIsComparing(false);
   }, [task.task_id]);
   useEffect(() => {
@@ -147,8 +155,14 @@ export function MediaDetailSidebar(props: Props) {
     : task.cost_source === "provider_api" ? "works.detail.actualCost" : "works.detail.indicativeCost";
   const normalizedLocale = locale === "zh-CN" ? "zh-CN" : "en-US";
   const copy = async (value: string) => {
-    try { await copyText(value); setCopyMessage(t("works.detail.copied")); }
-    catch { setCopyMessage(t("works.copyJsonFailed")); }
+    const request = ++copyRequest.current;
+    setCopyMessage(null);
+    try {
+      await copyText(value);
+      if (request === copyRequest.current) setCopyMessage({ text: t("works.detail.copied"), error: false });
+    } catch {
+      if (request === copyRequest.current) setCopyMessage({ text: t("works.copyJsonFailed"), error: true });
+    }
   };
 
   return (
@@ -228,7 +242,7 @@ export function MediaDetailSidebar(props: Props) {
         </div> : null}
       </details>
 
-      {copyMessage ? <p className="media-detail-muted" role="status">{copyMessage}</p> : null}
+      {copyMessage ? <p className="media-detail-muted" role={copyMessage.error ? "alert" : "status"}>{copyMessage.text}</p> : null}
       {isComparing && comparisonCandidates.length ? <VersionComparison task={task} imageUrl={downloadUrl ?? ""} candidates={comparisonCandidates} token={gatewayToken} trigger={compareButtonRef.current} onClose={closeComparison} /> : null}
     </div>
   );

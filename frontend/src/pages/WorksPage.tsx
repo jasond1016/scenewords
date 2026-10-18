@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -25,8 +25,6 @@ import {
 } from "../lightbox";
 import {
   buildReuseDraft,
-  formatRetryErrorMessage,
-  formatRetryQueuedMessage,
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type EditImagePayload,
@@ -47,6 +45,7 @@ import {
   providerSupportsSeedRetry,
 } from "../overlayTaskPresentation";
 import { useAppSettingsStore } from "../state";
+import { useFeedbackTimeout, useMutationFeedback } from "../useActionFeedback";
 import {
   useEscapeToClose,
   useOverlayScrollLock,
@@ -89,7 +88,11 @@ export function WorksPage(props: Props) {
   const [selectMode, setSelectMode] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set());
   const [measuredRatios, setMeasuredRatios] = useState<Record<string, number>>({});
-  const [hint, setHint] = useState("");
+  const [hintFeedback, setHintFeedback] = useState<{ message: string; error: boolean } | null>(null);
+  const hint = hintFeedback?.message ?? "";
+  const setHint = useCallback((message: string, error = false) => setHintFeedback({ message, error }), []);
+  const clearHint = useCallback(() => setHintFeedback(null), []);
+  useFeedbackTimeout(clearHint, hintFeedback, !!hintFeedback && !hintFeedback.error);
   const [lightboxState, setLightboxState] = useState<{ kind: LightboxKind; index: number } | null>(null);
   const [extraTasks, setExtraTasks] = useState<VideoTaskDetail[]>([]);
   const [nextOffset, setNextOffset] = useState(TASK_PAGE_SIZE);
@@ -112,14 +115,6 @@ export function WorksPage(props: Props) {
       setHasMorePages(inferHasMorePages(tasks));
     }
   }, [nextOffset, tasks]);
-
-  useEffect(() => {
-    if (!hint) {
-      return;
-    }
-    const timer = window.setTimeout(() => setHint(""), 5000);
-    return () => window.clearTimeout(timer);
-  }, [hint]);
 
   const completedTasks = useMemo(
     () =>
@@ -261,10 +256,16 @@ export function WorksPage(props: Props) {
       : [],
     [allTasks, currentLightboxTask?.generation_id],
   );
-  const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
+  const currentItemScope = useRef({ key: lightboxItem?.key });
+  if (currentItemScope.current.key !== lightboxItem?.key) currentItemScope.current = { key: lightboxItem?.key };
+  useEffect(() => {
+    currentItemScope.current = { key: lightboxItem?.key };
+    return () => { currentItemScope.current = { key: undefined }; };
+  }, [lightboxItem?.key]);
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editInstruction, setEditInstruction] = useState("");
   const [isResizeOptionsOpen, setIsResizeOptionsOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const catalogQuery = useQuery({
     queryKey: ["catalog", settings.gatewayToken],
@@ -295,14 +296,12 @@ export function WorksPage(props: Props) {
   const errorTask = taskDetailQuery.data ?? currentLightboxTask;
 
   useEffect(() => {
-    setQueuedRetryTaskId(null);
-  }, [currentLightboxTask?.task_id]);
-
-  useEffect(() => {
     setIsEditPromptOpen(false);
     setEditInstruction("");
     setIsResizeOptionsOpen(false);
-  }, [currentLightboxTask?.task_id]);
+    setValidationError(null);
+    clearHint();
+  }, [lightboxItem?.key, clearHint]);
 
   useOverlayScrollLock(isLightboxOpen);
 
@@ -373,17 +372,15 @@ export function WorksPage(props: Props) {
     }
   }, [allImageLightboxItems, allVideoLightboxItems, completedTasks, location.search]);
 
-  const deleteMutation = useMutation<unknown, Error, TaskActionPayload>({
+  const deleteMutation = useMutation<unknown, Error, TaskActionPayload, { key: string | undefined }>({
     mutationFn: (payload) => runTaskAction(payload, settings.gatewayToken),
-    onSuccess: async (_data, payload) => {
-      setHint(formatTaskActionSuccessMessage(payload, t));
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (_data, payload, sourceKey) => {
       setSelectedTaskId((current) => (current === payload.taskId ? null : current));
       setExtraTasks((current) => current.filter((task) => task.task_id !== payload.taskId));
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
-    },
-    onError: (error: Error, payload) => {
-      setHint(formatTaskActionErrorMessage(payload, error, t));
+      if (payload.action === "delete" && sourceKey === currentItemScope.current) setLightboxState(null);
     },
   });
 
@@ -406,7 +403,7 @@ export function WorksPage(props: Props) {
       exitSelectMode();
     },
     onError: (error: Error) => {
-      setHint(t("works.deleteFailed", { message: error.message }));
+      setHint(t("works.deleteFailed", { message: error.message }), true);
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
@@ -416,16 +413,11 @@ export function WorksPage(props: Props) {
 
   const retryMutation = useMutation<VideoTaskResponse, Error, RetryTaskPayload>({
     mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
-    onSuccess: async (response, payload) => {
-      setQueuedRetryTaskId(payload.task.task_id);
-      setHint(payload.task.status === "succeeded" ? t("works.regenerateQueued") : formatRetryQueuedMessage(response.task_id, t));
+    onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
       await queryClient.invalidateQueries({ queryKey: ["scene", settings.gatewayToken, response.scene_id] });
-    },
-    onError: (error: Error, payload) => {
-      setHint(payload.task.status === "succeeded" ? t("works.regenerateFailed", { message: error.message }) : formatRetryErrorMessage(error, t));
     },
   });
   const reuseMutation = useMutation({
@@ -458,14 +450,11 @@ export function WorksPage(props: Props) {
         }),
       ]);
     },
-    onError: (error: Error) => {
-      setHint(t("works.highResolutionCandidateFailed", { message: error.message }));
-    },
   });
-  const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload>({
+  const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload, { key: string | undefined }>({
     mutationFn: (payload) => submitImageEdit(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
-      setHint(t("works.editQueued"));
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (response, _payload, sourceKey) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] }),
@@ -474,17 +463,15 @@ export function WorksPage(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
+      if (sourceKey !== currentItemScope.current) return;
       setLightboxState(null);
       navigate("/create", { state: { returnSessionId: response.scene_id } });
     },
-    onError: (error) => {
-      setHint(t("works.editImageFailed", { message: error.message }));
-    },
   });
-  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload>({
+  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload, { key: string | undefined }>({
     mutationFn: (payload) => submitImageResize(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
-      setHint(t("works.editQueued"));
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (response, _payload, sourceKey) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["task-cost-summary", settings.gatewayToken] }),
@@ -493,13 +480,16 @@ export function WorksPage(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
+      if (sourceKey !== currentItemScope.current) return;
       setLightboxState(null);
       navigate("/create", { state: { returnSessionId: response.scene_id } });
     },
-    onError: (error) => {
-      setHint(t("works.resizeImageFailed", { message: error.message }));
-    },
   });
+  useMutationFeedback(deleteMutation, lightboxItem?.key);
+  useMutationFeedback(retryMutation, lightboxItem?.key);
+  useMutationFeedback(highResolutionCandidateMutation, lightboxItem?.key);
+  useMutationFeedback(editMutation, lightboxItem?.key);
+  useMutationFeedback(resizeMutation, lightboxItem?.key);
   const loadMoreMutation = useMutation({
     mutationFn: () => fetchTaskPage(TASK_PAGE_SIZE, settings.gatewayToken, "summary", nextOffset),
     onSuccess: (page) => {
@@ -508,7 +498,7 @@ export function WorksPage(props: Props) {
       setHasMorePages(page.has_more);
     },
     onError: (error: Error) => {
-      setHint(t("works.loadMoreFailed", { message: error.message }));
+      setHint(t("works.loadMoreFailed", { message: error.message }), true);
     },
   });
 
@@ -579,7 +569,6 @@ export function WorksPage(props: Props) {
             assetType: currentLightboxTask.asset_type,
             action: "delete",
           });
-          setLightboxState(null);
         },
         onCancelConfirmed: () => {
           deleteMutation.mutate({
@@ -596,7 +585,7 @@ export function WorksPage(props: Props) {
       })
     : null;
   const retryActions =
-    currentLightboxTask && queuedRetryTaskId === currentLightboxTask.task_id
+    currentLightboxTask && retryMutation.isSuccess && retryMutation.variables?.task.task_id === currentLightboxTask.task_id
       ? {
           disabled: true,
           defaultLabel: t("works.retryQueuedSticky"),
@@ -619,9 +608,10 @@ export function WorksPage(props: Props) {
       return;
     }
     if (!catalogQuery.data) {
-      setHint(t("works.editOptionsUnavailable"));
+      setValidationError(t("works.editOptionsUnavailable"));
       return;
     }
+    setValidationError(null);
     retryMutation.reset();
     highResolutionCandidateMutation.mutate({
       task: currentLightboxTask,
@@ -878,8 +868,9 @@ export function WorksPage(props: Props) {
           </button>
         </div>
       ) : hint ? (
-        <div className="select-bar pr-[18px]" role="status">
+        <div className="select-bar pr-[18px]" role={hintFeedback?.error ? "alert" : "status"}>
           <span className="text-[var(--c-text-secondary)]">{hint}</span>
+          {hintFeedback?.error ? <button type="button" className="btn-ghost min-h-11 min-w-11" onClick={clearHint}>{t("common.close")}</button> : null}
         </div>
       ) : null}
 
@@ -892,6 +883,18 @@ export function WorksPage(props: Props) {
             closeDetailsLabel={t("works.closeDetails")}
             mediaToggleLabel={t("works.toggleOverlayActions")}
             isImage={lightboxItem.kind === "image"}
+            feedback={<>
+              {validationError && !isEditPromptOpen ? <div className="media-overlay-export-toast" role="alert" data-error="true">{validationError}</div> : null}
+              {!(lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded") && retryMutation.variables ? (
+                <MediaOverlayGenerationFeedback kind="regenerate" pending={retryMutation.isPending} queued={retryMutation.isSuccess} error={retryMutation.error?.message} />
+              ) : null}
+              {deleteMutation.variables ? (
+                <div className="media-overlay-export-toast" data-error={deleteMutation.isError} role={deleteMutation.isError ? "alert" : "status"}>
+                  {deleteMutation.error ? formatTaskActionErrorMessage(deleteMutation.variables, deleteMutation.error, t)
+                    : deleteMutation.isPending ? t("common.loading") : formatTaskActionSuccessMessage(deleteMutation.variables, t)}
+                </div>
+              ) : null}
+            </>}
             topActions={
               <MediaOverlayExportActions key={lightboxItem.key} task={currentLightboxTask} downloadUrl={lightboxItem.url} />
             }
@@ -903,6 +906,7 @@ export function WorksPage(props: Props) {
                     isEditPromptOpen={isEditPromptOpen}
                     isResizeOptionsOpen={isResizeOptionsOpen}
                     onEdit={() => {
+                      setValidationError(null);
                       setIsResizeOptionsOpen(false);
                       setIsEditPromptOpen((open) => !open);
                       setEditInstruction("");
@@ -929,14 +933,6 @@ export function WorksPage(props: Props) {
                         pending={mutation.isPending}
                         queued={mutation.isSuccess}
                         error={mutation.error?.message}
-                        onViewTask={() => {
-                          const response = mutation.data;
-                          if (!response) return;
-                          setLightboxState(null);
-                          navigate(response.scene_id ? "/create" : `/works?taskId=${encodeURIComponent(response.task_id)}`, {
-                            state: response.scene_id ? { returnSessionId: response.scene_id } : null,
-                          });
-                        }}
                       />
                     ) : null,
                   )}
@@ -945,15 +941,17 @@ export function WorksPage(props: Props) {
                       value={editInstruction}
                       onChange={setEditInstruction}
                       pending={editMutation.isPending}
+                      error={editMutation.error ? t("works.editImageFailed", { message: editMutation.error.message }) : validationError}
                       onSubmit={() => {
                         if (!editInstruction.trim()) {
-                          setHint(t("works.editPromptRequired"));
+                          setValidationError(t("works.editPromptRequired"));
                           return;
                         }
                         if (!catalogQuery.data) {
-                          setHint(t("works.editOptionsUnavailable"));
+                          setValidationError(t("works.editOptionsUnavailable"));
                           return;
                         }
+                        setValidationError(null);
                         editMutation.mutate({
                           task: currentLightboxTask,
                           imageIndex: lightboxItem.imageIndex ?? 0,
@@ -1004,6 +1002,7 @@ export function WorksPage(props: Props) {
             }
             sidebar={
               <MediaDetailSidebar
+                key={lightboxItem.key}
                 task={currentLightboxTask}
                 catalog={catalogQuery.data}
                 versionTasks={versionTasks.filter((version) => lightboxItems.some((item) => item.taskId === version.task_id))}

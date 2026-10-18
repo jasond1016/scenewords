@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
 import { prepareMediaFile, shareMedia } from "../src/mediaExport";
 import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
-import { MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
 import { SessionImage } from "../src/components/SessionImage";
 import {
   getImageResizeOptions,
@@ -206,6 +206,21 @@ test("reference import failure prevents scene and generation requests", async (t
   await assert.rejects(submitImageEdit({ task: { ...task, scene_id: null }, imageIndex: 0,
     instruction: "Edit", catalog: catalog([operation("edit", "image_file_ids")]) }, ""), /Reference expired/);
   assert.equal(calls.length, 1);
+});
+
+test("edit composer announces errors beside preserved instructions and keeps retry available", () => {
+  const render = (pending: boolean, error?: string) => renderToStaticMarkup(createElement(MediaOverlayEditComposer, {
+    value: "Keep the blue vase", onChange() {}, onSubmit() {}, pending, error,
+  }));
+  const failed = render(false, "Reference expired");
+  assert.match(failed, /role="alert">Reference expired/);
+  assert.match(failed, /aria-invalid="true"/);
+  assert.match(failed, /aria-describedby="[^"]*media-overlay-edit-error/);
+  assert.match(failed, />Keep the blue vase<\/textarea>/);
+  assert.doesNotMatch(failed.match(/<button[^>]*type="submit"[^>]*>/)![0], /disabled/);
+  const pending = render(true);
+  assert.match(pending, /<button[^>]*type="submit"[^>]*disabled/);
+  assert.doesNotMatch(pending, /role="alert"/);
 });
 
 test("details show the user's latest modification and honest request dimensions/cost without diagnostic clutter", async (t) => {

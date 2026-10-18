@@ -351,11 +351,3 @@ export function formatTaskActionErrorMessage(
     ? t("works.cancelFailed", { message: error.message })
     : t("works.deleteFailed", { message: error.message });
 }
-
-export function formatRetryQueuedMessage(taskId: string, t: TranslateFn): string {
-  return t("works.retryQueued", { taskId: taskId.slice(0, 8) });
-}
-
-export function formatRetryErrorMessage(error: Error, t: TranslateFn): string {
-  return t("works.retryFailed", { message: error.message });
-}

@@ -19,6 +19,7 @@ interface Props {
   sidebar?: ReactNode;
   topActions?: ReactNode;
   bottomActions?: ReactNode;
+  feedback?: ReactNode;
   isImage?: boolean;
   initialDetailsOpen?: boolean;
   closeLabel: string;
@@ -326,7 +327,7 @@ export function MediaOverlayFrame(props: Props) {
         </button>
         {topActions ? <div className="media-overlay-top-actions">{topActions}</div> : null}
         {bottomActions ? <div className="media-overlay-bottom-actions" data-overlay-scroll="allow">{bottomActions}</div> : null}
-        <div ref={setFeedbackTarget} className="media-overlay-feedback" aria-live="polite" aria-atomic="true" />
+        <div ref={setFeedbackTarget} className="media-overlay-feedback" aria-live="polite" aria-atomic="true">{props.feedback}</div>
       </div>
     </div>
     </MediaOverlayFeedbackContext.Provider>

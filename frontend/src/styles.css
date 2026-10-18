@@ -1207,18 +1207,6 @@ select.input-base {
   border-color: var(--c-accent);
 }
 
-.media-overlay-generation-feedback button {
-  min-height: 44px;
-  flex-shrink: 0;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--c-cta-subtle);
-  color: var(--c-on-media);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
 .media-overlay-action-stack {
   display: flex;
   width: min(calc(100% - 24px), 560px);
@@ -1602,8 +1590,7 @@ select.input-base {
   color: inherit;
 }
 
-.media-overlay-image-action:focus-visible,
-.media-overlay-generation-feedback button:focus-visible {
+.media-overlay-image-action:focus-visible {
   outline: 2px solid var(--c-on-media);
   outline-offset: 2px;
 }

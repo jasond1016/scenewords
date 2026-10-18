@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { fetchCatalog, fetchTaskDetail } from "../api";
@@ -13,8 +13,6 @@ import {
 } from "../lightbox";
 import {
   buildReuseDraft,
-  formatRetryErrorMessage,
-  formatRetryQueuedMessage,
   formatTaskActionErrorMessage,
   formatTaskActionSuccessMessage,
   type EditImagePayload,
@@ -35,6 +33,7 @@ import {
   providerSupportsSeedRetry,
 } from "../overlayTaskPresentation";
 import { useAppSettingsStore } from "../state";
+import { useMutationFeedback } from "../useActionFeedback";
 import {
   useEscapeToClose,
   useOverlayScrollLock,
@@ -51,11 +50,10 @@ interface Props {
   initialAction?: "edit" | "resize";
   initialDetailsOpen?: boolean;
   onClose: () => void;
-  onHint?: (message: string) => void;
 }
 
 export function WorkDetailOverlay(props: Props) {
-  const { tasks, initialTaskId, initialItemKey, initialAction, onClose, onHint } = props;
+  const { tasks, initialTaskId, initialItemKey, initialAction, onClose } = props;
   const { locale, t } = useI18n();
   const settings = useAppSettingsStore();
   const queryClient = useQueryClient();
@@ -118,10 +116,16 @@ export function WorkDetailOverlay(props: Props) {
         : [],
     [currentLightboxTask?.generation_id, tasks],
   );
-  const [queuedRetryTaskId, setQueuedRetryTaskId] = useState<string | null>(null);
+  const currentItemScope = useRef({ key: lightboxItem?.key });
+  if (currentItemScope.current.key !== lightboxItem?.key) currentItemScope.current = { key: lightboxItem?.key };
+  useEffect(() => {
+    currentItemScope.current = { key: lightboxItem?.key };
+    return () => { currentItemScope.current = { key: undefined }; };
+  }, [lightboxItem?.key]);
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editInstruction, setEditInstruction] = useState("");
   const [isResizeOptionsOpen, setIsResizeOptionsOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const catalogQuery = useQuery({
     queryKey: ["catalog", settings.gatewayToken],
@@ -152,14 +156,11 @@ export function WorkDetailOverlay(props: Props) {
   const errorTask = taskDetailQuery.data ?? currentLightboxTask;
 
   useEffect(() => {
-    setQueuedRetryTaskId(null);
-  }, [currentLightboxTask?.task_id]);
-
-  useEffect(() => {
     const isInitialImage = currentLightboxTask?.task_id === initialTaskId && lightboxItem?.key === initialItemKey;
     setIsEditPromptOpen(isInitialImage && initialAction === "edit");
     setEditInstruction("");
     setIsResizeOptionsOpen(isInitialImage && initialAction === "resize");
+    setValidationError(null);
   }, [currentLightboxTask?.task_id, lightboxItem?.key, initialAction, initialItemKey, initialTaskId]);
 
   useOverlayScrollLock(isLightboxOpen);
@@ -178,30 +179,23 @@ export function WorkDetailOverlay(props: Props) {
 
   useEscapeToClose(lightboxIndex != null, onClose);
 
-  const deleteMutation = useMutation<unknown, Error, TaskActionPayload>({
+  const deleteMutation = useMutation<unknown, Error, TaskActionPayload, { key: string | undefined }>({
     mutationFn: (payload) => runTaskAction(payload, settings.gatewayToken),
-    onSuccess: async (_data, payload) => {
-      onHint?.(formatTaskActionSuccessMessage(payload, t));
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (_data, payload, sourceKey) => {
       await queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] });
-    },
-    onError: (error: Error, payload) => {
-      onHint?.(formatTaskActionErrorMessage(payload, error, t));
+      if (payload.action === "delete" && sourceKey === currentItemScope.current) onClose();
     },
   });
 
   const retryMutation = useMutation<VideoTaskResponse, Error, RetryTaskPayload>({
     mutationFn: (payload) => runRetryTask(payload, settings.gatewayToken),
-    onSuccess: async (response, payload) => {
-      setQueuedRetryTaskId(payload.task.task_id);
-      onHint?.(payload.task.status === "succeeded" ? t("works.regenerateQueued") : formatRetryQueuedMessage(response.task_id, t));
+    onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scene", settings.gatewayToken, response.scene_id] }),
       ]);
-    },
-    onError: (error: Error, payload) => {
-      onHint?.(payload.task.status === "succeeded" ? t("works.regenerateFailed", { message: error.message }) : formatRetryErrorMessage(error, t));
     },
   });
 
@@ -224,9 +218,10 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
-  const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload>({
+  const editMutation = useMutation<VideoTaskResponse, Error, EditImagePayload, { key: string | undefined }>({
     mutationFn: (payload) => submitImageEdit(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (response, _payload, sourceKey) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
@@ -234,11 +229,9 @@ export function WorkDetailOverlay(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
+      if (sourceKey !== currentItemScope.current) return;
       navigate("/create", { state: { returnSessionId: response.scene_id } });
       onClose();
-    },
-    onError: (error) => {
-      onHint?.(t("works.editImageFailed", { message: error.message }));
     },
   });
 
@@ -255,9 +248,10 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
-  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload>({
+  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload, { key: string | undefined }>({
     mutationFn: (payload) => submitImageResize(payload, settings.gatewayToken),
-    onSuccess: async (response) => {
+    onMutate: () => currentItemScope.current,
+    onSuccess: async (response, _payload, sourceKey) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
@@ -265,13 +259,16 @@ export function WorkDetailOverlay(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
+      if (sourceKey !== currentItemScope.current) return;
       navigate("/create", { state: { returnSessionId: response.scene_id } });
       onClose();
     },
-    onError: (error) => {
-      onHint?.(t("works.resizeImageFailed", { message: error.message }));
-    },
   });
+  useMutationFeedback(deleteMutation, lightboxItem?.key);
+  useMutationFeedback(retryMutation, lightboxItem?.key);
+  useMutationFeedback(highResolutionCandidateMutation, lightboxItem?.key);
+  useMutationFeedback(editMutation, lightboxItem?.key);
+  useMutationFeedback(resizeMutation, lightboxItem?.key);
 
   if (!lightboxItem || !currentLightboxTask) {
     return null;
@@ -291,7 +288,6 @@ export function WorkDetailOverlay(props: Props) {
         assetType: currentLightboxTask.asset_type,
         action: "delete",
       });
-      onClose();
     },
     onCancelConfirmed: () => {
       deleteMutation.mutate({
@@ -307,7 +303,7 @@ export function WorkDetailOverlay(props: Props) {
       }),
   });
   const retryActions =
-    queuedRetryTaskId === currentLightboxTask.task_id
+    retryMutation.isSuccess && retryMutation.variables?.task.task_id === currentLightboxTask.task_id
       ? {
           disabled: true,
           defaultLabel: t("works.retryQueuedSticky"),
@@ -324,9 +320,10 @@ export function WorkDetailOverlay(props: Props) {
 
   const createHighResolutionCandidate = () => {
     if (!catalogQuery.data) {
-      onHint?.(t("works.editOptionsUnavailable"));
+      setValidationError(t("works.editOptionsUnavailable"));
       return;
     }
+    setValidationError(null);
     retryMutation.reset();
     highResolutionCandidateMutation.mutate({
       task: currentLightboxTask,
@@ -345,6 +342,18 @@ export function WorkDetailOverlay(props: Props) {
         closeDetailsLabel={t("works.closeDetails")}
         mediaToggleLabel={t("works.toggleOverlayActions")}
         isImage={lightboxItem.kind === "image"}
+        feedback={<>
+          {validationError && !isEditPromptOpen ? <div className="media-overlay-export-toast" role="alert" data-error="true">{validationError}</div> : null}
+          {!(lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded") && retryMutation.variables ? (
+            <MediaOverlayGenerationFeedback kind="regenerate" pending={retryMutation.isPending} queued={retryMutation.isSuccess} error={retryMutation.error?.message} />
+          ) : null}
+          {deleteMutation.variables ? (
+            <div className="media-overlay-export-toast" data-error={deleteMutation.isError} role={deleteMutation.isError ? "alert" : "status"}>
+              {deleteMutation.error ? formatTaskActionErrorMessage(deleteMutation.variables, deleteMutation.error, t)
+                : deleteMutation.isPending ? t("common.loading") : formatTaskActionSuccessMessage(deleteMutation.variables, t)}
+            </div>
+          ) : null}
+        </>}
         topActions={
           <MediaOverlayExportActions key={lightboxItem.key} task={currentLightboxTask} downloadUrl={lightboxItem.url} />
         }
@@ -356,6 +365,7 @@ export function WorkDetailOverlay(props: Props) {
                 isEditPromptOpen={isEditPromptOpen}
                 isResizeOptionsOpen={isResizeOptionsOpen}
                 onEdit={() => {
+                  setValidationError(null);
                   setIsResizeOptionsOpen(false);
                   setIsEditPromptOpen((open) => !open);
                   setEditInstruction("");
@@ -382,14 +392,6 @@ export function WorkDetailOverlay(props: Props) {
                     pending={mutation.isPending}
                     queued={mutation.isSuccess}
                     error={mutation.error?.message}
-                    onViewTask={() => {
-                      const response = mutation.data;
-                      if (!response) return;
-                      navigate(response.scene_id ? "/create" : `/works?taskId=${encodeURIComponent(response.task_id)}`, {
-                        state: response.scene_id ? { returnSessionId: response.scene_id } : null,
-                      });
-                      onClose();
-                    }}
                   />
                 ) : null,
               )}
@@ -398,15 +400,17 @@ export function WorkDetailOverlay(props: Props) {
                   value={editInstruction}
                   onChange={setEditInstruction}
                   pending={editMutation.isPending}
+                  error={editMutation.error ? t("works.editImageFailed", { message: editMutation.error.message }) : validationError}
                   onSubmit={() => {
                     if (!editInstruction.trim()) {
-                      onHint?.(t("works.editPromptRequired"));
+                      setValidationError(t("works.editPromptRequired"));
                       return;
                     }
                     if (!catalogQuery.data) {
-                      onHint?.(t("works.editOptionsUnavailable"));
+                      setValidationError(t("works.editOptionsUnavailable"));
                       return;
                     }
+                    setValidationError(null);
                     editMutation.mutate({
                       task: currentLightboxTask,
                       imageIndex: lightboxItem.imageIndex ?? 0,
@@ -457,6 +461,7 @@ export function WorkDetailOverlay(props: Props) {
         }
         sidebar={
           <MediaDetailSidebar
+            key={lightboxItem.key}
             task={currentLightboxTask}
             catalog={catalogQuery.data}
             versionTasks={versionTasks.filter((version) => lightboxItems.some((item) => item.taskId === version.task_id))}

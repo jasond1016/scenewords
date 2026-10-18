@@ -1,10 +1,11 @@
-import { ArrowClockwise, ArrowRight, CaretDown, Check, CircleNotch, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle } from "@phosphor-icons/react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowClockwise, ArrowRight, CaretDown, Check, CircleNotch, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { getImageResizeOptions } from "../overlayTaskActions";
 import { prepareMediaFile, shareMedia, startMediaDownload } from "../mediaExport";
 import { MediaOverlayFeedbackContext } from "./MediaOverlayFrame";
+import { useFeedbackTimeout } from "../useActionFeedback";
 import type { ProviderCatalogResponse, ProviderOperationOption, VideoTaskDetail } from "../types";
 
 interface ExportActionsProps {
@@ -12,13 +13,15 @@ interface ExportActionsProps {
   downloadUrl?: string | null;
 }
 
+type ExportFeedback = { key: string; retry?: boolean };
+
 export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsProps) {
   const { t } = useI18n();
   const feedbackTarget = useContext(MediaOverlayFeedbackContext);
   const [downloadState, setDownloadState] = useState<"idle" | "pending" | "success">("idle");
   const [isSharing, setIsSharing] = useState(false);
-  const [toast, setToast] = useState<{ key: string; retry?: "download" | "share" } | null>(null);
-  const [toastPaused, setToastPaused] = useState(false);
+  const [downloadToast, setDownloadToast] = useState<ExportFeedback | null>(null);
+  const [shareToast, setShareToast] = useState<ExportFeedback | null>(null);
   // aria-disabled preserves keyboard focus; these locks reject repeated activation immediately.
   const busy = useRef({ download: false, share: false });
   const fileRef = useRef<File | null | undefined>(undefined);
@@ -34,36 +37,32 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (!toast || toastPaused) return;
-    const timeoutId = window.setTimeout(() => setToast(null), toast.retry ? 3000 : 1500);
-    return () => window.clearTimeout(timeoutId);
-  }, [toast, toastPaused]);
-
-  useEffect(() => {
-    if (downloadState !== "success") return;
-    const timeoutId = window.setTimeout(() => setDownloadState("idle"), 1500);
-    return () => window.clearTimeout(timeoutId);
-  }, [downloadState]);
+  const clearDownloadToast = useCallback(() => setDownloadToast(null), []);
+  const clearShareToast = useCallback(() => setShareToast(null), []);
+  const clearDownloadSuccess = useCallback(() => {
+    setDownloadState("idle");
+    setDownloadToast(null);
+  }, []);
+  useFeedbackTimeout(clearShareToast, shareToast, !!shareToast && !shareToast.retry);
+  useFeedbackTimeout(clearDownloadSuccess, downloadToast, downloadState === "success");
 
   const handleDownload = async () => {
     const signal = request.current?.signal;
     if (!downloadUrl || !signal || busy.current.download) return;
     busy.current.download = true;
     setDownloadState("pending");
-    setToast(null);
-    setToastPaused(false);
+    setDownloadToast(null);
     try {
       const file = fileRef.current ?? await prepareMediaFile(downloadUrl, task, signal);
       if (signal.aborted) return;
       fileRef.current = file;
       startMediaDownload(file);
       setDownloadState("success");
-      setToast({ key: "works.downloadStarted" });
+      setDownloadToast({ key: "works.downloadStarted" });
     } catch {
       if (!signal.aborted) {
         setDownloadState("idle");
-        setToast({ key: "works.downloadFailed", retry: "download" });
+        setDownloadToast({ key: "works.downloadFailed", retry: true });
       }
     } finally {
       busy.current.download = false;
@@ -75,8 +74,7 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
     if (!downloadUrl || !signal || busy.current.share) return;
     busy.current.share = true;
     setIsSharing(true);
-    setToast(null);
-    setToastPaused(false);
+    setShareToast(null);
     try {
       if (fileRef.current === undefined && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
         try {
@@ -92,10 +90,10 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
         if (!signal.aborted) setIsSharing(false);
       });
       if (!signal.aborted && outcome === "copied") {
-        setToast({ key: "works.linkCopied" });
+        setShareToast({ key: "works.linkCopied" });
       }
     } catch {
-      if (!signal.aborted) setToast({ key: "works.shareFailed", retry: "share" });
+      if (!signal.aborted) setShareToast({ key: "works.shareFailed", retry: true });
     } finally {
       busy.current.share = false;
       if (!signal.aborted) setIsSharing(false);
@@ -133,15 +131,11 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
       >
         {isSharing && shareSpinner ? <CircleNotch className="media-overlay-export-spinner" size={22} aria-hidden="true" /> : <ShareNetwork size={22} weight="regular" aria-hidden="true" />}
       </button>
-      {toast && feedbackTarget ? createPortal(
-        <div className="media-overlay-export-toast" data-error={!!toast.retry} data-overlay-scroll="allow"
-          onMouseEnter={() => setToastPaused(true)} onMouseLeave={(event) => setToastPaused(event.currentTarget.matches(":focus-within"))}
-          onFocus={() => setToastPaused(true)} onBlur={(event) => setToastPaused(event.currentTarget.matches(":hover"))}>
-          <span id="media-overlay-export-message">{t(toast.key)}</span>
-          {toast.retry ? <button type="button" aria-describedby="media-overlay-export-message" onClick={() => {
-            const retry = toast.retry;
-            setToastPaused(false);
-            if (retry === "download") {
+      {[{ toast: downloadToast, action: "download" }, { toast: shareToast, action: "share" }].map(({ toast, action }) => toast && feedbackTarget ? createPortal(
+        <div className="media-overlay-export-toast" data-error={!!toast.retry} data-overlay-scroll="allow" role={toast.retry ? "alert" : "status"}>
+          <span id={`media-overlay-${action}-message`}>{t(toast.key)}</span>
+          {toast.retry ? <button type="button" aria-describedby={`media-overlay-${action}-message`} onClick={() => {
+            if (action === "download") {
               downloadButton.current?.focus();
               void handleDownload();
             } else {
@@ -149,8 +143,14 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
               void handleShare();
             }
           }}>{t("works.exportRetry")}</button> : null}
-        </div>, feedbackTarget,
-      ) : null}
+          {toast.retry ? <button type="button" aria-label={t("common.close")} onClick={() => {
+            const target = action === "download" ? downloadButton : shareButton;
+            if (action === "download") clearDownloadToast();
+            else clearShareToast();
+            target.current?.focus();
+          }}><X size={18} aria-hidden="true" /></button> : null}
+        </div>, feedbackTarget, action,
+      ) : null)}
     </div>
   );
 }
@@ -243,8 +243,9 @@ export function MediaOverlayEditComposer(props: {
   onChange: (value: string) => void;
   onSubmit: () => void;
   pending: boolean;
+  error?: string | null;
 }) {
-  const { value, onChange, onSubmit, pending } = props;
+  const { value, onChange, onSubmit, pending, error } = props;
   const { t } = useI18n();
   return (
     <form id="media-overlay-edit-form" className="media-overlay-edit-form" onSubmit={(event) => {
@@ -254,7 +255,8 @@ export function MediaOverlayEditComposer(props: {
       <label htmlFor="media-overlay-edit-instruction">{t("works.editInstruction")}</label>
       <textarea
         id="media-overlay-edit-instruction"
-        aria-describedby="media-overlay-edit-hint"
+        aria-describedby={error ? "media-overlay-edit-hint media-overlay-edit-error" : "media-overlay-edit-hint"}
+        aria-invalid={!!error}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("works.editInstructionPlaceholder")}
@@ -262,6 +264,7 @@ export function MediaOverlayEditComposer(props: {
         autoFocus
         disabled={pending}
       />
+      {error ? <p id="media-overlay-edit-error" className="media-overlay-resize-options__error" role="alert">{error}</p> : null}
       <div className="media-overlay-edit-form__actions">
         <span id="media-overlay-edit-hint">{t("works.editOnlyCurrentImage")}</span>
         <button type="submit" disabled={pending || !value.trim()}>
@@ -400,17 +403,13 @@ export function MediaOverlayGenerationFeedback(props: {
   queued: boolean;
   error?: string | null;
   kind: "regenerate" | "highResolutionCandidate";
-  onViewTask: () => void;
 }) {
   const { t } = useI18n();
-  const { pending, queued, error, kind, onViewTask } = props;
+  const { pending, queued, error, kind } = props;
   if (!pending && !queued && !error) return null;
   return (
     <div className="media-overlay-generation-feedback" role={error ? "alert" : "status"} aria-live="polite">
       <span>{error ? t(`works.${kind}Failed`, { message: error }) : t(`works.${kind}${pending ? "Submitting" : "Queued"}`)}</span>
-      {queued && !pending && !error ? (
-        <button type="button" onClick={onViewTask}>{t("works.viewTask")}</button>
-      ) : null}
     </div>
   );
 }
