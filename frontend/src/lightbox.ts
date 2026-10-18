@@ -236,7 +236,10 @@ export function inferTaskOrientation(task: VideoTaskDetail): MediaOrientation {
   return "landscape";
 }
 
-export function inferTaskAspectRatio(task: VideoTaskDetail): number {
+export function inferTaskAspectRatio(
+  task: VideoTaskDetail,
+  fallback = task.asset_type === "video" ? 16 / 9 : 4 / 3,
+): number {
   const providerWidth = readNumber(task.provider_options ?? {}, "width");
   const providerHeight = readNumber(task.provider_options ?? {}, "height");
   if (providerWidth != null && providerHeight != null && providerWidth > 0 && providerHeight > 0) {
@@ -244,11 +247,13 @@ export function inferTaskAspectRatio(task: VideoTaskDetail): number {
   }
   const ratio =
     parseResolutionRatio(task.resolution) ??
-    readAspectRatio(task.provider_options ?? {}, "aspect_ratio");
+    readAspectRatio(task.provider_options ?? {}, "aspect_ratio") ??
+    readAspectRatio(task.provider_options ?? {}, "size") ??
+    readAspectRatio(task.provider_options ?? {}, "orientation");
   if (ratio != null && ratio > 0) {
     return ratio;
   }
-  return task.asset_type === "video" ? 16 / 9 : 4 / 3;
+  return fallback;
 }
 
 function resolveMediaDimensions(

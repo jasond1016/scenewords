@@ -20,6 +20,7 @@ interface Props {
   topActions?: ReactNode;
   bottomActions?: ReactNode;
   isImage?: boolean;
+  initialDetailsOpen?: boolean;
   closeLabel: string;
   detailsLabel: string;
   closeDetailsLabel: string;
@@ -43,7 +44,7 @@ export function MediaOverlayFrame(props: Props) {
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
   );
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(props.initialDetailsOpen ?? false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [areActionsVisible, setAreActionsVisible] = useState(true);
   const [feedbackTarget, setFeedbackTarget] = useState<HTMLDivElement | null>(null);

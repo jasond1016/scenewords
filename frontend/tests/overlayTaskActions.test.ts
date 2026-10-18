@@ -6,6 +6,7 @@ import { fetchCatalog } from "../src/api";
 import { prepareMediaFile, shareMedia } from "../src/mediaExport";
 import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
 import { MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
+import { SessionImage } from "../src/components/SessionImage";
 import {
   getImageResizeOptions,
   runRetryTask,
@@ -356,6 +357,29 @@ test("export preserves original file bytes and MIME type, and rejects failed dow
   assert.match(file.name, /\.png$/);
   assert.deepEqual([...new Uint8Array(await file.arrayBuffer())], [137, 80, 78, 71, 13, 10]);
   await assert.rejects(prepareMediaFile("/denied.png", task, new AbortController().signal), /HTTP 403/);
+});
+
+test("session media uses target proportions across states without mistaking references for generated results", () => {
+  const render = (overrides: Partial<VideoTaskDetail>, src = "/reference.png") => renderToStaticMarkup(createElement(SessionImage, {
+    task: { ...task, ...overrides }, src, statusLabel: "Generating",
+  }));
+  for (const status of ["failed", "queued", "running", "canceled"] as const) {
+    const html = render({ status, resolution: "9:16" });
+    assert.doesNotMatch(html, /<img|<video|reference\.png/, "uncompleted tasks must never display real/reference media");
+    assert.equal(Number(html.match(/aspect-ratio:([\d.]+)/)?.[1]), 9 / 16);
+    if (status === "failed") assert.match(html, /未生成图片|No image generated/);
+  }
+  const video = render({ asset_type: "video", status: "failed", resolution: null });
+  assert.match(video, /未生成视频|No video generated/);
+  assert.equal(Number(video.match(/aspect-ratio:([\d.]+)/)?.[1]), 4 / 3, "unknown target ratios use the same neutral fallback for both media kinds");
+  assert.match(render({ status: "succeeded", resolution: "16:9" }, "/result.png"), /<img[^>]*src="\/result.png"/);
+  assert.match(render({ status: "succeeded", asset_type: "video", resolution: "16:9" }, "/result.mp4"), /<video[^>]*src="\/result.mp4"[^>]*controls=""/);
+  for (const [provider_options, expected] of [
+    [{ size: "1536x1024" }, 3 / 2], [{ aspect_ratio: "3:4" }, 3 / 4],
+    [{ orientation: "portrait" }, 9 / 16], [{ width: 800, height: 500 }, 8 / 5],
+  ] as const) {
+    assert.equal(Number(render({ status: "failed", resolution: null, provider_options }).match(/aspect-ratio:([\d.]+)/)?.[1]), expected);
+  }
 });
 
 test("export shares files or absolute URLs, copies only on unsupported sharing, and distinguishes cancellation from real failures", async (t) => {

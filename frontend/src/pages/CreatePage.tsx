@@ -15,7 +15,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
-  ArrowClockwise,
   CaretLeft,
   CaretRight,
   Check,
@@ -44,6 +43,7 @@ import {
   uploadFile,
 } from "../api";
 import { useI18n, type SupportedLocale } from "../i18n";
+import { useFeedbackTimeout, useMutationFeedback } from "../useActionFeedback";
 import {
   useAppSettingsStore,
   type AppSettingsState,
@@ -64,6 +64,7 @@ import {
   cleanComposerStorage,
   errorMessage,
   extractImageUrls,
+  extractVideoUrl,
   fieldKey,
   fieldStorageKey,
   findField,
@@ -77,12 +78,13 @@ import {
 import { CreateTopBar } from "../components/AppTopBar";
 import { UploadedImage } from "../components/UploadedImage";
 import { WorkDetailOverlay } from "../components/WorkDetailOverlay";
-import { SessionResultActions } from "../components/SessionResultActions";
+import { SessionResultActions, type SessionImageAction } from "../components/SessionResultActions";
 import { SessionImage } from "../components/SessionImage";
 import { buildLightboxItems } from "../lightbox";
 import { buildVersionEditPrompt } from "../overlayTaskUtils";
-import { runRetryTask, submitHighResolutionCandidate, type HighResolutionCandidatePayload } from "../overlayTaskActions";
-import { providerSupportsSeedRetry } from "../overlayTaskPresentation";
+import { getImageResizeOptions, runRetryTask, runTaskAction, submitHighResolutionCandidate, type HighResolutionCandidatePayload, type TaskActionPayload } from "../overlayTaskActions";
+import { buildMediaSidebarActions, describeTaskPrompt, providerSupportsSeedRetry } from "../overlayTaskPresentation";
+import { prepareMediaFile, startMediaDownload } from "../mediaExport";
 import { isComposerField, sanitizeComposerOptions, sanitizeComposerValues } from "../composerOptions";
 
 interface Props {
@@ -175,12 +177,15 @@ export function CreatePage(props: Props) {
   const [imageSourceFiles, setImageSourceFiles] = useState<File[]>([]);
   const [imageSourceReusedFileIds, setImageSourceReusedFileIds] = useState<string[]>([]);
   const [sessionContextFileIds, setSessionContextFileIds] = useState<string[]>([]);
-  const [hint, setHint] = useState("");
+  const [hintFeedback, setHintFeedback] = useState<{ message: string; kind: "info" | "pending" | "error" } | null>(null);
+  const hint = hintFeedback?.message ?? "";
+  const setHint = useCallback((message: string, kind: "info" | "pending" | "error" = "error") => setHintFeedback(message ? { message, kind } : null), []);
+  const clearHint = useCallback(() => setHintFeedback(null), []);
+  useFeedbackTimeout(clearHint, hintFeedback, hintFeedback?.kind === "info");
   const maxUploadBytes = catalog?.max_upload_bytes ?? 10 * 1024 * 1024;
   const uploadHelp = t("create.uploadHelp", { size: Number((maxUploadBytes / 1024 / 1024).toFixed(2)) });
   useEffect(cleanComposerStorage, []);
   const [expandedFailureTaskId, setExpandedFailureTaskId] = useState<string | null>(null);
-  const [queuedRetries, setQueuedRetries] = useState<Record<string, string>>({});
   const [lastSubmittedTaskId, setLastSubmittedTaskId] = useState<string | null>(() =>
     readLastSubmittedTaskId(),
   );
@@ -206,9 +211,10 @@ export function CreatePage(props: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessionImagePreview, setSessionImagePreview] = useState<{
     taskId: string;
-    itemKey: string;
+    itemKey?: string;
     tasks: VideoTaskDetail[];
     initialAction?: "edit" | "resize";
+    initialDetailsOpen?: boolean;
   } | null>(null);
   const closeSessionImagePreview = useCallback(() => setSessionImagePreview(null), []);
   const transcriptRef = useRef<HTMLElement | null>(null);
@@ -265,13 +271,35 @@ export function CreatePage(props: Props) {
   });
   const retryMutation = useMutation({
     mutationFn: (task: VideoTaskDetail) => runRetryTask({ task, mode: "same_seed" }, settings.gatewayToken),
-    onSuccess: async (response, task) => {
-      setQueuedRetries((previous) => ({ ...previous, [task.task_id]: response.task_id }));
+    onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: sceneQueryKey(response.scene_id ?? "") }),
       ]);
+    },
+  });
+  const sessionActionMutation = useMutation({
+    mutationFn: (payload: TaskActionPayload) => runTaskAction(payload, settings.gatewayToken),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: sceneQueryKey(sceneId) }),
+      ]);
+    },
+  });
+  const sessionDownloadRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    sessionDownloadRequest.current = controller;
+    return () => controller.abort();
+  }, [sceneId]);
+  const sessionDownloadMutation = useMutation({
+    mutationFn: async ({ task, url }: { task: VideoTaskDetail; url: string }) => {
+      const signal = sessionDownloadRequest.current!.signal;
+      const file = await prepareMediaFile(url, task, signal);
+      if (!signal.aborted) startMediaDownload(file);
     },
   });
   const regenerateMutation = useMutation({
@@ -297,6 +325,11 @@ export function CreatePage(props: Props) {
       ]);
     },
   });
+  useMutationFeedback(retryMutation, sceneId);
+  useMutationFeedback(sessionActionMutation, sceneId);
+  useMutationFeedback(sessionDownloadMutation, sceneId);
+  useMutationFeedback(regenerateMutation, sceneId);
+  useMutationFeedback(highResolutionCandidateMutation, sceneId);
   const selectedSubjects = useMemo(
     () =>
       (subjectsQuery.data ?? []).filter((subject) =>
@@ -1228,6 +1261,7 @@ export function CreatePage(props: Props) {
         applied.reusedFileCount > 0
           ? t("create.hintReusedDraftWithFiles", { count: applied.reusedFileCount })
           : t("create.hintReusedDraft"),
+        "info",
       );
       navigate("/create");
     }
@@ -1444,6 +1478,7 @@ export function CreatePage(props: Props) {
                 index: index + 1,
                 total: selectedFiles.length,
               }),
+              "pending",
             );
             const uploaded = await uploadFile(selectedFiles[index], settings.gatewayToken);
             uploadedIds.push(uploaded.file_id);
@@ -1697,6 +1732,16 @@ export function CreatePage(props: Props) {
     setModificationInstruction("");
     requestAnimationFrame(autoResizeTextarea);
   };
+  const adjustSessionDescription = (task: VideoTaskDetail) => {
+    if (!promptField) return;
+    setVersionEditBasePrompt(null);
+    setModificationInstruction("");
+    onFieldChanged(promptField, describeTaskPrompt(task.prompt).text);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      autoResizeTextarea();
+    });
+  };
   // Restore textarea height when the prompt changes on mount / route return.
   useEffect(() => {
     // Defer to next frame so the DOM has rendered the value.
@@ -1913,6 +1958,7 @@ export function CreatePage(props: Props) {
   );
   const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
   const startNewSession = () => {
+    clearHint();
     setSceneId("");
     setGenerationId(null);
     setParentVersionId(null);
@@ -1943,6 +1989,7 @@ export function CreatePage(props: Props) {
         .flatMap((generation) => generation.versions)
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
       const latestVersion = sessionVersions[0];
+      clearHint();
       setSceneId(sessionId);
       setGenerationId(latestVersion?.generation_id ?? null);
       setParentVersionId(latestVersion?.task_id ?? null);
@@ -2235,20 +2282,40 @@ export function CreatePage(props: Props) {
           {activeSessionQuery.isLoading ? (
             <p className="session-transcript-loading">{t("common.loading")}</p>
           ) : conversationVersions.map((version) => {
-            const images = extractImageUrls(version);
-            const isGeneratingImage =
-              version.asset_type === "image" &&
-              (version.status === "queued" || version.status === "running");
+            const images = version.status === "succeeded" && version.asset_type === "image" ? extractImageUrls(version) : [];
+            const videoUrl = version.status === "succeeded" && version.asset_type === "video" ? extractVideoUrl(version) : null;
+            const mediaUrls = videoUrl ? [videoUrl] : images;
+            const taskActions = buildMediaSidebarActions({
+              task: version, t, showBothRetryActions: false, retryModeDefault: "same_seed",
+              onDeleteConfirmed: () => sessionActionMutation.mutate({ taskId: version.task_id, assetType: version.asset_type, action: "delete" }),
+              onCancelConfirmed: () => sessionActionMutation.mutate({ taskId: version.task_id, assetType: version.asset_type, action: "cancel" }),
+              onRetry: () => retryMutation.mutate(version),
+            });
             const isRetrying = retryMutation.isPending && retryMutation.variables?.task_id === version.task_id;
             const retryError = retryMutation.variables?.task_id === version.task_id ? retryMutation.error : null;
-            const queuedRetryId = queuedRetries[version.task_id];
+            const queuedRetryId = retryMutation.isSuccess && retryMutation.variables?.task_id === version.task_id;
+            const imageActions: SessionImageAction[] = [];
+            if (images.length && catalog) {
+              try {
+                const sizes = getImageResizeOptions(version, catalog);
+                imageActions.push("edit");
+                if (sizes.some((size) => size.value !== "auto")) imageActions.push("resize");
+              } catch {
+                // Historical models without reference support retain details/download/delete.
+              }
+              if (catalog.providers.some((provider) => provider.type === "tuzi_image" && provider.models.some((model) =>
+                model.name === "gpt-image-2.5-sunburst" && model.operations.some((operation) => operation.id === "edit" &&
+                  operation.fields.some((field) => field.target === "provider_options" && field.input_type === "file_list" && field.key === "image_file_ids"))))) {
+                imageActions.push("highResolutionCandidate");
+              }
+            }
             return (
               <article className="session-turn" key={version.task_id} id={`session-task-${version.task_id}`}>
                 <div className="session-message-row session-message-row--user">
-                  <p className="session-turn-prompt">{version.prompt || t("create.sessions.imagePromptFallback")}</p>
+                  <p className="session-turn-prompt">{describeTaskPrompt(version.prompt).text || t("works.emptyPrompt")}</p>
                 </div>
                 <div className="session-message-row session-message-row--assistant">
-                  <div className="session-message-group">
+                  <div className="session-message-group session-result-card" data-multiple={images.length > 1}>
                 {images.length ? (
                   <div className="session-turn-images">
                     {images.map((url) => {
@@ -2258,15 +2325,15 @@ export function CreatePage(props: Props) {
                       return (
                         <SessionImage
                           key={url}
+                          task={version}
                           src={url}
-                          running={false}
                           statusLabel={statusLabel(version)}
                           onOpen={() => {
                             if (item) {
                               setSessionImagePreview({
                                 taskId: item.taskId,
                                 itemKey: item.key,
-                                tasks: sessionImageTasks,
+                                tasks: conversationVersions,
                               });
                             }
                           }}
@@ -2284,64 +2351,31 @@ export function CreatePage(props: Props) {
                       );
                     })}
                   </div>
-                ) : isGeneratingImage ? (
-                  <SessionImage running={version.status === "running"} statusLabel={statusLabel(version)} />
-                ) : version.status === "failed" ? null : (
-                  <p className="session-turn-status">{statusLabel(version)}</p>
+                ) : (
+                  <SessionImage key={`${version.task_id}-${videoUrl ?? version.status}`} task={version} src={videoUrl ?? undefined} statusLabel={statusLabel(version)} />
                 )}
-                {version.status === "failed" ? (
-                  <div className="session-turn-failure">
-                    <div className="session-turn-actions">
-                      <span className="session-turn-status">{statusLabel(version)}</span>
-                      <button
-                        type="button"
-                        className="btn-outline btn-outline-active"
-                        disabled={retryMutation.isPending || Boolean(queuedRetryId)}
-                        onClick={() => retryMutation.mutate(version)}
-                      >
-                        {queuedRetryId ? <Check size={16} /> : <ArrowClockwise size={16} />}
-                        {t(queuedRetryId ? "works.retryQueuedSticky" : isRetrying ? "create.failure.submitting" : "create.failure.retry")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost text-xs"
-                        aria-expanded={expandedFailureTaskId === version.task_id}
-                        aria-controls={`session-error-${version.task_id}`}
-                        onClick={() => setExpandedFailureTaskId((previous) => previous === version.task_id ? null : version.task_id)}
-                      >
-                        {t(expandedFailureTaskId === version.task_id ? "create.failure.hideReason" : "create.failure.viewReason")}
-                      </button>
-                    </div>
-                    <p id={`session-error-${version.task_id}`} className="session-turn-failure-reason" hidden={expandedFailureTaskId !== version.task_id}>
-                      {errorMessage(version, {
-                        fallbackMessage: t("error.defaultFailure"),
-                        providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
-                      }) ?? t("error.defaultFailure")}
-                    </p>
-                    {retryError ? (
-                      <span className="session-turn-action-feedback" role="alert">
-                        {t("works.retryFailed", { message: retryError.message })}
-                      </span>
-                    ) : queuedRetryId ? (
-                      <span className="session-turn-action-feedback" role="status">
-                        {t("works.retryQueuedSticky")}
-                        <button type="button" className="btn-ghost text-xs" onClick={() => {
-                          document.getElementById(`session-task-${queuedRetryId}`)?.scrollIntoView({ block: "nearest" });
-                        }}>{t("works.viewTask")}</button>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {version.asset_type === "image" && version.status === "succeeded" && images.length > 0 ? (
                   <div className="session-turn-actions">
                     <SessionResultActions
-                      images={images}
-                      disabled={regenerateMutation.isPending || highResolutionCandidateMutation.isPending}
-                      onRegenerate={() => {
+                      images={mediaUrls}
+                      imageActions={imageActions}
+                      disabled={retryMutation.isPending || regenerateMutation.isPending || highResolutionCandidateMutation.isPending || sessionActionMutation.isPending || sessionDownloadMutation.isPending}
+                      morePending={(sessionActionMutation.isPending && sessionActionMutation.variables?.taskId === version.task_id) || (highResolutionCandidateMutation.isPending && highResolutionCandidateMutation.variables?.task.task_id === version.task_id)}
+                      downloadPending={sessionDownloadMutation.isPending && sessionDownloadMutation.variables?.task.task_id === version.task_id}
+                      regeneratePending={isRetrying || (regenerateMutation.isPending && regenerateMutation.variables?.task_id === version.task_id)}
+                      regenerateQueued={version.status === "failed" && Boolean(queuedRetryId)}
+                      onAdjustDescription={version.status === "failed" && promptField ? () => adjustSessionDescription(version) : undefined}
+                      reasonId={`session-error-${version.task_id}`}
+                      reasonExpanded={expandedFailureTaskId === version.task_id}
+                      onToggleReason={version.status === "failed" ? () => setExpandedFailureTaskId((previous) => previous === version.task_id ? null : version.task_id) : undefined}
+                      onDetails={() => setSessionImagePreview({ taskId: version.task_id, tasks: conversationVersions, initialDetailsOpen: true })}
+                      onDelete={taskActions.onDelete}
+                      onCancel={taskActions.cancelAction?.onCancel}
+                      onDownload={mediaUrls.length ? (index) => sessionDownloadMutation.mutate({ task: version, url: mediaUrls[index] }) : undefined}
+                      onRegenerate={version.status === "succeeded" ? () => {
                         highResolutionCandidateMutation.reset();
                         regenerateMutation.mutate(version);
-                      }}
-                      onImageAction={(action, imageIndex) => {
+                      } : version.status === "failed" ? () => retryMutation.mutate(version) : undefined}
+                      onImageAction={images.length ? (action, imageIndex) => {
                         if (action === "highResolutionCandidate") {
                           if (!catalog) return;
                           regenerateMutation.reset();
@@ -2350,10 +2384,32 @@ export function CreatePage(props: Props) {
                         }
                         const item = sessionImageItems.find((candidate) => candidate.taskId === version.task_id && candidate.imageIndex === imageIndex);
                         if (item) {
-                          setSessionImagePreview({ taskId: version.task_id, itemKey: item.key, tasks: sessionImageTasks, initialAction: action });
+                          setSessionImagePreview({ taskId: version.task_id, itemKey: item.key, tasks: conversationVersions, initialAction: action });
                         }
-                      }}
+                      } : undefined}
                     />
+                  </div>
+                  {version.status === "failed" ? (
+                    <>
+                      <p id={`session-error-${version.task_id}`} className="session-turn-failure-reason" hidden={expandedFailureTaskId !== version.task_id}
+                        role="region" aria-label={t("create.failure.viewReason")} tabIndex={expandedFailureTaskId === version.task_id ? 0 : -1}>
+                        {errorMessage(version, {
+                          fallbackMessage: t("error.defaultFailure"),
+                          providerRetryRecommendedMessage: t("error.providerRetryRecommended"),
+                        }) ?? t("error.defaultFailure")}
+                      </p>
+                      {retryError ? <span className="session-turn-action-feedback" role="alert">{t("works.retryFailed", { message: retryError.message })}</span>
+                        : queuedRetryId ? <span className="session-turn-action-feedback" role="status">{t("works.retryQueuedSticky")}</span> : null}
+                    </>
+                  ) : null}
+                    {sessionActionMutation.variables?.taskId === version.task_id && sessionActionMutation.error ? (
+                      <span className="session-turn-action-feedback" role="alert">{sessionActionMutation.error.message}</span>
+                    ) : null}
+                    {sessionDownloadMutation.variables?.task.task_id === version.task_id ? (
+                      <span className="session-turn-action-feedback" role={sessionDownloadMutation.error ? "alert" : "status"}>
+                        {t(sessionDownloadMutation.isPending ? "works.downloading" : sessionDownloadMutation.error ? "works.downloadFailed" : "works.downloadStarted")}
+                      </span>
+                    ) : null}
                     {[
                       { mutation: regenerateMutation, taskId: regenerateMutation.variables?.task_id, kind: "regenerate" },
                       { mutation: highResolutionCandidateMutation, taskId: highResolutionCandidateMutation.variables?.task.task_id, kind: "highResolutionCandidate" },
@@ -2361,15 +2417,8 @@ export function CreatePage(props: Props) {
                       <span key={kind} className="session-turn-action-feedback" role={mutation.error ? "alert" : "status"}>
                         {mutation.error ? t(`works.${kind}Failed`, { message: mutation.error.message })
                           : t(`works.${kind}${mutation.isPending ? "Submitting" : "Queued"}`)}
-                        {mutation.isSuccess ? (
-                          <button type="button" className="btn-ghost text-xs" onClick={() => {
-                            document.getElementById(`session-task-${mutation.data?.task_id}`)?.scrollIntoView({ block: "nearest" });
-                          }}>{t("works.viewTask")}</button>
-                        ) : null}
                       </span>
                     ) : null)}
-                  </div>
-                ) : null}
                   </div>
                 </div>
               </article>
@@ -2931,7 +2980,7 @@ export function CreatePage(props: Props) {
           )
           : null}
 
-        {hint ? <p className="composer-hint">{hint}</p> : null}
+        {hint ? <p className="composer-hint" role={hintFeedback?.kind === "error" ? "alert" : "status"}>{hint}</p> : null}
       </form>
 
       </div>
@@ -2959,7 +3008,7 @@ export function CreatePage(props: Props) {
                 )}
               </div>
               {selectedProvider?.type === "tuzi_veo" ? <p className="composer-upload-help">{uploadHelp}</p> : null}
-              {hint ? <p role="status" className="composer-hint">{hint}</p> : null}
+              {hint ? <p role={hintFeedback?.kind === "error" ? "alert" : "status"} className="composer-hint">{hint}</p> : null}
             </div>
             <footer className="composer-advanced-footer">
               <button type="submit" className="btn-primary" disabled={submitMutation.isPending || !promptValue.trim()}>
@@ -2976,6 +3025,7 @@ export function CreatePage(props: Props) {
           initialTaskId={sessionImagePreview.taskId}
           initialItemKey={sessionImagePreview.itemKey}
           initialAction={sessionImagePreview.initialAction}
+          initialDetailsOpen={sessionImagePreview.initialDetailsOpen}
           onClose={closeSessionImagePreview}
         />
       ) : null}

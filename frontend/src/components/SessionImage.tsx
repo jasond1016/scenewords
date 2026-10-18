@@ -1,25 +1,35 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
+import { inferTaskAspectRatio } from "../lightbox";
+import type { VideoTaskDetail } from "../types";
 
 interface Props {
+  task: VideoTaskDetail;
   src?: string;
-  running: boolean;
   statusLabel: string;
   onOpen?: () => void;
   onLoad?: () => void;
 }
 
-/** Keep the waiting card in place until the result image has actually loaded. */
-export function SessionImage({ src, running, statusLabel, onOpen, onLoad }: Props) {
+/** All task states use the requested media frame; only successful tasks may show real media. */
+export function SessionImage({ task, src, statusLabel, onOpen, onLoad }: Props) {
   const { t } = useI18n();
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const mediaUrl = task.status === "succeeded" ? src : undefined;
+  const isVideo = task.asset_type === "video";
+  const isEmpty = task.status === "failed" || task.status === "canceled";
+  const state = loaded ? "loaded" : failed ? "failed" : mediaUrl ? "loading" : task.status;
+  const message = failed ? t(isVideo ? "create.sessions.videoLoadFailed" : "create.sessions.imageLoadFailed")
+    : isEmpty ? t(isVideo ? "create.sessions.noVideo" : "create.sessions.noImage")
+    : mediaUrl ? t("common.loading") : task.status === "succeeded" ? t("works.resourceExpiredHint") : statusLabel;
+  const placeholderMessage = task.status === "canceled" ? `${statusLabel} · ${message}` : message;
 
   return (
-    <div className="session-image" data-loaded={loaded}>
+    <div className="session-image" data-state={state} data-loaded={loaded} style={{ aspectRatio: inferTaskAspectRatio(task, 4 / 3) }}>
       <div
         className="session-turn-image-placeholder"
-        data-state={loaded ? "loaded" : failed ? "failed" : src ? "loading" : running ? "running" : "queued"}
+        data-state={state}
         role={loaded ? undefined : "status"}
         aria-live={loaded ? undefined : "polite"}
         aria-hidden={loaded || undefined}
@@ -29,9 +39,14 @@ export function SessionImage({ src, running, statusLabel, onOpen, onLoad }: Prop
           <path className="session-image-stroke session-image-stroke-mountain" d="M4 23L12 15L17 20L21 16L28 23" pathLength="1" />
           <circle className="session-image-stroke session-image-stroke-sun" cx="12" cy="10" r="2" pathLength="1" />
         </svg>
-        <span>{failed ? t("create.sessions.imageLoadFailed") : src ? t("common.loading") : statusLabel}</span>
+        <span>{placeholderMessage}</span>
       </div>
-      {src && (
+      {mediaUrl && isVideo ? (
+        <video className="session-turn-video" src={mediaUrl} controls playsInline preload="metadata"
+          aria-label={t("create.sessions.videoResult")}
+          onLoadedMetadata={() => { setLoaded(true); onLoad?.(); }}
+          onError={() => { setFailed(true); setLoaded(false); }} />
+      ) : mediaUrl ? (
         <button
           type="button"
           className="session-turn-image-button"
@@ -41,17 +56,17 @@ export function SessionImage({ src, running, statusLabel, onOpen, onLoad }: Prop
           onClick={onOpen}
         >
           <img
-            src={src}
+            src={mediaUrl}
             alt=""
             loading="lazy"
             onLoad={() => {
               setLoaded(true);
               onLoad?.();
             }}
-            onError={() => setFailed(true)}
+            onError={() => { setFailed(true); setLoaded(false); }}
           />
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

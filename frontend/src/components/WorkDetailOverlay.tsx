@@ -49,6 +49,7 @@ interface Props {
   initialTaskId: string;
   initialItemKey?: string;
   initialAction?: "edit" | "resize";
+  initialDetailsOpen?: boolean;
   onClose: () => void;
   onHint?: (message: string) => void;
 }
@@ -338,6 +339,7 @@ export function WorkDetailOverlay(props: Props) {
     <>
       <MediaOverlayFrame
         onClose={onClose}
+        initialDetailsOpen={props.initialDetailsOpen}
         closeLabel={t("common.close")}
         detailsLabel={t("works.details")}
         closeDetailsLabel={t("works.closeDetails")}

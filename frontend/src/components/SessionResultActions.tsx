@@ -1,5 +1,5 @@
-import { ArrowClockwise, CaretLeft, Crop, DotsThree, PencilSimple, Sparkle, X } from "@phosphor-icons/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowClockwise, CaretLeft, Check, CircleNotch, Crop, DotsThree, DownloadSimple, Info, PencilSimple, Sparkle, Trash, WarningCircle, X } from "@phosphor-icons/react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useOverlayScrollLock } from "../useMediaOverlay";
@@ -9,21 +9,40 @@ export type SessionImageAction = "edit" | "resize" | "highResolutionCandidate";
 export function SessionResultActions(props: {
   images: string[];
   disabled: boolean;
-  onRegenerate: () => void;
-  onImageAction: (action: SessionImageAction, imageIndex: number) => void;
+  onDetails: () => void;
+  onDelete: () => void;
+  onCancel?: () => void;
+  onDownload?: (imageIndex: number) => void;
+  onRegenerate?: () => void;
+  regeneratePending?: boolean;
+  regenerateQueued?: boolean;
+  downloadPending?: boolean;
+  morePending?: boolean;
+  onAdjustDescription?: () => void;
+  reasonId?: string;
+  reasonExpanded?: boolean;
+  onToggleReason?: () => void;
+  imageActions: SessionImageAction[];
+  onImageAction?: (action: SessionImageAction, imageIndex: number) => void;
 }) {
-  const { images, disabled, onRegenerate, onImageAction } = props;
+  const { images, disabled, onDetails, onDelete, onCancel, onDownload, onRegenerate, regeneratePending, regenerateQueued,
+    downloadPending, morePending, onAdjustDescription, reasonId, reasonExpanded, onToggleReason, imageActions, onImageAction } = props;
   const { t } = useI18n();
+  const downloadLabel = t(downloadPending ? "works.downloading" : "works.download");
+  const regenerateLabel = t(regeneratePending ? "create.failure.submitting" : regenerateQueued ? "works.retryQueuedSticky" : "create.failure.regenerate");
+  const dialogId = useId();
   const [open, setOpen] = useState(false);
-  const [imageAction, setImageAction] = useState<SessionImageAction | null>(null);
+  const [imageAction, setImageAction] = useState<SessionImageAction | "download" | null>(null);
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   const [position, setPosition] = useState({ top: 0, right: 12 });
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const close = () => {
     setOpen(false);
     setImageAction(null);
-    triggerRef.current?.focus();
+    const opener = openerRef.current;
+    (opener && !opener.disabled ? opener : triggerRef.current)?.focus();
   };
   useOverlayScrollLock(open && compact);
 
@@ -37,12 +56,12 @@ export function SessionResultActions(props: {
   useLayoutEffect(() => {
     if (!open) return;
     const update = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
+      const trigger = (openerRef.current ?? triggerRef.current)?.getBoundingClientRect();
       const panel = panelRef.current?.getBoundingClientRect();
       if (trigger && panel) {
         setPosition({
           top: Math.max(12, trigger.top - panel.height - 8),
-          right: Math.max(12, window.innerWidth - trigger.right),
+          right: Math.min(Math.max(12, window.innerWidth - trigger.right), Math.max(12, window.innerWidth - panel.width - 12)),
         });
       }
     };
@@ -52,34 +71,71 @@ export function SessionResultActions(props: {
     return () => window.removeEventListener("resize", update);
   }, [open, imageAction, compact]);
 
-  const chooseImageAction = (action: SessionImageAction) => {
+  const runImageAction = (action: SessionImageAction | "download", index: number) => {
+    close();
+    if (action === "download") onDownload?.(index);
+    else onImageAction?.(action, index);
+  };
+  const chooseImageAction = (action: SessionImageAction | "download") => {
     if (images.length > 1) {
       setImageAction(action);
+      setOpen(true);
     } else {
-      close();
-      onImageAction(action, 0);
+      runImageAction(action, 0);
     }
   };
 
   return (
     <>
+      {onDownload ? (
+        <button type="button" className="session-result-more" aria-label={downloadLabel} title={downloadLabel}
+          data-tooltip={downloadLabel} disabled={disabled} aria-busy={downloadPending || undefined}
+          aria-haspopup={images.length > 1 ? "dialog" : undefined}
+          aria-expanded={images.length > 1 ? open && imageAction === "download" : undefined}
+          aria-controls={open && imageAction === "download" ? dialogId : undefined}
+          onClick={(event) => { openerRef.current = event.currentTarget; chooseImageAction("download"); }}>
+          {downloadPending ? <CircleNotch size={20} className="animate-spin" /> : <DownloadSimple size={20} />}
+        </button>
+      ) : null}
+      {onRegenerate ? (
+        <button type="button" className="session-result-more" aria-label={regenerateLabel}
+          title={regenerateLabel} data-tooltip={regenerateLabel}
+          disabled={disabled || regenerateQueued} aria-busy={regeneratePending || undefined} onClick={onRegenerate}>
+          {regeneratePending ? <CircleNotch size={20} className="animate-spin" /> : regenerateQueued ? <Check size={20} /> : <ArrowClockwise size={20} />}
+        </button>
+      ) : null}
+      {onAdjustDescription ? (
+        <button type="button" className="session-result-more" aria-label={t("create.failure.adjustDescription")}
+          title={t("create.failure.adjustDescription")} data-tooltip={t("create.failure.adjustDescription")}
+          disabled={disabled} onClick={onAdjustDescription}><PencilSimple size={20} /></button>
+      ) : null}
+      {onToggleReason ? (
+        <button type="button" className="session-result-more" aria-label={t(reasonExpanded ? "create.failure.hideReason" : "create.failure.viewReason")}
+          title={t(reasonExpanded ? "create.failure.hideReason" : "create.failure.viewReason")}
+          data-tooltip={t(reasonExpanded ? "create.failure.hideReason" : "create.failure.viewReason")}
+          aria-expanded={reasonExpanded} aria-controls={reasonId} onClick={onToggleReason}><WarningCircle size={20} /></button>
+      ) : null}
       <button
         ref={triggerRef}
         type="button"
         className="session-result-more"
         aria-label={t("create.sessions.resultActions")}
         title={t("create.sessions.resultActions")}
+        data-tooltip={t("create.sessions.resultActions")}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={open && imageAction !== "download"}
+        aria-controls={open && imageAction !== "download" ? dialogId : undefined}
+        aria-busy={morePending || undefined}
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={(event) => { openerRef.current = event.currentTarget; setImageAction(null); setOpen(true); }}
       >
-        <DotsThree size={24} weight="regular" />
+        {morePending ? <CircleNotch size={20} className="animate-spin" /> : <DotsThree size={20} weight="regular" />}
       </button>
       {open ? createPortal(
         <div className={`session-result-menu-layer ${compact ? "session-result-menu-layer--compact" : ""}`}>
           <button type="button" className="session-result-menu-backdrop" aria-label={t("common.close")} tabIndex={-1} onClick={close} />
           <div
+            id={dialogId}
             ref={panelRef}
             className="session-result-menu"
             style={compact ? undefined : position}
@@ -116,12 +172,11 @@ export function SessionResultActions(props: {
             </div>
             {imageAction ? (
               <>
-                <p className="session-result-menu-description">{t(imageAction === "highResolutionCandidate" ? "create.sessions.chooseHighResolutionImageHint" : "create.sessions.chooseImageHint")}</p>
+                <p className="session-result-menu-description">{t(imageAction === "download" ? "create.sessions.chooseDownloadHint" : imageAction === "highResolutionCandidate" ? "create.sessions.chooseHighResolutionImageHint" : "create.sessions.chooseImageHint")}</p>
                 <div className="session-result-image-picker">
                   {images.map((url, index) => (
                     <button type="button" key={url} onClick={() => {
-                      close();
-                      onImageAction(imageAction, index);
+                      runImageAction(imageAction, index);
                     }}>
                       <img src={url} alt="" />
                       <span>{t("create.sessions.imageNumber", { number: index + 1 })}</span>
@@ -131,20 +186,29 @@ export function SessionResultActions(props: {
               </>
             ) : (
               <>
+                <button type="button" className="session-result-menu-item" onClick={() => { close(); onDetails(); }}>
+                  <Info size={20} weight="regular" /><span>{t("works.details")}</span>
+                </button>
+                {onImageAction && imageActions.includes("edit") ? (
                 <button type="button" className="session-result-menu-item" onClick={() => chooseImageAction("edit")}>
-                  <PencilSimple size={20} weight="regular" /><span>{t("works.editImage")}…</span>
+                  <PencilSimple size={20} weight="regular" /><span>{t("works.editImage")}</span>
                 </button>
+                ) : null}
+                {onImageAction && imageActions.includes("resize") ? (
                 <button type="button" className="session-result-menu-item" onClick={() => chooseImageAction("resize")}>
-                  <Crop size={20} weight="regular" /><span>{t("works.adjustImageSize")}…</span>
+                  <Crop size={20} weight="regular" /><span>{t("works.adjustImageSize")}</span>
                 </button>
-                <div className="session-result-menu-divider" role="separator" />
-                <button type="button" className="session-result-menu-item" onClick={() => { close(); onRegenerate(); }}>
-                  <ArrowClockwise size={20} weight="regular" />
-                  <span>{t("works.regenerate")}<small>{t("create.sessions.regenerateRequest")}</small></span>
-                </button>
-                <button type="button" className="session-result-menu-item" onClick={() => chooseImageAction("highResolutionCandidate")}>
+                ) : null}
+                {onImageAction && imageActions.includes("highResolutionCandidate") ? <button type="button" className="session-result-menu-item" onClick={() => chooseImageAction("highResolutionCandidate")}>
                   <Sparkle size={20} weight="regular" />
                   <span>{t("works.generateHighResolutionCandidate")}<small>{t("create.sessions.highResolutionHint")}</small></span>
+                </button> : null}
+                {onCancel ? <button type="button" className="session-result-menu-item" onClick={() => { close(); onCancel(); }}>
+                  <X size={20} weight="regular" /><span>{t("works.cancelInProgress")}</span>
+                </button> : null}
+                <div className="session-result-menu-divider" role="separator" />
+                <button type="button" className="session-result-menu-item" onClick={() => { close(); onDelete(); }}>
+                  <Trash size={20} weight="regular" /><span>{t("works.delete")}</span>
                 </button>
               </>
             )}
