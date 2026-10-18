@@ -111,6 +111,7 @@ export function MediaOverlayExportActions({ task, downloadUrl }: ExportActionsPr
         type="button"
         className="media-overlay-icon-button"
         onClick={() => void handleDownload()}
+        data-export-state={downloadState}
         aria-disabled={downloadState === "pending"}
         aria-busy={downloadState === "pending"}
         aria-label={t(downloadState === "pending" ? "works.downloading" : downloadState === "success" ? "works.downloadStarted" : "works.download")}

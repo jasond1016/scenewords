@@ -984,6 +984,109 @@ select.input-base {
 }
 
 /* ── Lightbox Overrides ─────────────────────────────── */
+/* Viewer-local palette also lives on the comparison portal. Shared controls use
+   local aliases, never the surrounding application's surface/status colors. */
+.media-overlay-frame,
+.media-comparison {
+  --c-viewer-canvas: #E8E3DB;
+  --c-viewer-panel: rgb(250 247 241 / 98%);
+  --c-viewer-raised: #F7F2E9;
+  --c-viewer-inset: #EFE9E0;
+  --c-viewer-hover: #EEE5D7;
+  --c-viewer-text: #302A24;
+  --c-viewer-secondary: #706458;
+  --c-viewer-border: #D8CFC1;
+  --c-viewer-border-strong: #978771;
+  --c-viewer-accent: #85582E;
+  --c-viewer-focus: #946332;
+  --c-viewer-selected: #EFE1CC;
+  --c-viewer-cta: #916131;
+  --c-viewer-cta-hover: #7D5129;
+  --c-viewer-cta-text: #FFFBF5;
+  --c-viewer-error: #9B3F32;
+  --c-viewer-error-bg: #F7E7E1;
+  --c-viewer-success: #49663C;
+  --c-viewer-scrim: rgb(218 209 196 / 78%);
+  --c-viewer-chip: rgb(250 247 241 / 98%);
+  --c-viewer-icon: rgb(250 247 241 / 92%);
+  --c-viewer-toolbar: rgb(250 247 241 / 97%);
+  --c-viewer-input: #F5F0E8;
+  --c-viewer-input-border: #978771;
+  --c-viewer-shadow: rgb(71 49 24 / 12%);
+  --c-viewer-shadow-soft: rgb(71 49 24 / 6%);
+  --c-viewer-shadow-strong: rgb(71 49 24 / 16%);
+  --c-surface: var(--c-viewer-panel);
+  --c-surface-raised: var(--c-viewer-raised);
+  --c-surface-inset: var(--c-viewer-inset);
+  --c-surface-elevated: var(--c-viewer-raised);
+  --c-surface-hover: var(--c-viewer-hover);
+  --c-text: var(--c-viewer-text);
+  --c-text-secondary: var(--c-viewer-secondary);
+  --c-text-tertiary: var(--c-viewer-secondary);
+  --c-border: var(--c-viewer-border);
+  --c-border-subtle: color-mix(in srgb, var(--c-viewer-border) 50%, transparent);
+  --c-border-strong: var(--c-viewer-border-strong);
+  --c-border-focus: var(--c-viewer-focus);
+  --c-accent: var(--c-viewer-accent);
+  --c-accent-text: var(--c-viewer-accent);
+  --c-accent-ring: var(--c-viewer-focus);
+  --c-cta: var(--c-viewer-cta);
+  --c-cta-hover: var(--c-viewer-cta-hover);
+  --c-cta-text: var(--c-viewer-cta-text);
+  --c-cta-subtle: var(--c-viewer-selected);
+  --c-error-text: var(--c-viewer-error);
+  --c-error-bg: var(--c-viewer-error-bg);
+  --c-success-text: var(--c-viewer-success);
+  --c-overlay: var(--c-viewer-scrim);
+  --c-overlay-panel: var(--c-viewer-canvas);
+  --c-overlay-chip: var(--c-viewer-chip);
+  --c-overlay-muted: var(--c-viewer-secondary);
+  --c-on-media: var(--c-viewer-text);
+  --shadow-md: 0 8px 24px -4px var(--c-viewer-shadow), 0 2px 6px -1px var(--c-viewer-shadow-soft);
+  --shadow-lg: 0 20px 44px -10px var(--c-viewer-shadow-strong), 0 4px 12px -2px var(--c-viewer-shadow);
+  --shadow-overlay: 0 32px 64px -12px var(--c-viewer-shadow-strong), 0 8px 20px -4px var(--c-viewer-shadow-soft);
+  color-scheme: light;
+}
+
+:root.dark .media-overlay-frame,
+:root.dark .media-comparison {
+  --c-viewer-canvas: #0D0C0B;
+  --c-viewer-panel: #1B1A18;
+  --c-viewer-raised: #211F1D;
+  --c-viewer-inset: #111010;
+  --c-viewer-hover: #242220;
+  --c-viewer-text: #EDEBE7;
+  --c-viewer-secondary: #A29F99;
+  --c-viewer-border: #2E2C29;
+  --c-viewer-border-strong: #3B3834;
+  --c-viewer-accent: #C79A64;
+  --c-viewer-focus: #A98158;
+  --c-viewer-selected: rgb(199 154 100 / 14%);
+  --c-viewer-cta: #C79A64;
+  --c-viewer-cta-hover: #D4AA77;
+  --c-viewer-cta-text: #1A1712;
+  --c-viewer-error: #E8A597;
+  --c-viewer-error-bg: rgb(154 59 46 / 18%);
+  --c-viewer-success: #A9C79A;
+  --c-viewer-scrim: rgb(0 0 0 / 72%);
+  --c-viewer-chip: rgb(10 9 8 / 72%);
+  --c-viewer-icon: color-mix(in srgb, var(--c-viewer-chip) 94%, transparent);
+  --c-viewer-toolbar: color-mix(in srgb, var(--c-viewer-chip) 94%, transparent);
+  --c-viewer-input: color-mix(in srgb, var(--c-viewer-canvas) 60%, transparent);
+  --c-viewer-input-border: rgb(255 255 255 / 16%);
+  --c-viewer-shadow: rgb(0 0 0 / 30%);
+  --c-viewer-shadow-soft: rgb(0 0 0 / 20%);
+  --c-viewer-shadow-strong: rgb(0 0 0 / 40%);
+  --c-surface-elevated: #262422;
+  --c-text-tertiary: #6E6B66;
+  --c-border-subtle: rgb(255 245 230 / 6%);
+  --c-border-focus: #57524B;
+  --c-accent-text: #D9B283;
+  --c-overlay-muted: rgb(255 255 255 / 30%);
+  --c-on-media: #FFFFFF;
+  color-scheme: dark;
+}
+
 .media-overlay-layout {
   grid-template-rows: minmax(0, 1fr);
   background: var(--c-overlay-panel);
@@ -1003,10 +1106,9 @@ select.input-base {
   background: var(--c-overlay-panel);
 }
 
-/* Warm-black glass is shared by the details sheet and its comparison portal,
-   independent of the surrounding application's light/dark preference. */
-.media-overlay-sidebar,
-.media-comparison {
+/* Preserve the existing warm-black details/comparison palette in dark mode. */
+:root.dark .media-overlay-sidebar,
+:root.dark .media-comparison {
   --c-surface: rgb(22 21 19 / 96%);
   --c-surface-raised: #272420;
   --c-surface-inset: #12110F;
@@ -1031,6 +1133,97 @@ select.input-base {
   --shadow-lg: 0 20px 44px -10px var(--c-glass-shadow);
   --shadow-overlay: 0 32px 64px -12px var(--c-glass-shadow);
   color-scheme: dark;
+}
+
+/* Light gallery surfaces stay opaque enough over both bright and dark images.
+   Only control surfaces are frosted; media itself is never tinted or filtered. */
+:root:not(.dark) .media-overlay-frame {
+  --yarl__slide_icon_loading_color: var(--c-viewer-secondary);
+  --yarl__slide_icon_error_color: var(--c-viewer-error);
+}
+
+:root:not(.dark) .media-overlay-icon-button {
+  border-color: var(--c-viewer-border);
+  background: var(--c-viewer-icon);
+}
+
+:root:not(.dark) .media-overlay-icon-button:hover:not(:disabled) {
+  border-color: var(--c-viewer-border-strong);
+  background: var(--c-viewer-raised);
+}
+
+:root:not(.dark) .media-overlay-image-actions,
+:root:not(.dark) .media-overlay-edit-form {
+  border-color: var(--c-viewer-border);
+  background: var(--c-viewer-toolbar);
+}
+
+:root:not(.dark) .media-overlay-edit-form {
+  color-scheme: light;
+}
+
+:root:not(.dark) .media-overlay-edit-form textarea,
+:root:not(.dark) .media-overlay-resize-options__list label {
+  border-color: var(--c-viewer-input-border);
+  background: var(--c-viewer-input);
+}
+
+:root:not(.dark) .media-overlay-edit-form textarea::placeholder,
+:root:not(.dark) .media-overlay-edit-form > label,
+:root:not(.dark) .media-overlay-edit-form__actions,
+:root:not(.dark) .media-overlay-resize-options__model,
+:root:not(.dark) .media-overlay-resize-options__empty,
+:root:not(.dark) .media-overlay-resize-options__ratio,
+:root:not(.dark) .media-overlay-image-action-chevron {
+  color: var(--c-viewer-secondary);
+}
+
+:root:not(.dark) .media-overlay-edit-form textarea:focus-visible {
+  border-color: var(--c-viewer-focus);
+  box-shadow: 0 0 0 1px var(--c-viewer-focus);
+}
+
+:root:not(.dark) .media-overlay-resize-options__list label:has(input:checked),
+:root:not(.dark) .media-overlay-resize-options__list label:hover:not(:has(input:disabled)),
+:root:not(.dark) .media-overlay-image-action[aria-expanded="true"] {
+  border-color: var(--c-viewer-accent);
+  background: var(--c-viewer-selected);
+  color: var(--c-viewer-accent);
+}
+
+:root:not(.dark) .media-overlay-image-action:hover:not(:disabled) {
+  background: var(--c-viewer-hover);
+}
+
+:root:not(.dark) .media-overlay-edit-form__actions button {
+  color: var(--c-viewer-cta-text);
+}
+
+:root:not(.dark) .media-overlay-resize-options,
+:root:not(.dark) .media-overlay-export-toast,
+:root:not(.dark) .media-overlay-generation-feedback {
+  background: var(--c-viewer-panel);
+  border-color: var(--c-viewer-border);
+}
+
+:root:not(.dark) .media-overlay-resize-options__error {
+  color: var(--c-viewer-error);
+}
+
+:root:not(.dark) .media-overlay-export-toast[data-error="true"],
+:root:not(.dark) .media-overlay-generation-feedback[role="alert"] {
+  border-color: var(--c-viewer-error);
+}
+
+:root:not(.dark) .media-overlay-icon-button:focus-visible,
+:root:not(.dark) .media-overlay-image-action:focus-visible,
+:root:not(.dark) .media-overlay-edit-form__actions button:focus-visible,
+:root:not(.dark) .media-overlay-resize-options__list label:has(input:focus-visible) {
+  outline-color: var(--c-viewer-focus);
+}
+
+:root:not(.dark) .media-overlay-icon-button[data-export-state="success"] {
+  color: var(--c-viewer-success);
 }
 
 .media-overlay-sidebar {
