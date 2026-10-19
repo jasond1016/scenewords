@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -46,6 +47,55 @@ function QueueDot({ count }: { count: number }) {
   return <span className="topbar-queue-dot tabular-nums">{count}</span>;
 }
 
+function PrimaryNavigation({ sidebarVisible = false, inProgressCount = 0, returnSessionId }: {
+  sidebarVisible?: boolean;
+  inProgressCount?: number;
+  returnSessionId?: string;
+}) {
+  const { t } = useI18n();
+  const location = useLocation();
+  const navRef = useRef<HTMLElement | null>(null);
+  const [fits, setFits] = useState(false);
+  const visible = fits && !sidebarVisible;
+  const state = returnSessionId === undefined ? location.state : returnSessionId ? { returnSessionId } : null;
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const header = nav?.closest<HTMLElement>(".topbar-inner");
+    const leading = header?.querySelector<HTMLElement>(".app-topbar-leading");
+    const trailing = header?.querySelector<HTMLElement>(".app-topbar-trailing");
+    if (!nav || !header || !leading || !trailing) return;
+    const measure = () => {
+      const bounds = header.getBoundingClientRect();
+      const center = (bounds.left + bounds.right) / 2;
+      const gap = parseFloat(getComputedStyle(header).columnGap);
+      const available = 2 * Math.min(center - leading.getBoundingClientRect().right - gap,
+        trailing.getBoundingClientRect().left - center - gap);
+      setFits(nav.getClientRects().length > 0 && nav.getBoundingClientRect().width <= available);
+    };
+    const observer = new ResizeObserver(measure);
+    for (const element of [header, nav, leading, trailing]) observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <nav ref={navRef} className="topbar-nav" data-visible={visible} aria-hidden={!visible} aria-label={t("nav.primary")}>
+      {[
+        { to: "/create", label: t("nav.create") },
+        { to: "/works", label: t("nav.works") },
+        { to: "/subjects", label: t("nav.subjects") },
+      ].map((item) => (
+        <NavLink key={item.to} to={item.to} state={state} tabIndex={visible ? 0 : -1}
+          className="topbar-nav-link">
+          {item.label}
+          {item.to === "/works" && !isWorksPath(location.pathname) ? <QueueDot count={inProgressCount} /> : null}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 export function AppTopBar({
   inProgressCount,
   onSlotChange,
@@ -74,12 +124,6 @@ export function AppTopBar({
     (theme === "system" &&
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const navItems = [
-    { to: "/create", label: t("nav.create") },
-    { to: "/works", label: t("nav.works") },
-    { to: "/subjects", label: t("nav.subjects") },
-  ];
-
   useEffect(() => {
     if (!menuOpen) {
       return;
@@ -116,7 +160,7 @@ export function AppTopBar({
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="app-topbar-leading flex items-center">
+        <div className="app-topbar-leading">
           <button
             type="button"
             className="topbar-icon-btn app-topbar-back"
@@ -129,23 +173,7 @@ export function AppTopBar({
             SceneWords
           </NavLink>
         </div>
-        <nav className="topbar-nav" aria-label={t("nav.primary")}>
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              state={location.state}
-              className={({ isActive }) =>
-                `topbar-nav-link ${isActive ? "topbar-nav-link-active" : ""}`
-              }
-            >
-              {item.label}
-              {item.to === "/works" && !isWorksPath(location.pathname) ? (
-                <QueueDot count={inProgressCount} />
-              ) : null}
-            </NavLink>
-          ))}
-        </nav>
+        <PrimaryNavigation inProgressCount={inProgressCount} />
         <span className="app-topbar-mobile-title">{currentTitle}</span>
         <div className="app-topbar-trailing">
           <div className="topbar-actions" ref={onSlotChange} />
@@ -204,9 +232,11 @@ export function AppTopBar({
 export function CreateTopBar({
   breadcrumb,
   returnSessionId,
+  sidebarVisible,
 }: {
   breadcrumb: ReactNode;
   returnSessionId: string;
+  sidebarVisible: boolean;
 }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -251,13 +281,15 @@ export function CreateTopBar({
   return (
     <header className="topbar">
       <div className="topbar-inner topbar-inner-create">
-        <div className="crumb">
+        <div className="app-topbar-leading create-topbar-leading">
           {breadcrumb}
+          <NavLink to="/create" className="wordmark create-desktop-brand">SceneWords</NavLink>
         </div>
-        <NavLink to="/create" className="wordmark wordmark-center">
+        <PrimaryNavigation sidebarVisible={sidebarVisible} returnSessionId={returnSessionId} />
+        <NavLink to="/create" className="wordmark wordmark-center create-mobile-brand">
           SceneWords
         </NavLink>
-        <div className="topbar-actions">
+        <div className="topbar-actions app-topbar-trailing">
           <div className="dropdown-anchor" ref={menuRef}>
             <button
               type="button"

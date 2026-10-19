@@ -17,7 +17,7 @@
 
 - **风格:** 纸感留白 — 暖灰画布、细边框、衬线字、克制的阴影
 - **配色:** Warm Paper Neutral + 单一焦糖强调色 (#B5864F)
-- **布局:** 顶栏 wordmark + 创作/资产/主体导航；页面右上操作通过 `HeaderActions` portal 注入（`components/AppTopBar.tsx`）；创作页使用独立 `CreateTopBar` + 居中 composer
+- **布局:** 顶栏 wordmark + 创作/作品/主体导航；页面右上操作通过 `HeaderActions` portal 注入（`components/AppTopBar.tsx`）；创作页使用独立 `CreateTopBar` + 居中 composer
 - **Token 命名:** `--c-*`(颜色) / `--shadow-*`(阴影) / `--radius-*`(圆角)
 - **暗色模式:** `:root.dark` class toggle，Zustand 持久化 `theme` 偏好
 - **动效:** `--ease-out-expo` / `--ease-spring`，支持 `prefers-reduced-motion`

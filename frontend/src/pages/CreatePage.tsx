@@ -2106,6 +2106,7 @@ export function CreatePage(props: Props) {
   const topBar = (
     <CreateTopBar
       returnSessionId={sceneId}
+      sidebarVisible={historyOpen}
       breadcrumb={
         <div className="create-header-controls flex min-w-0 items-center gap-2">
           <button

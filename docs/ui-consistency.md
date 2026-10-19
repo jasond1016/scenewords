@@ -63,6 +63,26 @@ squeezing every ratio into one row.
 - Focus outlines stay visible; pending/disabled controls keep their geometry.
   Menus and long metadata must not push navigation outside the viewport.
 
+## Primary navigation
+
+The user-facing destinations are **创作 / 作品 / 主体** and
+**Create / Works / Subjects**. Keep `/works`, API paths and the technical asset
+data terminology unchanged.
+
+There is no persistent desktop sidebar: creation history is a conditional drawer.
+Above 640px, both page headers share compact centered navigation when that drawer
+is closed and the measured space between leading/trailing actions is sufficient.
+Opening the drawer hides the duplicate header navigation. Phones retain their
+existing history/back navigation. Insufficient space, including enlarged text,
+hides the segment without hiding those fallback controls.
+
+React Router's `aria-current="page"` is the only persistent selection styling
+source. Hover applies only to non-current links: desktop pointer hover, touch
+sticky hover and pressed state must never replace the current destination's
+background. Selection has no color/background transition delay after route commit.
+Hidden navigation is removed from the tab order and accessibility tree; visible
+links retain 44px targets and their keyboard focus indicator.
+
 ## Contrast and localization
 
 Primary, secondary and caption text must meet WCAG AA normal-text contrast (4.5:1)
