@@ -74,7 +74,7 @@ test("regeneration retries the whole source image request without importing a re
   assert.deepEqual(calls.map((call) => call.path), ["/v1/image/tasks/source%2F17/retry"]);
   assert.equal(calls[0].init.method, "POST");
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
-    retry_mode: "new_seed", prompt: "Original scene",
+    retry_mode: "new_seed", routing_mode: "auto", prompt: "Original scene",
   });
   assert.equal(new Headers(calls[0].init.headers).get("Authorization"), "Bearer token");
   assert.deepEqual(source.provider_options.image_file_ids, ["old"]);
@@ -89,7 +89,7 @@ for (const assetType of ["image", "video"] as const) {
     assert.deepEqual(calls.map((call) => call.path), [`/v1/${assetType}/tasks/source%2F17/retry`]);
     assert.equal(calls[0].init.method, "POST");
     assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
-      retry_mode: "same_seed", prompt: "失败任务的原始提示词",
+      retry_mode: "same_seed", routing_mode: "auto", prompt: "失败任务的原始提示词",
     });
     assert.equal(source.seed, 19);
     assert.deepEqual(source.provider_options.image_file_ids, ["old"]);
@@ -111,8 +111,10 @@ for (const selected of ["edit", "custom", "generate"]) {
     assert.equal(submitted.operation, selected);
     assert.deepEqual(submitted.provider_options, {
       quality: "high", [selected === "generate" ? "input_reference_file_ids" : "image_file_ids"]: ["new-reference"],
-      response_format: "url", moderation: "auto", watermark: false,
     });
+    assert.equal(submitted.seed, 19, "unsupported semantics must be rejected by routing, not erased by the UI");
+    assert.equal(submitted.model, "");
+    assert.equal(submitted.provider, "");
     assert.equal(submitted.resolution, "1536x1024");
     assert.equal(submitted.scene_id, "scene-2");
     assert.equal(submitted.generation_id, "generation-3");
@@ -154,9 +156,9 @@ test("ratio resize preserves the API value and mapped label without changing mod
   assert.equal(submitted.resolution, "16:9");
   assert.match(submitted.prompt, /Requested output size: 16:9 \(1672x941\)$/);
   assert.deepEqual(submitted.provider_options, {
-    quality: "high", image_file_ids: ["ratio-reference"], response_format: "url", moderation: "auto", watermark: false,
+    quality: "high", image_file_ids: ["ratio-reference"],
   });
-  assert.equal(submitted.model, task.model);
+  assert.equal(submitted.model, "");
   assert.equal(submitted.parent_version_id, task.task_id);
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
 });
@@ -232,7 +234,7 @@ test("details show the user's latest modification and honest request dimensions/
   assert.match(html, /Warm lighting\s+Keep the blue vase/);
   assert.match(html, /本次修改|This modification/);
   assert.match(render({ prompt: "A quiet scene" }), /我的描述|My description/);
-  assert.match(html, /<dd>Image<\/dd>/);
+  assert.doesNotMatch(html, /<dd>Image<\/dd>/, "actual model is inside collapsed parameters");
   assert.match(html, /192:125/);
   assert.match(html, /1536 × 1000/);
   assert.match(html, /实际费用|Actual cost/);
@@ -252,7 +254,7 @@ test("details show the user's latest modification and honest request dimensions/
   assert.doesNotMatch(unknown, /目标尺寸|Target size|N\/A/);
 });
 
-test("high-resolution candidate submits Sunburst edit with source size and preservation options", async (t) => {
+test("high-resolution candidate requests a 4K edit without selecting a model or forcing model-specific quality", async (t) => {
   const capabilities: ProviderCatalogResponse = {
     providers: [{
       id: "sunburst-provider",
@@ -282,18 +284,16 @@ test("high-resolution candidate submits Sunburst edit with source size and prese
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
   assert.equal(calls[1].path, "/v1/image/generations");
   const submitted = JSON.parse(String(calls[1].init.body));
-  assert.equal(submitted.provider, "sunburst-provider");
-  assert.equal(submitted.model, "gpt-image-2.5-sunburst");
+  assert.equal(submitted.provider, "");
+  assert.equal(submitted.model, "");
   assert.equal(submitted.operation, "edit");
-  assert.equal(submitted.resolution, "2800x1260");
+  assert.equal(submitted.resolution, "20:9");
+  assert.equal(submitted.resolution_tier, "4k");
   assert.deepEqual(submitted.provider_options, {
     image_file_ids: ["candidate-source"],
-    quality: "xhigh",
-    background: "auto",
-    output_format: "png",
-    input_fidelity: "high",
-    response_format: "url", moderation: "auto", watermark: false,
+    quality: "high",
   });
+  assert.equal(submitted.seed, 19);
   assert.match(submitted.prompt, /Create a high-resolution candidate/);
   assert.match(submitted.prompt, /Small visual differences may occur/);
   assert.match(submitted.prompt, /Original brief for context only/);
@@ -338,13 +338,11 @@ test("high-resolution candidate creates a scene for standalone images", async (t
   assert.equal(submitted.parent_version_id, null);
 });
 
-test("high-resolution candidate fails before importing when Sunburst edit is unavailable", async (t) => {
-  const calls = mockFetch(t, []);
-  await assert.rejects(
-    submitHighResolutionCandidate({ task, imageIndex: 0, catalog: catalog([]) }, ""),
-    /Sunburst editing is not available/,
-  );
-  assert.equal(calls.length, 0);
+test("high-resolution candidate leaves availability decisions to the backend, not Sunburst catalog presence", async (t) => {
+  const calls = mockFetch(t, [Response.json({ file_id: "ref" }), Response.json({ task_id: "smart-candidate" })]);
+  const response = await submitHighResolutionCandidate({ task, imageIndex: 0, catalog: catalog([]) }, "");
+  assert.equal(response.task_id, "smart-candidate");
+  assert.equal(JSON.parse(String(calls[1].init.body)).resolution_tier, "4k");
 });
 
 for (const [body, message] of [

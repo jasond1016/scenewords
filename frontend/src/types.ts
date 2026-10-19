@@ -46,6 +46,7 @@ export interface ProviderModelOperationInfo {
 export interface ProviderModelInfo {
   name: string;
   display_name: string;
+  routing_goal?: { resolution_tier: "1k" | "2k" | "4k" | "720p" } | null;
   is_default: boolean;
   operations: ProviderModelOperationInfo[];
 }
@@ -60,12 +61,15 @@ export interface ProviderInfo {
 
 export interface ProviderCatalogResponse {
   providers: ProviderInfo[];
+  routing_providers?: ProviderInfo[];
   max_upload_bytes?: number;
 }
 
 export interface VideoGenerationRequest {
   provider: string;
   model: string;
+  resolution_tier?: "1k" | "2k" | "4k" | "720p";
+  routing_budget?: number;
   operation?: string | null;
   scene_id?: string | null;
   generation_id?: string | null;
@@ -138,6 +142,7 @@ export interface VideoTaskResponse {
 
 export interface VideoTaskDetail extends VideoTaskResponse {
   operation: string | null;
+  routing?: { goal: { resolution_tier: "1k" | "2k" | "4k" | "720p"; resolution: string | null }; intent?: VideoGenerationRequest; [key: string]: unknown } | null;
   provider_job_id?: string | null;
   provider_status?: string | null;
   provider_query_endpoint?: string | null;
@@ -159,6 +164,7 @@ export interface VideoTaskDetail extends VideoTaskResponse {
 
 export interface RetryTaskRequest {
   retry_mode: RetryMode;
+  routing_mode?: "auto" | "exact";
   prompt?: string | null;
 }
 

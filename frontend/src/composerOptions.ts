@@ -12,12 +12,7 @@ export function isComposerField(target: string, key: string): boolean {
 }
 
 export function sanitizeComposerOptions(options: Record<string, unknown>): Record<string, unknown> {
-  return {
-    ...Object.fromEntries(Object.entries(options).filter(([key]) => OPTION_KEYS.has(key))),
-    response_format: "url",
-    moderation: "auto",
-    watermark: false,
-  };
+  return Object.fromEntries(Object.entries(options).filter(([key]) => OPTION_KEYS.has(key)));
 }
 
 export function sanitizeComposerValues(values: Record<string, string>): Record<string, string> {

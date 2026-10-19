@@ -106,6 +106,7 @@ export function retryVideoTask(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         retry_mode: retryMode,
+        routing_mode: "auto",
         prompt,
       }),
     },

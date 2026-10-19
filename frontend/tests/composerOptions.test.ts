@@ -48,7 +48,6 @@ test("ordinary composer reuse and persisted sessions discard hidden overrides wi
   const draft = useAppSettingsStore.getState().pendingReuseDraft!;
   assert.deepEqual(draft.providerOptions, {
     n: 4, output_format: "webp", input_fidelity: "high", image_file_ids: ["ref-a", "ref-b"],
-    response_format: "url", moderation: "auto", watermark: false,
   });
   assert.equal(draft.negativePrompt, "");
   assert.equal(draft.seed, null);

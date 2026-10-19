@@ -217,7 +217,6 @@ export function MediaDetailSidebar(props: Props) {
       </section>
 
       <dl className="media-detail-meta">
-        <InfoCell label={t("works.model")} value={modelName} />
         {format.ratio ? <InfoCell label={t("create.quickRatio")} value={format.ratio} /> : null}
         {format.resolution ? <InfoCell label={t("works.detail.targetSize")} value={format.resolution} /> : null}
         {cost.amount != null && (cost.kind === "charged" || cost.kind === "estimated") ? (
@@ -229,6 +228,7 @@ export function MediaDetailSidebar(props: Props) {
         <summary>{t("works.detail.parameters")}<CaretDown size={16} weight="regular" aria-hidden="true" /></summary>
         {parametersOpen ? <div className="media-detail-section-body">
           <dl className="media-detail-meta">
+            <InfoCell label={t("works.model")} value={modelName} />
             <InfoCell label={t("works.provider")} value={provider?.display_name ?? task.provider} />
             {task.provider_options.quality != null ? <InfoCell label={t("works.detail.quality")} value={String(task.provider_options.quality)} /> : null}
             {task.seed != null ? <InfoCell label={t("works.seed")} value={String(task.seed)} /> : null}
@@ -236,6 +236,7 @@ export function MediaDetailSidebar(props: Props) {
             <InfoCell label={t("works.created")} value={formatTime(task.created_at, normalizedLocale)} />
             <InfoCell label={t("works.detail.updated")} value={updatedAtLabel} />
           </dl>
+          {task.routing ? <details className="media-detail-section"><summary>{t("works.detail.routing")}<CaretDown size={16} weight="regular" aria-hidden="true" /></summary><pre className="overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(task.routing, null, 2)}</pre></details> : null}
           <h3>{t("works.detail.fullPrompt")}</h3><p className="media-detail-full-text">{task.prompt || t("works.emptyPrompt")}</p>
           <button type="button" className="media-detail-link" onClick={() => void copy(task.prompt)}>{t("works.detail.copy")}</button>
           {task.negative_prompt ? <><h3>{t("works.negativePrompt")}</h3><p className="media-detail-full-text">{task.negative_prompt}</p></> : null}

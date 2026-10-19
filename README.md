@@ -21,10 +21,11 @@ SceneWords 是一个面向 iPad 的媒体生成网关：通过统一 API 在第�
   - `GET /v1/pricing`
   - `GET /v1/models`
   - 模型能力描述（`operations` 与字段定义）
-- 前端支持按 `Provider / Model / Operation` 动态切换参数（仅显示接口支持项）
+- 普通创作界面不再选择模型：按比例、清晰度、参考图、数量、格式、视频时长/方向等目标设置，由后端按硬能力 → 折后总价 → 固定优先级路由。
+- 智能路由规则、预算和等价降级边界见 [第一阶段说明](docs/smart-routing.md)；配置位于 `config/routing.json`（环境变量 `VIDEO_GATEWAY_ROUTING_CONFIG` 可覆盖）。
 - 支持按请求覆盖 `base_url`、`api_path`、`model`；型号覆写（含 `extra_body.model`）同样必须在当前 Provider 的能力目录中。
 - 支持第三方 API（OpenAI-compatible / Vertex Veo / Tuzi Video / Tuzi Image）
-- 已移除或禁用的 Provider / 模型仍保留历史记录；新建和重试返回 `503 unavailable`，不会自动替换模型或改写历史请求。
+- 旧显式模型请求与精确重试兼容；已移除模型的新建/精确重试返回 `503 unavailable`。普通界面重试重新智能匹配，无法保留原语义或缺少报价时拒绝，不改写历史记录。
 - 可选网关 `Bearer Token` 鉴权
 
 ## 目录
@@ -41,6 +42,7 @@ pricing.py              # 本地价格表与估算逻辑
 frontend/                 # React + TypeScript + Vite 前端源码
 config/providers.json     # Provider 与模型配置
 config/pricing.json       # 本地价格配置（支持 provider/model/operation 维度）
+config/routing.json       # 智能路由候选、能力分组、尺寸映射、预算与尝试上限
 ```
 
 ## 快速启动

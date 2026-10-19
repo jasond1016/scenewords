@@ -148,16 +148,6 @@ interface VideoModelFamily {
   variants: VideoModelVariant[];
 }
 
-interface ModelSelectorChoice {
-  key: string;
-  label: string;
-  meta: string;
-  providerId: string;
-  modelName: string;
-  operationId?: string;
-  familyId?: string;
-}
-
 export function CreatePage(props: Props) {
   const { catalog, loading } = props;
   const { locale, t } = useI18n();
@@ -165,7 +155,7 @@ export function CreatePage(props: Props) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const settings = useAppSettingsStore();
-  const providers = catalog?.providers ?? [];
+  const providers = catalog?.routing_providers ?? [];
 
   const [providerId, setProviderId] = useState("");
   const [modelName, setModelName] = useState("");
@@ -425,12 +415,7 @@ export function CreatePage(props: Props) {
       ) ?? null,
     [selectedOperation],
   );
-  const usesOfficialGptImage25Parameters = [
-    "gpt-image-2.5",
-    "gpt-image-2.5-vip",
-    "gpt-image-2.5-flare",
-    "gpt-image-2.5-sunburst",
-  ].includes(selectedModel?.name ?? "");
+  const usesOfficialGptImage25Parameters = currentGenerationKind === "image" && Boolean(outputFormatField);
   const quickMediaFields = useMemo(() => {
     if (!selectedOperation) {
       return [];
@@ -522,14 +507,6 @@ export function CreatePage(props: Props) {
       null
     );
   }, [currentImageFamily, modelName]);
-  const currentImageFamilySupportsModeSwitch = useMemo(() => {
-    if (!currentImageFamily) {
-      return false;
-    }
-    const hasAsyncVariant = currentImageFamily.variants.some((variant) => variant.asyncEnabled);
-    const hasSyncVariant = currentImageFamily.variants.some((variant) => !variant.asyncEnabled);
-    return hasAsyncVariant && hasSyncVariant;
-  }, [currentImageFamily]);
   const currentVideoFamily = useMemo(() => {
     if (!videoModelFamilies.length) {
       return null;
@@ -578,77 +555,6 @@ export function CreatePage(props: Props) {
         : [],
     [currentImageFamily],
   );
-  const modelChoices = useMemo<ModelSelectorChoice[]>(() => {
-    if (currentGenerationKind === "image") {
-      return imageModelFamilies.map((family) => ({
-        key: family.id,
-        label: family.label,
-        meta: "",
-        providerId: family.provider.id,
-        modelName: family.variants[0]?.model.name ?? "",
-        familyId: family.id,
-      }));
-    }
-
-    if (videoModelFamilies.length) {
-      const groupedProviderIds = new Set(videoModelFamilies.map((family) => family.provider.id));
-      const groupedChoices = videoModelFamilies.map((family) => ({
-        key: family.id,
-        label: family.label,
-        meta: providerChoices.length > 1 ? family.provider.display_name : "",
-        providerId: family.provider.id,
-        modelName: family.variants[0]?.model.name ?? "",
-        operationId: family.variants[0]?.operation?.id,
-        familyId: family.id,
-      }));
-      const fallbackChoices = providerChoices
-        .filter((provider) => !groupedProviderIds.has(provider.id))
-        .flatMap((provider) =>
-          provider.models.flatMap((model) =>
-            model.operations.map((operation) => {
-              const metaParts: string[] = [];
-              if (providerChoices.length > 1) {
-                metaParts.push(provider.display_name);
-              }
-              if (model.operations.length > 1) {
-                metaParts.push(operation.display_name);
-              }
-              return {
-                key: `${provider.id}::${model.name}::${operation.id}`,
-                label: model.display_name,
-                meta: metaParts.join(" · "),
-                providerId: provider.id,
-                modelName: model.name,
-                operationId: operation.id,
-              };
-            }),
-          ),
-        );
-      return [...groupedChoices, ...fallbackChoices];
-    }
-
-    return providerChoices.flatMap((provider) =>
-      provider.models.flatMap((model) =>
-        model.operations.map((operation) => {
-          const metaParts: string[] = [];
-          if (providerChoices.length > 1) {
-            metaParts.push(provider.display_name);
-          }
-          if (model.operations.length > 1) {
-            metaParts.push(operation.display_name);
-          }
-          return {
-            key: `${provider.id}::${model.name}::${operation.id}`,
-            label: model.display_name,
-            meta: metaParts.join(" · "),
-            providerId: provider.id,
-            modelName: model.name,
-            operationId: operation.id,
-          };
-        }),
-      ),
-    );
-  }, [currentGenerationKind, imageModelFamilies, providerChoices]);
   useLayoutEffect(() => {
     if (!openPopover) {
       return;
@@ -698,24 +604,7 @@ export function CreatePage(props: Props) {
       window.removeEventListener("scroll", positionPopover, true);
       resizeObserver.disconnect();
     };
-  }, [modelChoices.length, openPopover, subjectsQuery.data?.length]);
-  const activeModelChoiceKey = useMemo(() => {
-    if (currentGenerationKind === "image") {
-      return currentImageFamily?.id ?? "";
-    }
-    if (currentVideoFamily) {
-      return currentVideoFamily.id;
-    }
-    return `${providerId}::${modelName}::${selectedOperation?.id ?? operationId}`;
-  }, [
-    currentGenerationKind,
-    currentImageFamily?.id,
-    currentVideoFamily,
-    modelName,
-    operationId,
-    providerId,
-    selectedOperation?.id,
-  ]);
+  }, [openPopover, selectedModel?.name, subjectsQuery.data?.length]);
   const supportsInlineImageInput = Boolean(
     selectedOperation?.fields.some(
       (field) =>
@@ -898,13 +787,7 @@ export function CreatePage(props: Props) {
     }
     return items;
   }, [composerMediaFields, uiFiles, uiReusedFileIds]);
-  const modelChipLabel = useMemo(() => {
-    const activeChoice = modelChoices.find((choice) => choice.key === activeModelChoiceKey) ?? null;
-    if (activeChoice) {
-      return activeChoice.label;
-    }
-    return t("create.model");
-  }, [activeModelChoiceKey, modelChoices, t]);
+  const modelChipLabel = t(currentGenerationKind === "image" ? "create.quickImage" : "create.quickVideo");
   const formatChipLabel = useMemo(() => {
     const parts: string[] = [];
     if (!hideVideoRatioSelector && currentRatioDisplay && currentRatioDisplay !== "-") {
@@ -1091,18 +974,26 @@ export function CreatePage(props: Props) {
     if (!pending || !providers.length) {
       return;
     }
-    const pendingProvider = providers.find((provider) => provider.id === pending.provider) ?? null;
+    const pendingKind = catalog?.providers.find((provider) => provider.id === pending.provider)?.type.includes("image") ? "image" : currentGenerationKind;
+    const pendingProvider = providers.find((provider) => provider.id === pending.provider)
+      ?? pickProviderByKind(providers, pendingKind, "");
     if (pendingProvider) {
       const pendingKind = isImageProviderType(pendingProvider.type) ? "image" : "video";
       if (pendingKind !== currentGenerationKind) {
         setCurrentGenerationKind(pendingKind);
       }
     }
-    if (providerId !== pending.provider) {
-      setProviderId(pending.provider);
+    if (pendingProvider && providerId !== pendingProvider.id) {
+      setProviderId(pendingProvider.id);
     }
-    if (modelName !== pending.model) {
-      setModelName(pending.model);
+    const pendingModel = pendingProvider?.models.find((model) => model.name === pending.model)
+      ?? pendingProvider?.models.find((model) => model.is_default);
+    if (pendingProvider && pendingModel && (pending.provider !== pendingProvider.id || pending.model !== pendingModel.name)) {
+      settings.setPendingReuseDraft({ ...pending, provider: pendingProvider.id, model: pendingModel.name });
+      return;
+    }
+    if (pendingModel && modelName !== pendingModel.name) {
+      setModelName(pendingModel.name);
     }
     if (operationId !== pending.operation) {
       setOperationId(pending.operation);
@@ -1416,8 +1307,9 @@ export function CreatePage(props: Props) {
         throw new Error(t("create.errorNoOperation"));
       }
       const payload: VideoGenerationRequest = {
-        provider: providerId,
-        model: modelName,
+        provider: "",
+        model: "",
+        ...selectedModel?.routing_goal,
         operation: selectedOperation.id,
         scene_id: sceneId || null,
         generation_id: sceneId ? generationId : null,
@@ -1583,7 +1475,8 @@ export function CreatePage(props: Props) {
           payload.prompt = buildPromptWithSubjects(payload.prompt ?? "", selectedSubjects);
         }
       }
-      payload.provider_options = sanitizeComposerOptions(payload.provider_options);
+      payload.provider_options = Object.fromEntries(Object.entries(sanitizeComposerOptions(payload.provider_options))
+        .filter(([key]) => selectedOperation.fields.some((field) => field.target === "provider_options" && field.key === key)));
       if (!sceneId) {
         const title = (promptValue.trim() || (locale === "zh-CN" ? "新会话" : "New chat")).slice(0, 160);
         const session = await createScene({ title, description: "" }, settings.gatewayToken);
@@ -2239,8 +2132,7 @@ export function CreatePage(props: Props) {
   }
 
   const hasQuickParams = Boolean(
-    (!usesOfficialGptImage25Parameters &&
-      ((resolutionField && (ratioChoices.length > 0 || resolutionValue)) || hasQuickSize)) ||
+    (resolutionField && (ratioChoices.length > 0 || resolutionValue)) || hasQuickSize ||
     (orientationField && orientationChoices.length > 0) ||
     (durationField && durationChoices.length > 0),
   );
@@ -2304,9 +2196,8 @@ export function CreatePage(props: Props) {
               } catch {
                 // Historical models without reference support retain details/download/delete.
               }
-              if (catalog.providers.some((provider) => provider.type === "tuzi_image" && provider.models.some((model) =>
-                model.name === "gpt-image-2.5-sunburst" && model.operations.some((operation) => operation.id === "edit" &&
-                  operation.fields.some((field) => field.target === "provider_options" && field.input_type === "file_list" && field.key === "image_file_ids"))))) {
+              if (catalog.routing_providers?.some((provider) => provider.type.includes("image") && provider.models.some((model) =>
+                model.routing_goal?.resolution_tier === "4k" && model.operations.some((operation) => operation.id === "edit")))) {
                 imageActions.push("highResolutionCandidate");
               }
             }
@@ -2695,89 +2586,6 @@ export function CreatePage(props: Props) {
               </div>
             </div>
 
-            <div className="composer-popover-section">
-              <p className="composer-popover-heading">{t("create.model")}</p>
-              <div className="composer-menu-list">
-                {modelChoices.map((choice) => {
-                  const isSelected = activeModelChoiceKey === choice.key;
-                  return (
-                    <button
-                      type="button"
-                      key={choice.key}
-                      className={`composer-menu-item ${isSelected ? "composer-menu-item-active" : ""}`}
-                      onClick={() => {
-                        if (currentGenerationKind === "image" && choice.familyId) {
-                          selectImageVariant(choice.familyId);
-                        } else if (
-                          currentGenerationKind === "video" &&
-                          choice.familyId &&
-                          videoModelFamilies.some((family) => family.id === choice.familyId)
-                        ) {
-                          selectVideoVariant(choice.familyId);
-                        } else {
-                          setProviderId(choice.providerId);
-                          setModelName(choice.modelName);
-                          if (choice.operationId) {
-                            setOperationId(choice.operationId);
-                          }
-                        }
-                      }}
-                    >
-                      <div className="composer-menu-item__content composer-menu-item__content-stack">
-                        <span>{choice.label}</span>
-                        {choice.meta ? (
-                          <span className="composer-menu-item__meta">{choice.meta}</span>
-                        ) : null}
-                      </div>
-                      {isSelected ? <Check size={13} weight="bold" className="composer-menu-check" /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {currentGenerationKind === "image" &&
-              currentImageFamily &&
-              currentImageFamilySupportsModeSwitch ? (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between gap-3 px-1">
-                    <p className="m-0 text-label">{t("create.quickMode")}</p>
-                    {hasImageSourceAttachments ? (
-                      <span className="text-xs text-[var(--c-text-tertiary)]">
-                        {t("create.imageModeAutoEdit")}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="segment-group w-full">
-                    <button
-                      type="button"
-                      className={`segment-item flex-1 ${!currentImageAsyncEnabled ? "segment-active" : ""}`}
-                      onClick={() => selectImageVariant(currentImageFamily.id, { asyncEnabled: false })}
-                    >
-                      {t("create.imageAsyncOff")}
-                    </button>
-                    <button
-                      type="button"
-                      className={`segment-item flex-1 ${currentImageAsyncEnabled ? "segment-active" : ""}`}
-                      onClick={() => {
-                        if (hasImageSourceAttachments) {
-                          return;
-                        }
-                        selectImageVariant(currentImageFamily.id, { asyncEnabled: true });
-                      }}
-                      disabled={hasImageSourceAttachments}
-                    >
-                      {t("create.imageAsyncOn")}
-                    </button>
-                  </div>
-                  <p className="m-0 px-1 text-xs leading-5 text-[var(--c-text-secondary)]">
-                    {currentImageAsyncEnabled
-                      ? t("create.imageModeBudgetDesc")
-                      : t("create.imageModeFastDesc")}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
             {hasQuickParams ? (
               <div className="composer-popover-section flex flex-col gap-3.5">
                 {!hideVideoRatioSelector &&
@@ -2909,7 +2717,7 @@ export function CreatePage(props: Props) {
               <div className="composer-popover-section">
                 <p className="composer-popover-heading">{t("create.quickFormat")}</p>
                 <div className="flex flex-col gap-2">
-                  {resolutionField ? (
+                  {resolutionField && !selectedModel.routing_goal ? (
                     <select
                       className="input-base py-1.5"
                       value={resolutionValue}
@@ -3717,9 +3525,7 @@ function parseImageModelVariant(model: ProviderModelInfo): {
       ? "2k"
       : "1k";
   const resolutionLabel = resolutionKeyToLabel(resolutionKey);
-  const familyLabel = normalizedName === "gpt-image-2.5-1k"
-    ? model.display_name
-    : model.display_name
+  const familyLabel = model.display_name
         .replace(/\s*\(1k\)/i, "")
         .replace(/\s+1k\b/gi, "")
         .replace(/\s+2k\b/gi, "")
@@ -4148,7 +3954,8 @@ function applySettingDefaults(
         (field.key === "quality" || field.key === "resolution_tier") &&
         (field.target === "provider_options" || field.target === "request"),
     ) ?? null;
-  if (qualityField && resolvedDefaults.defaultQuality) {
+  if (qualityField && resolvedDefaults.defaultQuality &&
+      (!qualityField.options.length || qualityField.options.some((option) => option.value === resolvedDefaults.defaultQuality))) {
     const key = fieldKey(qualityField);
     if (!values[key]) {
       values[key] = resolvedDefaults.defaultQuality;

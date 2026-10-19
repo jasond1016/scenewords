@@ -106,9 +106,8 @@ function resolveImageReferenceOperation(
   task: VideoTaskDetail,
   catalog: ProviderCatalogResponse,
 ) {
-  const model = catalog.providers
-    .find((provider) => provider.id === task.provider)
-    ?.models.find((candidate) => candidate.name === task.model);
+  const model = catalog.routing_providers?.find((provider) => provider.type.includes("image"))?.models[0]
+    ?? catalog.providers.find((provider) => provider.id === task.provider)?.models.find((candidate) => candidate.name === task.model);
   for (const id of ["edit", task.operation, "generate"]) {
     for (const operation of model?.operations ?? []) {
       if (operation.id !== id) continue;
@@ -143,7 +142,7 @@ async function submitImageTaskFromReference(
         },
         gatewayToken,
       );
-  const providerOptions = sanitizeComposerOptions(task.provider_options ?? {});
+  const providerOptions = sanitizeComposerOptions(task.routing?.intent?.provider_options ?? task.provider_options ?? {});
   delete providerOptions.image_file_ids;
   delete providerOptions.input_reference_file_ids;
   providerOptions[referenceField.key] = [imported.file_id];
@@ -154,8 +153,9 @@ async function submitImageTaskFromReference(
 
   return createImageTask(
     {
-      provider: task.provider,
-      model: task.model,
+      provider: "",
+      model: "",
+      resolution_tier: task.routing?.goal.resolution_tier,
       operation: operation.id,
       scene_id: task.scene_id ?? scene?.scene_id ?? null,
       generation_id: task.scene_id ? task.generation_id : null,
@@ -167,7 +167,7 @@ async function submitImageTaskFromReference(
       fps: task.fps,
       seed: task.seed,
       provider_options: providerOptions,
-      subject_bindings: [],
+      subject_bindings: task.subject_bindings,
     },
     gatewayToken,
   );
@@ -207,35 +207,10 @@ export async function submitHighResolutionCandidate(
   if (payload.task.asset_type !== "image" || payload.task.status !== "succeeded") {
     throw new Error("Only completed images can be used to create a high-resolution candidate.");
   }
-  const provider = payload.catalog.providers.find(
-    (candidate) =>
-      candidate.type === "tuzi_image" &&
-      candidate.models.some((model) => model.name === "gpt-image-2.5-sunburst"),
-  );
-  const model = provider?.models.find((candidate) => candidate.name === "gpt-image-2.5-sunburst");
-  const operation = model?.operations.find((candidate) => candidate.id === "edit");
-  const referenceField = operation?.fields.find(
-    (field) =>
-      field.target === "provider_options" &&
-      field.input_type === "file_list" &&
-      field.key === "image_file_ids",
-  );
-  if (!provider || !model || !operation || !referenceField) {
-    throw new Error("GPT Image 2.5 Sunburst editing is not available.");
-  }
-
   const imported = await importTaskImageAsFile(
     payload.task.task_id,
     payload.imageIndex,
     gatewayToken,
-  );
-  const resolutionField = operation.fields.find(
-    (field) => field.target === "request" && field.key === "resolution",
-  );
-  const sourceResolution = payload.task.resolution?.trim();
-  const preservesSourceResolution = Boolean(
-    sourceResolution &&
-    isSupportedCandidateResolution(sourceResolution, resolutionField?.options ?? []),
   );
   const scene = payload.task.scene_id
     ? null
@@ -247,53 +222,36 @@ export async function submitHighResolutionCandidate(
         gatewayToken,
       );
 
+  const providerOptions = sanitizeComposerOptions(payload.task.routing?.intent?.provider_options ?? payload.task.provider_options);
+  delete providerOptions.input_reference_file_ids;
+  providerOptions.image_file_ids = [imported.file_id];
   return createImageTask(
     {
-      provider: provider.id,
-      model: model.name,
-      operation: operation.id,
+      provider: "",
+      model: "",
+      operation: "edit",
+      resolution_tier: "4k",
       scene_id: payload.task.scene_id ?? scene?.scene_id ?? null,
       generation_id: payload.task.scene_id ? payload.task.generation_id : null,
       parent_version_id: payload.task.generation_id ? payload.task.task_id : null,
       prompt: buildHighResolutionCandidatePrompt(payload.task.prompt),
-      resolution: preservesSourceResolution
-        ? sourceResolution!
-        : typeof resolutionField?.default === "string"
-          ? resolutionField.default
-          : "auto",
-      provider_options: sanitizeComposerOptions({
-        [referenceField.key]: [imported.file_id],
-        quality: "xhigh",
-        background: "auto",
-        output_format: "png",
-        input_fidelity: "high",
-      }),
+      negative_prompt: payload.task.negative_prompt,
+      seed: payload.task.seed,
+      resolution: payload.task.routing?.goal.resolution ?? candidateRatio(payload.task.resolution),
+      provider_options: providerOptions,
       subject_bindings: payload.task.subject_bindings,
     },
     gatewayToken,
   );
 }
 
-function isSupportedCandidateResolution(
-  resolution: string,
-  options: { value: string }[],
-): boolean {
-  if (options.some((option) => option.value === resolution)) {
-    return true;
-  }
-  const match = resolution.match(/^(\d{4})x(\d{4})$/i);
-  if (!match) {
-    return false;
-  }
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  return (
-    width >= 1024 &&
-    width <= 4096 &&
-    height >= 1024 &&
-    height <= 4096 &&
-    Math.max(width / height, height / width) <= 3
-  );
+function candidateRatio(resolution: string | null): string | null {
+  if (!resolution || resolution.includes(":")) return resolution;
+  const [width, height] = resolution.split("x").map(Number);
+  if (!width || !height) return null;
+  const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
+  const divisor = gcd(width, height);
+  return `${width / divisor}:${height / divisor}`;
 }
 
 function buildHighResolutionCandidatePrompt(sourcePrompt: string): string {
