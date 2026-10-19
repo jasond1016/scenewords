@@ -42,7 +42,7 @@ import {
   importTaskImageAsFile,
   uploadFile,
 } from "../api";
-import { useI18n, type SupportedLocale } from "../i18n";
+import { localizeDynamicField, useI18n, type SupportedLocale } from "../i18n";
 import { useFeedbackTimeout, useMutationFeedback } from "../useActionFeedback";
 import {
   useAppSettingsStore,
@@ -774,8 +774,8 @@ export function CreatePage(props: Props) {
     [qualityField?.options],
   );
   const orientationChoices = useMemo(
-    () => orientationField?.options ?? [],
-    [orientationField?.options],
+    () => orientationField ? localizeDynamicField(orientationField, t).options : [],
+    [orientationField, t],
   );
   const hasQuickSize = useMemo(
     () => Boolean((qualityField && qualityChoices.length) || sizeChoices.length),
@@ -808,7 +808,7 @@ export function CreatePage(props: Props) {
       if (!qualityValue) {
         return "-";
       }
-      const matched = qualityField.options.find((option) => option.value === qualityValue);
+      const matched = localizeDynamicField(qualityField, t).options.find((option) => option.value === qualityValue);
       return matched?.label || qualityValue;
     }
     if (!resolutionField) {
@@ -818,7 +818,7 @@ export function CreatePage(props: Props) {
       return resolutionMeta.size;
     }
     return "-";
-  }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size]);
+  }, [hasQuickSize, qualityField, qualityValue, resolutionField, resolutionMeta.size, t]);
   const promptValue = promptField ? values[fieldKey(promptField)] ?? "" : "";
   const sharedImageSourceField = useMemo<ProviderOperationField>(
     () => ({
@@ -1467,7 +1467,7 @@ export function CreatePage(props: Props) {
               continue;
             }
             if (field.required) {
-              throw new Error(t("create.errorMissingRequiredFile", { label: field.label }));
+              throw new Error(t("create.errorMissingRequiredFile", { label: localizeDynamicField(field, t).label }));
             }
             continue;
           }
@@ -1496,7 +1496,7 @@ export function CreatePage(props: Props) {
         }
 
         const raw = values[key] ?? "";
-        const inputField = { ...field, label: t(`create.field.${field.key}`) };
+        const inputField = localizeDynamicField(field, t);
         const parsed = parseFieldValue(inputField, raw, {
           numberRequired: (label) => t("error.numberRequired", { label }),
           numberRange: (label, min, max, step) => t("error.numberRange", { label, min: min ?? "—", max: max ?? "—", step: step ?? "—" }),
@@ -2598,7 +2598,7 @@ export function CreatePage(props: Props) {
                 <span>{t("create.add.subjects")}</span>
                 <button
                   type="button"
-                  className="border-0 bg-transparent p-0 text-[11px] text-[var(--c-accent-text)]"
+                  className="min-h-11 border-0 bg-transparent px-1 text-xs text-[var(--c-accent-text)]"
                   onClick={() => navigate("/subjects")}
                 >
                   {t("create.add.manageSubjects")}
@@ -2651,7 +2651,7 @@ export function CreatePage(props: Props) {
                   {t("create.add.emptySubjects")}
                 </button>
               )}
-              <p className="m-0 mt-2.5 px-1 text-[11px] leading-5 text-[var(--c-text-tertiary)]">
+              <p className="m-0 mt-2.5 px-1 text-xs leading-5 text-[var(--c-text-tertiary)]">
                 {subjectReferencesSupported
                   ? t("create.add.subjectsWithRefs")
                   : t("create.add.subjectsTextOnly")}
@@ -2741,7 +2741,7 @@ export function CreatePage(props: Props) {
                   <div className="flex items-center justify-between gap-3 px-1">
                     <p className="m-0 text-label">{t("create.quickMode")}</p>
                     {hasImageSourceAttachments ? (
-                      <span className="text-[11px] text-[var(--c-text-tertiary)]">
+                      <span className="text-xs text-[var(--c-text-tertiary)]">
                         {t("create.imageModeAutoEdit")}
                       </span>
                     ) : null}
@@ -2768,7 +2768,7 @@ export function CreatePage(props: Props) {
                       {t("create.imageAsyncOn")}
                     </button>
                   </div>
-                  <p className="m-0 px-1 text-[11px] leading-5 text-[var(--c-text-secondary)]">
+                  <p className="m-0 px-1 text-xs leading-5 text-[var(--c-text-secondary)]">
                     {currentImageAsyncEnabled
                       ? t("create.imageModeBudgetDesc")
                       : t("create.imageModeFastDesc")}
@@ -2783,12 +2783,7 @@ export function CreatePage(props: Props) {
                 Boolean(resolutionField && (ratioChoices.length > 0 || resolutionValue)) ? (
                   <div>
                     <p className="composer-popover-heading">{t("create.quickRatio")}</p>
-                    <div
-                      className="composer-ratio-grid"
-                      style={{
-                        gridTemplateColumns: `repeat(${(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).length}, minmax(0, 1fr))`,
-                      }}
-                    >
+                    <div className="composer-ratio-grid">
                       {(ratioChoices.length ? ratioChoices : [resolutionValue]).filter(Boolean).map((ratio) => (
                         <button
                           type="button"
@@ -2853,7 +2848,7 @@ export function CreatePage(props: Props) {
                               ? currentVideoVariant?.resolutionLabel === size
                               : active;
                             const label = qualityField
-                              ? qualityField.options.find((option) => option.value === size)?.label ?? size
+                              ? localizeDynamicField(qualityField, t).options.find((option) => option.value === size)?.label ?? size
                               : size;
                             return (
                               <button
@@ -2915,27 +2910,27 @@ export function CreatePage(props: Props) {
                 <div className="flex flex-col gap-2">
                   {resolutionField ? (
                     <select
-                      className="input-base py-1.5 text-xs"
+                      className="input-base py-1.5"
                       value={resolutionValue}
                       aria-label={t("create.field.resolution")}
                       title={t("create.field.resolution")}
                       onChange={(event) => onFieldChanged(resolutionField, event.target.value)}
                     >
-                      {resolutionField.options.map((option) => (
-                        <option key={option.value} value={option.value}>{locale === "en" ? option.value === "auto" ? "Auto" : option.value.replace("x", " × ") : option.label}</option>
+                      {localizeDynamicField(resolutionField, t).options.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
                   ) : null}
                   {qualityField ? (
                     <select
-                      className="input-base py-1.5 text-xs"
+                      className="input-base py-1.5"
                       value={qualityValue}
                       aria-label={t("works.detail.quality")}
                       title={t("works.detail.quality")}
                       onChange={(event) => onFieldChanged(qualityField, event.target.value)}
                     >
-                      {qualityField.options.map((option) => (
-                        <option key={option.value} value={option.value}>{locale === "en" ? option.value === "xhigh" ? "Extra high" : option.value.charAt(0).toUpperCase() + option.value.slice(1) : option.label}</option>
+                      {localizeDynamicField(qualityField, t).options.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
                   ) : null}
@@ -2996,9 +2991,9 @@ export function CreatePage(props: Props) {
         >
           <form noValidate onSubmit={(event) => { event.preventDefault(); submitMutation.mutate(); }}>
             <header className="composer-advanced-header">
-              <h3 id="composer-advanced-title" className="m-0 text-sm font-semibold">{t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}</h3>
-              <button type="button" className="btn-ghost text-xs" onClick={() => setShowAdvanced(false)}>
-                {t("common.close")}
+              <h3 id="composer-advanced-title" className="m-0 text-heading">{t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}</h3>
+              <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setShowAdvanced(false)}>
+                <X size={20} />
               </button>
             </header>
             <div className="composer-advanced-body">
@@ -3375,7 +3370,7 @@ function DynamicInput(props: {
                 ? t("create.fileAddImage")
                 : t("create.fileReplaceImage")}
           </button>
-          {hasFiles ? <span className="text-[11px] text-[var(--c-text-tertiary)]">
+          {hasFiles ? <span className="text-xs text-[var(--c-text-tertiary)]">
             {hasReusedFiles && !hasLocalFiles
               ? t("create.fileReusedCount", { count: reusedFileIds.length })
               : isMulti
@@ -3457,7 +3452,7 @@ function DynamicInput(props: {
 
         {previewIndex != null && activePreviewItems[previewIndex] ? (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-overlay"
+            className="reference-preview fixed inset-0 z-50 flex items-center justify-center bg-overlay"
             role="dialog"
             aria-modal="true"
             onClick={() => setPreviewIndex(null)}
@@ -3466,23 +3461,25 @@ function DynamicInput(props: {
               className="relative flex flex-col items-center gap-4 max-w-[90vw] max-h-[90vh]"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center gap-4">
-                <p className="m-0 text-xs text-white/60">
+              <div className="reference-preview-header">
+                <p className="m-0 text-xs">
                   {t("works.lightboxIndex", { index: previewIndex + 1, total: activePreviewItems.length })}
                 </p>
                 <button
                   type="button"
-                  className="cursor-pointer border-none bg-transparent text-sm text-white/60 transition-colors duration-150 hover:text-white"
+                  className="media-overlay-icon-button reference-preview-close"
+                  aria-label={t("common.close")}
                   onClick={() => setPreviewIndex(null)}
                 >
-                  {t("common.close")}
+                  <X size={20} />
                 </button>
               </div>
               <div className="relative flex items-center gap-4">
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
+                    className="media-overlay-icon-button reference-preview-nav reference-preview-nav--previous"
+                    aria-label={t("works.lightboxPrev")}
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -3504,7 +3501,8 @@ function DynamicInput(props: {
                 {activePreviewItems.length > 1 ? (
                   <button
                     type="button"
-                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-white/10 text-lg text-white transition-colors duration-150 hover:bg-white/20"
+                    className="media-overlay-icon-button reference-preview-nav reference-preview-nav--next"
+                    aria-label={t("works.lightboxNext")}
                     onClick={() =>
                       setPreviewIndex((current) =>
                         current == null
@@ -4101,9 +4099,7 @@ function renderField(
   const value = values[key] ?? "";
   const selectedFiles = files[key] ?? [];
   const reusedIds = reusedFileIds[key] ?? [];
-  const localizedField = { ...field, label: t(`create.field.${field.key}`), placeholder: null,
-    options: field.options.map((option) => ({ ...option, label:
-      field.key === "input_fidelity" ? t(`create.fidelity.${option.value || "default"}`) : option.label })) };
+  const localizedField = localizeDynamicField(field, t);
   const inputField =
     field.target === "provider_options" &&
     field.key === "output_format" &&

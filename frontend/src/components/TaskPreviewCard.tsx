@@ -46,8 +46,8 @@ export function TaskPreviewCard(props: Props) {
     mediaLoading = "lazy",
     mediaFetchPriority = "auto",
     aspectClassName,
-    promptClassName = "m-0 line-clamp-3 text-xs font-semibold leading-relaxed text-[var(--c-text)]",
-    metaClassName = "flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]",
+    promptClassName = "m-0 line-clamp-3 text-sm font-medium leading-relaxed text-[var(--c-text)]",
+    metaClassName = "flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--c-text-tertiary)]",
     statusBadge = null,
   } = props;
 
@@ -90,7 +90,7 @@ export function TaskPreviewCard(props: Props) {
           <span className="shrink-0">{timestampLabel}</span>
         </div>
         {costLabel ? (
-          <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--c-text-tertiary)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--c-text-tertiary)]">
             <span>{t("works.cost")}</span>
             <span className={`shrink-0 font-medium ${costToneClass}`}>{costLabel}</span>
           </div>

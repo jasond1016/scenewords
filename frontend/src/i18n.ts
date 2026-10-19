@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useAppSettingsStore, type LanguagePreference } from "./state";
+import type { ProviderOperationField } from "./types";
 
 export type SupportedLocale = "zh-CN" | "en";
 
@@ -900,6 +901,106 @@ const EN: Record<string, string> = {
   "subjects.emptyFiltered": "No subjects in this category yet.",
   "settings.costs": "Costs",
 };
+
+// Catalog metadata is supplied by the server in Chinese. Match known copy exactly
+// so provider-specific hints retain their meaning and unknown metadata survives.
+const CATALOG_COPY: Record<string, [string, string]> = {
+  orientation: ["视频方向", "Video orientation"],
+  watermark: ["添加水印", "Add watermark"],
+  timeout: ["超时(s)", "Timeout (s)"],
+  totalTimeout: ["总超时(s)", "Total timeout (s)"],
+  submitTimeout: ["提交超时(s)", "Submit timeout (s)"],
+  pollInterval: ["轮询间隔(s)", "Polling interval (s)"],
+  characterCreate: ["自动创建角色", "Create character automatically"],
+  sourceVideo: ["源视频 ID", "Source video ID"],
+  characterModel: ["角色模型", "Character model"],
+  sourceTask: ["来源任务 ID", "Source task ID"],
+  timestamps: ["角色时间点", "Character timestamps"],
+  startFrame: ["首帧图片", "Start frame"],
+  imageFiles: ["参考图文件", "Reference images"],
+  editImages: ["编辑图片", "Images to edit"],
+  imageSources: ["参考图 URL / Base64", "Reference image URL / Base64"],
+  imageUrls: ["参考图 URL", "Reference image URLs"],
+  responseFormat: ["返回格式", "Response format"],
+  mask: ["遮罩图", "Mask image"],
+  user: ["终端用户标识", "End-user identifier"],
+  quality: ["生成质量", "Generation quality"],
+  background: ["背景", "Background"],
+  compression: ["输出压缩率", "Output compression"],
+  moderation: ["内容审核", "Content moderation"],
+  negativePrompt: ["负向提示词", "Negative prompt"],
+  seed: ["随机种子", "Seed"],
+  auto: ["自动", "Automatic"],
+  landscape: ["横屏", "Landscape"],
+  portrait: ["竖屏", "Portrait"],
+  landscapeDirection: ["横向", "Landscape"],
+  portraitDirection: ["纵向", "Portrait"],
+  landscapeSize: ["1280x720 (横屏)", "1280x720 (Landscape)"],
+  portraitSize: ["720x1280 (竖屏)", "720x1280 (Portrait)"],
+  squareImage: ["1024x1024（方形）", "1024x1024 (Square)"],
+  landscapeImage: ["1536x1024（横向）", "1536x1024 (Landscape)"],
+  portraitImage: ["1024x1536（纵向）", "1024x1536 (Portrait)"],
+  square2k: ["2048x2048（2K 方形）", "2048x2048 (2K Square)"],
+  landscape2k: ["2048x1152（2K 横向）", "2048x1152 (2K Landscape)"],
+  landscape4k: ["3840x2160（4K 横向，实验性）", "3840x2160 (4K Landscape, experimental)"],
+  portrait4k: ["2160x3840（4K 纵向，实验性）", "2160x3840 (4K Portrait, experimental)"],
+  low: ["低", "Low"],
+  medium: ["中", "Medium"],
+  high: ["高", "High"],
+  xhigh: ["超高", "Extra high"],
+  max: ["最高", "Maximum"],
+  opaque: ["不透明", "Opaque"],
+  transparent: ["透明", "Transparent"],
+  standard: ["标准", "Standard"],
+  relaxed: ["较宽松", "Less restrictive"],
+  providerDefault: ["服务商默认", "Provider default"],
+  storyboardPlaceholder: ["例：Scene 1: ...\\nScene 2: ...", "Example: Scene 1: ...\\nScene 2: ..."],
+  sourceVideoPlaceholder: ["输入要 remix 的视频 ID", "Enter the video ID to remix"],
+  sourceTaskPlaceholder: ["输入已有视频任务 ID", "Enter an existing video task ID"],
+  timestampsPlaceholder: ["例如 0,3（可选）", "For example, 0,3 (optional)"],
+  veoSizeHelp: ["4K 输出由所选模型决定；提交给 Tuzi 的 size 仅使用 1280x720 或 720x1280。", "4K output depends on the selected model; size sent to Tuzi is limited to 1280x720 or 720x1280."],
+  orientationHelp: ["自动时优先按首张参考图推断横向/纵向", "Automatic orientation is inferred primarily from the first reference image."],
+  multipartHelp: ["支持多张图片，网关会以 multipart 文件形式转发给 Tuzi", "Supports multiple images, forwarded to Tuzi as multipart files."],
+  apiKeyHelp: ["留空则使用服务端环境变量", "Leave blank to use the server environment variable."],
+  sizeHelp: ["官方支持 auto 或满足约束的自定义尺寸；这里列出官方文档中的常用尺寸。", "Supports auto or custom sizes within the official constraints; common documented sizes are listed here."],
+  backgroundHelp: ["透明背景仅支持 PNG 或 WebP。", "Transparent backgrounds require PNG or WebP."],
+  compressionHelp: ["仅 JPEG 或 WebP 使用；0–100，默认 100。", "Applies only to JPEG or WebP; 0–100, default 100."],
+  userHelp: ["可选，用于服务商的滥用监测。", "Optional; used by the provider for abuse monitoring."],
+  startFrameHelp: ["可选。用于首尾帧模式中的起始帧", "Optional. The starting frame for start/end-frame mode."],
+  endFrameHelp: ["可选。仅在已提供首帧时生效", "Optional. Takes effect only when a start frame is provided."],
+  imageFilesHelp: ["可选。上传的图片会作为生成参考图。", "Optional. Uploaded images are used as generation references."],
+  imageSourcesHelp: ["可选。支持 URL 或 base64，支持多条。", "Optional. Supports multiple URLs or base64 images."],
+  editImagesHelp: ["可上传一张或多张待编辑图片", "Upload one or more images to edit."],
+  maskHelp: ["可选。透明区域会被重绘", "Optional. Transparent areas will be repainted."],
+  referenceImagesHelp: ["可选。支持多张参考图。", "Optional. Supports multiple reference images."],
+  referenceUrlsHelp: ["可选。每行一个 URL。", "Optional. One URL per line."],
+};
+
+for (const [key, [zh, en]] of Object.entries(CATALOG_COPY)) {
+  ZH_CN[`create.catalog.${key}`] = zh;
+  EN[`create.catalog.${key}`] = en;
+}
+
+function translateCatalogCopy(copy: string, t: TranslateFn): string {
+  const entry = Object.entries(CATALOG_COPY).find(([, [zh]]) => zh === copy);
+  return entry ? t(`create.catalog.${entry[0]}`) : copy;
+}
+
+export function localizeDynamicField(field: ProviderOperationField, t: TranslateFn): ProviderOperationField {
+  const labelKey = `create.field.${field.key}`;
+  const label = t(labelKey);
+  return {
+    ...field,
+    label: label === labelKey ? translateCatalogCopy(field.label, t) : label,
+    placeholder: field.placeholder == null ? null : translateCatalogCopy(field.placeholder, t),
+    help_text: field.help_text == null ? null : translateCatalogCopy(field.help_text, t),
+    options: field.options.map((option) => {
+      const key = `create.fidelity.${option.value || "default"}`;
+      const fidelityLabel = field.key === "input_fidelity" ? t(key) : key;
+      return { ...option, label: fidelityLabel === key ? translateCatalogCopy(option.label, t) : fidelityLabel };
+    }),
+  };
+}
 
 const MESSAGES: Record<SupportedLocale, Record<string, string>> = {
   "zh-CN": ZH_CN,

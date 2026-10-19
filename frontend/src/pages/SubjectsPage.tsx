@@ -315,16 +315,16 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
       {showEditor ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--c-overlay-scrim)] p-0 sm:items-center sm:p-6" onMouseDown={() => setShowEditor(false)}>
           <form
-            className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-t-3xl border border-border bg-[var(--c-surface)] p-5 shadow-[var(--shadow-overlay)] sm:rounded-3xl sm:p-7"
+            className="subject-editor max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-t-3xl border border-border bg-[var(--c-surface)] shadow-[var(--shadow-overlay)] sm:rounded-3xl"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event: FormEvent) => { event.preventDefault(); saveMutation.mutate(); }}
           >
             <div className="flex items-center justify-between gap-4">
-              <div>
+              <div className="min-w-0">
                 <p className="m-0 text-label">{editing ? (isZh ? "编辑主体" : "Edit subject") : (isZh ? "新建主体" : "New subject")}</p>
-                <h2 className="m-0 mt-1 text-xl font-semibold text-[var(--c-text)]">{name || (isZh ? "未命名主体" : "Untitled subject")}</h2>
+                <h2 className="m-0 mt-1 text-heading">{name || (isZh ? "未命名主体" : "Untitled subject")}</h2>
               </div>
-              <button type="button" className="btn-ghost min-h-11 min-w-11" onClick={() => setShowEditor(false)}><X size={18} /></button>
+              <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setShowEditor(false)}><X size={20} /></button>
             </div>
 
             <div className="mt-6 grid gap-5 sm:grid-cols-2">

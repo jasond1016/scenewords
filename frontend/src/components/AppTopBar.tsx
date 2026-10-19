@@ -158,7 +158,7 @@ export function AppTopBar({
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
             >
-              <DotsThree size={22} weight="bold" />
+              <DotsThree size={20} weight="regular" />
             </button>
             {menuOpen ? (
               <div
@@ -267,7 +267,7 @@ export function CreateTopBar({
               aria-label={t("create.header.more")}
               onClick={() => setMenuOpen((open) => !open)}
             >
-              <DotsThree size={22} weight="bold" />
+              <DotsThree size={20} weight="regular" />
             </button>
             {menuOpen ? (
               <div className="menu-popover" role="menu">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CaretDown, Check } from "@phosphor-icons/react";
 
 export function Dropdown({
@@ -14,6 +14,31 @@ export function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    const menu = menuRef.current;
+    if (!open || !anchor || !menu) return;
+    const position = () => {
+      const rect = anchor.getBoundingClientRect();
+      const width = menu.getBoundingClientRect().width;
+      const inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-inset"));
+      const preferred = align === "left" ? rect.left : rect.right - width;
+      const left = Math.max(inset, Math.min(preferred, document.documentElement.clientWidth - width - inset));
+      menu.style.left = `${left - rect.left}px`;
+      menu.style.right = "auto";
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(menu);
+    window.addEventListener("resize", position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", position);
+    };
+  }, [open, align]);
 
   useEffect(() => {
     if (!open) {
@@ -50,7 +75,7 @@ export function Dropdown({
         <CaretDown size={11} weight="regular" />
       </button>
       {open ? (
-        <div className={`menu-popover ${align === "left" ? "menu-popover-left" : ""}`} role="menu">
+        <div ref={menuRef} className={`menu-popover ${align === "left" ? "menu-popover-left" : ""}`} role="menu">
           {children(() => setOpen(false))}
         </div>
       ) : null}
