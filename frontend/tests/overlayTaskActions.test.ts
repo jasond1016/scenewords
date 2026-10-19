@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
 import { prepareMediaFile, shareMedia } from "../src/mediaExport";
 import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
-import { MediaOverlayEditComposer, MediaOverlayResizeComposer } from "../src/components/MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayResizeMenu } from "../src/components/MediaOverlayActions";
 import { SessionImage } from "../src/components/SessionImage";
 import {
   getImageResizeOptions,
@@ -161,37 +161,32 @@ test("ratio resize preserves the API value and mapped label without changing mod
   assert.equal(calls[0].path, "/v1/image/tasks/source%2F17/outputs/2/file");
 });
 
-test("resize ratio choices render true-scale outlined icons, unlike pixel presets", () => {
+test("resize menu exposes every model option in one level without a separate submit control", () => {
   const ratios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "16:9", "9:16", "21:9", "9:21"];
   const edit = operation("edit", "image_file_ids");
   const field = edit.fields.find((field) => field.key === "resolution")!;
-  const render = () => renderToStaticMarkup(createElement(MediaOverlayResizeComposer, {
-    task, catalog: catalog([edit]), loading: false, catalogError: false,
-    onReload: () => undefined, pending: false, disabled: false, onSubmit: () => undefined,
+  const render = (capabilities = catalog([edit])) => renderToStaticMarkup(createElement(MediaOverlayResizeMenu, {
+    task, catalog: capabilities, open: true, onToggle() {}, onClose() {},
+    pending: false, queued: false, onQueued() {}, disabled: false, onDismissError() {}, onSubmit() {},
   }));
   field.options = ratios.map((value) => ({ value, label: `${value} (target pixels)` }));
-  const choices = [...render().matchAll(/<label>(.*?)<\/label>/gs)].map((match) => match[1]);
-  assert.equal(choices.length, ratios.length);
-  for (const [index, choice] of choices.entries()) {
-    assert.match(choice, new RegExp(`<span>${ratios[index]}</span>`));
-    assert.ok(!choice.includes("target pixels"));
-    const svg = choice.match(/<svg[^>]*>/)![0];
-    assert.match(svg, /aria-hidden="true"/);
-    assert.match(svg, /fill="none"/);
-    const rect = choice.match(/<rect[^>]*>/)![0];
-    const width = Number(rect.match(/width="([^"]+)"/)![1]);
-    const height = Number(rect.match(/height="([^"]+)"/)![1]);
-    const [horizontal, vertical] = ratios[index].split(":").map(Number);
-    assert.ok(Math.abs(width * vertical - height * horizontal) < 1e-8, ratios[index]);
-    assert.equal(Math.max(width, height), 24);
-    assert.ok(Math.min(width, height) >= 10, "extreme ratios remain visible");
-    assert.equal(Number(rect.match(/x="([^"]+)"/)![1]) + width / 2, 16);
-    assert.equal(Number(rect.match(/y="([^"]+)"/)![1]) + height / 2, 16);
+  const html = render();
+  assert.match(html, /aria-haspopup="menu"/);
+  assert.equal([...html.matchAll(/role="menu"/g)].length, 1);
+  assert.equal([...html.matchAll(/role="menuitemradio"/g)].length, ratios.length);
+  for (const ratio of ratios) {
+    assert.ok(html.includes(`<span>${ratio}</span>`), `All legal ratios include ${ratio}`);
   }
-  field.options = [{ value: "2048x1152", label: "2K" }];
-  const pixelChoice = render().match(/<label>(.*?)<\/label>/s)![1];
-  assert.match(pixelChoice, /2048 × 1152/);
-  assert.ok(!pixelChoice.includes("<svg"));
+  assert.doesNotMatch(html, /<form|type="submit"|<details|target pixels/);
+  const pixels = ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840"];
+  field.options = [{ value: "auto", label: "自动" }, ...pixels.map((value) => ({ value, label: value }))];
+  const presets = render();
+  assert.equal([...presets.matchAll(/role="menuitemradio"/g)].length, 8);
+  for (const size of pixels) assert.ok(presets.includes(`<span>${size.replace("x", " × ")}</span>`));
+  assert.match(presets, /自动尺寸|Automatic size/);
+  assert.equal(render(catalog([operation("edit", "other_files")])), "", "hide resizing when model lacks image reference support");
+  field.options = [];
+  assert.equal(render(), "", "hide resizing when the catalog has no choices");
 });
 
 test("unsupported references fail before upload or task creation", async (t) => {

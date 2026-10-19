@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { fetchCatalog, fetchTaskDetail } from "../api";
 import { AppLightboxStage } from "./AppLightboxStage";
-import { MediaOverlayEditComposer, MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions, MediaOverlayResizeComposer } from "./MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayExportActions, MediaOverlayGenerationFeedback, MediaOverlayImageActions } from "./MediaOverlayActions";
 import { MediaDetailSidebar } from "./MediaDetailSidebar";
 import { MediaOverlayFrame } from "./MediaOverlayFrame";
 import { useI18n } from "../i18n";
@@ -248,10 +248,9 @@ export function WorkDetailOverlay(props: Props) {
     },
   });
 
-  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload, { key: string | undefined }>({
+  const resizeMutation = useMutation<VideoTaskResponse, Error, ResizeImagePayload>({
     mutationFn: (payload) => submitImageResize(payload, settings.gatewayToken),
-    onMutate: () => currentItemScope.current,
-    onSuccess: async (response, _payload, sourceKey) => {
+    onSuccess: async (response) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
         queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
@@ -259,16 +258,13 @@ export function WorkDetailOverlay(props: Props) {
           queryKey: ["scene", settings.gatewayToken, response.scene_id],
         }),
       ]);
-      if (sourceKey !== currentItemScope.current) return;
-      navigate("/create", { state: { returnSessionId: response.scene_id } });
-      onClose();
     },
   });
   useMutationFeedback(deleteMutation, lightboxItem?.key);
   useMutationFeedback(retryMutation, lightboxItem?.key);
   useMutationFeedback(highResolutionCandidateMutation, lightboxItem?.key);
   useMutationFeedback(editMutation, lightboxItem?.key);
-  useMutationFeedback(resizeMutation, lightboxItem?.key);
+  useEffect(() => resizeMutation.reset(), [lightboxItem?.key, resizeMutation.reset]);
 
   if (!lightboxItem || !currentLightboxTask) {
     return null;
@@ -361,9 +357,34 @@ export function WorkDetailOverlay(props: Props) {
           lightboxItem.kind === "image" && currentLightboxTask.status === "succeeded" ? (
             <div className="media-overlay-action-stack" data-overlay-scroll="allow">
               <MediaOverlayImageActions
+                key={lightboxItem.key}
                 disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending || resizeMutation.isPending}
                 isEditPromptOpen={isEditPromptOpen}
                 isResizeOptionsOpen={isResizeOptionsOpen}
+                onCloseResize={() => setIsResizeOptionsOpen(false)}
+                resize={{
+                  task: currentLightboxTask,
+                  catalog: catalogQuery.data,
+                  pending: resizeMutation.isPending,
+                  queued: resizeMutation.isSuccess,
+                  error: resizeMutation.error?.message,
+                  onDismissError: resizeMutation.reset,
+                  onQueued: () => {
+                    navigate("/create", { state: { returnSessionId: resizeMutation.data?.scene_id } });
+                    resizeMutation.reset();
+                    onClose();
+                  },
+                  onSubmit: (option) => {
+                    if (!catalogQuery.data) return;
+                    resizeMutation.mutate({
+                      task: currentLightboxTask,
+                      imageIndex: lightboxItem.imageIndex ?? 0,
+                      resolution: option.value,
+                      resolutionLabel: option.label,
+                      catalog: catalogQuery.data,
+                    });
+                  },
+                }}
                 onEdit={() => {
                   setValidationError(null);
                   setIsResizeOptionsOpen(false);
@@ -372,7 +393,6 @@ export function WorkDetailOverlay(props: Props) {
                 }}
                 onAdjustSize={() => {
                   setIsEditPromptOpen(false);
-                  resizeMutation.reset();
                   setIsResizeOptionsOpen((open) => !open);
                 }}
                 onRegenerate={() => {
@@ -415,29 +435,6 @@ export function WorkDetailOverlay(props: Props) {
                       task: currentLightboxTask,
                       imageIndex: lightboxItem.imageIndex ?? 0,
                       instruction: editInstruction,
-                      catalog: catalogQuery.data,
-                    });
-                  }}
-                />
-              ) : null}
-              {isResizeOptionsOpen ? (
-                <MediaOverlayResizeComposer
-                  key={lightboxItem.key}
-                  task={currentLightboxTask}
-                  catalog={catalogQuery.data}
-                  loading={catalogQuery.isFetching && !catalogQuery.data}
-                  catalogError={catalogQuery.isError}
-                  onReload={() => void catalogQuery.refetch()}
-                  pending={resizeMutation.isPending}
-                  disabled={retryMutation.isPending || reuseMutation.isPending || highResolutionCandidateMutation.isPending || editMutation.isPending}
-                  error={resizeMutation.variables?.task.task_id === currentLightboxTask.task_id && resizeMutation.variables.imageIndex === (lightboxItem.imageIndex ?? 0) ? resizeMutation.error?.message : null}
-                  onSubmit={(option) => {
-                    if (!catalogQuery.data) return;
-                    resizeMutation.mutate({
-                      task: currentLightboxTask,
-                      imageIndex: lightboxItem.imageIndex ?? 0,
-                      resolution: option.value,
-                      resolutionLabel: option.label,
                       catalog: catalogQuery.data,
                     });
                   }}

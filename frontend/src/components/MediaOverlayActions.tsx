@@ -171,6 +171,8 @@ interface ImageActionsProps {
   disabled?: boolean;
   isEditPromptOpen: boolean;
   isResizeOptionsOpen: boolean;
+  resize: Omit<ResizeMenuProps, "open" | "onClose" | "onToggle" | "disabled">;
+  onCloseResize: () => void;
   onEdit: () => void;
   onAdjustSize: () => void;
   onRegenerate: () => void;
@@ -178,7 +180,7 @@ interface ImageActionsProps {
 }
 
 export function MediaOverlayImageActions(props: ImageActionsProps) {
-  const { disabled = false, isEditPromptOpen, isResizeOptionsOpen, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
+  const { disabled = false, isEditPromptOpen, isResizeOptionsOpen, resize, onCloseResize, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
   const { t } = useI18n();
 
   return (
@@ -199,21 +201,7 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
             <CaretDown className="media-overlay-image-action-chevron" size={12} weight="regular" aria-hidden="true" />
           </span>
         </button>
-        <button
-          type="button"
-          className="media-overlay-image-action"
-          onClick={onAdjustSize}
-          disabled={disabled}
-          title={t("works.adjustImageSizeHint")}
-          aria-expanded={isResizeOptionsOpen}
-          aria-controls={isResizeOptionsOpen ? "media-overlay-resize-options" : undefined}
-        >
-          <Crop size={20} weight="regular" />
-          <span className="media-overlay-image-action-label">
-            {t("works.adjustImageSize")}
-            <CaretDown className="media-overlay-image-action-chevron" size={12} weight="regular" aria-hidden="true" />
-          </span>
-        </button>
+        <MediaOverlayResizeMenu {...resize} open={isResizeOptionsOpen} onToggle={onAdjustSize} onClose={onCloseResize} disabled={disabled} />
         <button
           type="button"
           className="media-overlay-image-action"
@@ -265,7 +253,7 @@ export function MediaOverlayEditComposer(props: {
         autoFocus
         disabled={pending}
       />
-      {error ? <p id="media-overlay-edit-error" className="media-overlay-resize-options__error" role="alert">{error}</p> : null}
+      {error ? <p id="media-overlay-edit-error" className="media-overlay-action-error" role="alert">{error}</p> : null}
       <div className="media-overlay-edit-form__actions">
         <span id="media-overlay-edit-hint">{t("works.editOnlyCurrentImage")}</span>
         <button type="submit" disabled={pending || !value.trim()}>
@@ -277,125 +265,193 @@ export function MediaOverlayEditComposer(props: {
   );
 }
 
-export function MediaOverlayResizeComposer(props: {
+interface ResizeMenuProps {
   task: VideoTaskDetail;
   catalog?: ProviderCatalogResponse;
-  loading: boolean;
-  catalogError: boolean;
-  onReload: () => void;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
   pending: boolean;
+  queued: boolean;
+  onQueued: () => void;
   disabled: boolean;
   error?: string | null;
+  onDismissError: () => void;
   onSubmit: (option: ProviderOperationOption) => void;
-}) {
-  const { task, catalog, loading, catalogError, onReload, pending, disabled, error, onSubmit } = props;
+}
+
+export function MediaOverlayResizeMenu(props: ResizeMenuProps) {
+  const { task, catalog, open, onToggle, onClose, pending, queued, onQueued, disabled, error, onDismissError, onSubmit } = props;
   const { t } = useI18n();
-  const [selectedValue, setSelectedValue] = useState("");
-  const formRef = useRef<HTMLFormElement>(null);
+  const feedbackTarget = useContext(MediaOverlayFeedbackContext);
+  const menuTarget = feedbackTarget?.closest(".media-overlay-frame");
+  const [selectedValue, setSelectedValue] = useState(task.resolution ?? "");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const locked = useRef(false);
+  const callbacks = useRef({ onClose, onQueued });
+  callbacks.current = { onClose, onQueued };
+  const finish = useCallback(() => callbacks.current.onQueued(), []);
+  useFeedbackTimeout(finish, queued, queued);
   useEffect(() => {
-    const form = formRef.current;
-    const stack = form?.parentElement;
-    if (!form || !stack) return;
-    const revealPanel = () => {
-      const style = getComputedStyle(form);
-      const contentHeight = form.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      form.dataset.compact = String(stack.clientHeight < contentHeight);
-      if (stack.scrollHeight > stack.clientHeight) stack.scrollTop = stack.scrollHeight;
-    };
-    const observer = new ResizeObserver(revealPanel);
-    observer.observe(form);
-    observer.observe(stack);
-    revealPanel();
-    return () => observer.disconnect();
-  }, []);
+    if (!pending && !queued) locked.current = false;
+    if (queued || error) {
+      callbacks.current.onClose();
+      buttonRef.current?.focus({ preventScroll: true });
+    }
+  }, [pending, queued, error]);
   const options = useMemo(() => {
     if (!catalog) return [];
     try {
-      return getImageResizeOptions(task, catalog).filter((option) => option.value !== "auto");
+      return getImageResizeOptions(task, catalog);
     } catch {
       return [];
     }
   }, [task, catalog]);
-  const isRatio = options.length > 0 && options.every((option) => /^\d+:\d+$/.test(option.value));
-  const model = catalog?.providers.find((provider) => provider.id === task.provider)
-    ?.models.find((candidate) => candidate.name === task.model);
   const selectedOption = options.find((option) => option.value === selectedValue);
-  const blocked = pending || disabled || loading || catalogError || !catalog;
-
-  return (
-    <form
-      ref={formRef}
-      id="media-overlay-resize-options"
-      className="media-overlay-edit-form media-overlay-resize-options"
-      aria-busy={pending || loading}
-      onSubmit={(event) => {
+  const blocked = pending || queued || disabled;
+  const close = () => {
+    callbacks.current.onClose();
+    buttonRef.current?.focus({ preventScroll: true });
+  };
+  useEffect(() => {
+    const menu = menuRef.current;
+    const anchor = buttonRef.current;
+    if (!open || !menu || !anchor) return;
+    // Render outside the scrolling/translucent toolbar, including in older WebKit.
+    const position = () => {
+      const rect = anchor.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const style = getComputedStyle(menu);
+      const inset = (edge: string) => Math.max(12, parseFloat(style.getPropertyValue(`--resize-safe-${edge}`)) || 0);
+      const topEdge = (viewport?.offsetTop ?? 0) + inset("top");
+      const bottomEdge = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight) - inset("bottom");
+      const leftEdge = (viewport?.offsetLeft ?? 0) + inset("left");
+      const rightEdge = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? innerWidth) - inset("right");
+      menu.style.width = `${Math.min(272, rightEdge - leftEdge)}px`;
+      const above = Math.max(0, rect.top - 8 - topEdge);
+      const below = Math.max(0, bottomEdge - rect.bottom - 8);
+      const desired = Math.min((menu.firstElementChild?.scrollHeight ?? 0) + 14, 360);
+      const up = above >= Math.min(desired, 160) || above >= below;
+      menu.style.maxHeight = `${Math.min(360, up ? above : below)}px`;
+      const height = menu.getBoundingClientRect().height;
+      menu.style.left = `${Math.max(leftEdge, Math.min(rect.left, rightEdge - menu.offsetWidth))}px`;
+      menu.style.top = `${Math.max(topEdge, up ? rect.top - 8 - height : rect.bottom + 8)}px`;
+      menu.dataset.placement = up ? "top" : "bottom";
+      menu.style.visibility = "visible";
+    };
+    position();
+    const index = Math.max(0, options.findIndex((option) => option.value === selectedValue));
+    setActiveIndex(index);
+    menu.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]")[index]?.focus();
+    const outside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !menu.contains(event.target) && !anchor.contains(event.target)) {
+        // Dismissing on the canvas must not also toggle/focus the lightbox.
+        if (event.target instanceof Element && !event.target.closest("button,a,input,textarea,select,summary")) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        close();
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
         event.preventDefault();
-        if (!blocked && selectedOption) onSubmit(selectedOption);
-      }}
-    >
-      <div className="media-overlay-resize-options__header">
-        <strong id="media-overlay-resize-title">{t(options.length ? isRatio ? "works.resizeChooseRatio" : "works.resizeChooseSize" : "works.adjustImageSize")}</strong>
-        <p className="media-overlay-resize-options__model">{t("works.resizeModel", { model: model?.display_name ?? task.model })}</p>
-      </div>
-      <div
-        className="media-overlay-resize-options__body"
-        data-overlay-scroll="allow"
-        tabIndex={0}
-        role="region"
-        aria-labelledby="media-overlay-resize-title"
-      >
-        <fieldset disabled={blocked} aria-labelledby="media-overlay-resize-title" aria-describedby="media-overlay-resize-hint">
-          {catalogError ? (
-            <p className="media-overlay-resize-options__error" role="alert">{t("works.editOptionsUnavailable")}</p>
-          ) : loading ? (
-            <p className="media-overlay-resize-options__empty" role="status">{t("works.editOptionsLoading")}</p>
-          ) : options.length ? (
-            <div className={`media-overlay-resize-options__list${isRatio ? " media-overlay-resize-options__list--ratios" : ""}`}>
-              {options.map((option) => {
-                const ratio = isRatio ? option.value.split(":").map(Number) : null;
-                const scale = ratio ? 24 / Math.max(...ratio) : 0;
-                return (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      className={isRatio ? "sr-only" : undefined}
-                      name="media-overlay-resize-choice"
-                      value={option.value}
-                      checked={selectedValue === option.value}
-                      onChange={() => setSelectedValue(option.value)}
-                    />
-                    {ratio ? (
-                      <svg className="media-overlay-resize-options__ratio" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false">
-                        <rect x={(32 - ratio[0] * scale) / 2} y={(32 - ratio[1] * scale) / 2} width={ratio[0] * scale} height={ratio[1] * scale} />
-                      </svg>
-                    ) : null}
-                    <span>{isRatio ? option.value : /^\d+x\d+$/.test(option.value) ? option.value.replace("x", " × ") : option.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="media-overlay-resize-options__empty" role="status">{t("works.noResizeOptions")}</p>
-          )}
-        </fieldset>
-      </div>
-      <div className="media-overlay-resize-options__footer">
-        {catalogError ? (
-          <button type="button" className="media-overlay-resize-options__reload" onClick={onReload} disabled={pending || disabled || loading}>
-            {t("works.resizeReloadOptions")}
-          </button>
-        ) : null}
-        {error ? <p className="media-overlay-resize-options__error" role="alert" data-overlay-scroll="allow" tabIndex={0}>{t("works.resizeImageFailed", { message: error })}</p> : null}
-        <div className="media-overlay-edit-form__actions">
-          <span id="media-overlay-resize-hint">{t("works.resizeUsesCurrentImage")}</span>
-          <button type="submit" disabled={blocked || !selectedOption}>
-            {pending ? t("works.editSubmitting") : t("works.resizeSubmit")}
-            <ArrowRight size={18} weight="regular" aria-hidden="true" />
-          </button>
+        event.stopPropagation();
+        close();
+      }
+    };
+    const observer = new ResizeObserver(position);
+    observer.observe(menu);
+    observer.observe(anchor);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    window.visualViewport?.addEventListener("resize", position);
+    window.visualViewport?.addEventListener("scroll", position);
+    document.addEventListener("click", outside, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+      window.visualViewport?.removeEventListener("resize", position);
+      window.visualViewport?.removeEventListener("scroll", position);
+      document.removeEventListener("click", outside, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [open, options, menuTarget]);
+  const submit = (option: ProviderOperationOption) => {
+    if (blocked || locked.current) return;
+    locked.current = true;
+    setSelectedValue(option.value);
+    onSubmit(option);
+  };
+  if (!options.length) return null;
+  const menu = open ? <div ref={menuRef} id="media-overlay-resize-menu" className="media-overlay-resize-menu" role="menu" aria-label={t("works.adjustImageSize")} aria-busy={pending} data-overlay-scroll="allow"
+        onKeyDown={(event) => {
+          const keys = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"];
+          if (keys.includes(event.key)) {
+            event.preventDefault();
+            event.stopPropagation();
+            const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+              : (activeIndex + (["ArrowUp", "ArrowLeft"].includes(event.key) ? -1 : 1) + options.length) % options.length;
+            setActiveIndex(next);
+            menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]")[next]?.focus();
+          } else if (event.key === "Tab") close();
+        }}>
+        <div className="media-overlay-resize-menu__list" role="none" data-overlay-scroll="allow">
+        {options.map((option, index) => {
+          const dimensions = option.value.match(/^(\d+)[:x](\d+)$/);
+          const width = Number(dimensions?.[1]);
+          const height = Number(dimensions?.[2]);
+          const scale = dimensions ? 22 / Math.max(width, height) : 0;
+          return <button key={option.value} type="button" role="menuitemradio" aria-checked={selectedValue === option.value} aria-disabled={blocked} tabIndex={activeIndex === index ? 0 : -1}
+            onFocus={() => setActiveIndex(index)} onClick={() => submit(option)}>
+            {pending && selectedValue === option.value ? <CircleNotch size={28} className="media-overlay-export-spinner" aria-hidden="true" /> : dimensions ?
+              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x={(28 - width * scale) / 2} y={(28 - height * scale) / 2} width={width * scale} height={height * scale} /></svg>
+              : <Crop size={28} aria-hidden="true" />}
+            <span>{option.value === "auto" ? t("works.resizeAuto") : dimensions ? option.value.replace("x", " × ") : option.label}</span>
+            {selectedValue === option.value ? <Check size={16} aria-hidden="true" /> : null}
+          </button>;
+        })}
         </div>
-      </div>
-      {pending ? <span className="sr-only" role="status">{t("works.editSubmitting")}</span> : null}
-    </form>
+      </div> : null;
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="media-overlay-image-action"
+        onClick={() => { if (!blocked) onToggle(); }}
+        onKeyDown={(event) => {
+          if (!blocked && !open && ["ArrowUp", "ArrowDown"].includes(event.key)) {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? "media-overlay-resize-menu" : undefined}
+        aria-disabled={blocked}
+        aria-busy={pending}
+        title={t("works.adjustImageSizeHint")}
+      >
+        {pending ? <CircleNotch className="media-overlay-export-spinner" size={20} aria-hidden="true" /> : <Crop size={20} aria-hidden="true" />}
+        <span className="media-overlay-image-action-label">{t("works.adjustImageSize")}<CaretDown className="media-overlay-image-action-chevron" size={12} aria-hidden="true" /></span>
+      </button>
+      {menu && menuTarget ? createPortal(menu, menuTarget) : menu}
+      {feedbackTarget && !open && (pending || queued || error) ? createPortal(
+        <div className="media-overlay-export-toast media-overlay-resize-feedback" role={error ? "alert" : "status"} data-error={!!error} data-overlay-scroll="allow">
+          <span>{error ? t("works.resizeImageFailed", { message: error }) : t(queued ? "works.resizeQueued" : "works.editSubmitting")}</span>
+          {error && selectedOption ? <button type="button" disabled={blocked} onClick={() => submit(selectedOption)}>{t("works.exportRetry")}</button> : null}
+          {error ? <button type="button" aria-label={t("common.close")} onClick={() => {
+            onDismissError();
+            buttonRef.current?.focus({ preventScroll: true });
+          }}><X size={18} aria-hidden="true" /></button> : null}
+        </div>, feedbackTarget,
+      ) : null}
+    </>
   );
 }
 

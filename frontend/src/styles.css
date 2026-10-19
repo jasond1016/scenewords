@@ -215,7 +215,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible:not(.composer-textarea, .media-overlay-icon-button, .media-overlay-edit-form textarea, .media-overlay-resize-options__body, .media-overlay-resize-options__footer button[type="submit"], .session-result-more, .session-turn-failure-reason) {
+:focus-visible:not(.composer-textarea, .media-overlay-icon-button, .media-overlay-edit-form textarea, .media-overlay-resize-menu__list > button, .session-result-more, .session-turn-failure-reason) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -1162,8 +1162,7 @@ select.input-base {
   color-scheme: light;
 }
 
-:root:not(.dark) .media-overlay-edit-form textarea,
-:root:not(.dark) .media-overlay-resize-options__list label {
+:root:not(.dark) .media-overlay-edit-form textarea {
   border-color: var(--c-viewer-input-border);
   background: var(--c-viewer-input);
 }
@@ -1171,9 +1170,6 @@ select.input-base {
 :root:not(.dark) .media-overlay-edit-form textarea::placeholder,
 :root:not(.dark) .media-overlay-edit-form > label,
 :root:not(.dark) .media-overlay-edit-form__actions,
-:root:not(.dark) .media-overlay-resize-options__model,
-:root:not(.dark) .media-overlay-resize-options__empty,
-:root:not(.dark) .media-overlay-resize-options__ratio,
 :root:not(.dark) .media-overlay-image-action-chevron {
   color: var(--c-viewer-secondary);
 }
@@ -1183,8 +1179,6 @@ select.input-base {
   box-shadow: 0 0 0 1px var(--c-viewer-focus);
 }
 
-:root:not(.dark) .media-overlay-resize-options__list label:has(input:checked),
-:root:not(.dark) .media-overlay-resize-options__list label:hover:not(:has(input:disabled)),
 :root:not(.dark) .media-overlay-image-action[aria-expanded="true"] {
   border-color: var(--c-viewer-accent);
   background: var(--c-viewer-selected);
@@ -1199,14 +1193,13 @@ select.input-base {
   color: var(--c-viewer-cta-text);
 }
 
-:root:not(.dark) .media-overlay-resize-options,
 :root:not(.dark) .media-overlay-export-toast,
 :root:not(.dark) .media-overlay-generation-feedback {
   background: var(--c-viewer-panel);
   border-color: var(--c-viewer-border);
 }
 
-:root:not(.dark) .media-overlay-resize-options__error {
+:root:not(.dark) .media-overlay-action-error {
   color: var(--c-viewer-error);
 }
 
@@ -1217,8 +1210,7 @@ select.input-base {
 
 :root:not(.dark) .media-overlay-icon-button:focus-visible,
 :root:not(.dark) .media-overlay-image-action:focus-visible,
-:root:not(.dark) .media-overlay-edit-form__actions button:focus-visible,
-:root:not(.dark) .media-overlay-resize-options__list label:has(input:focus-visible) {
+:root:not(.dark) .media-overlay-edit-form__actions button:focus-visible {
   outline-color: var(--c-viewer-focus);
 }
 
@@ -1417,11 +1409,6 @@ select.input-base {
   flex-shrink: 0;
 }
 
-.media-overlay-action-stack:has(.media-overlay-resize-options) {
-  scrollbar-gutter: stable;
-  padding-right: 12px;
-}
-
 .media-overlay-edit-form {
   display: grid;
   width: 100%;
@@ -1513,125 +1500,7 @@ select.input-base {
   opacity: 0.45;
 }
 
-.media-overlay-resize-options {
-  grid-template-rows: auto minmax(72px, 1fr) auto;
-  height: 420px;
-  min-height: min-content;
-  max-height: 420px;
-  flex-shrink: 1;
-  background: var(--c-overlay-panel);
-}
-
-.media-overlay-resize-options:has(.media-overlay-resize-options__list--ratios) {
-  grid-template-rows: auto minmax(60px, 1fr) auto;
-  height: 340px;
-  max-height: 340px;
-}
-
-.media-overlay-resize-options:has(.media-overlay-resize-options__empty),
-.media-overlay-resize-options:has(.media-overlay-resize-options__reload) {
-  height: auto;
-}
-
-.media-overlay-resize-options__body {
-  min-height: 72px;
-  min-width: 0;
-  contain: size;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding: 3px 12px 3px 3px;
-  scroll-padding-block: 3px;
-  touch-action: pan-y;
-}
-
-.media-overlay-resize-options:has(.media-overlay-resize-options__list--ratios) .media-overlay-resize-options__body {
-  min-height: 60px;
-}
-
-.media-overlay-resize-options__body:focus-visible {
-  outline: 1px solid var(--c-accent-ring);
-  outline-offset: -1px;
-  border-radius: var(--radius-sm);
-}
-
-.media-overlay-resize-options__header,
-.media-overlay-resize-options__footer {
-  position: sticky;
-  z-index: 1;
-  border-radius: var(--radius-sm);
-}
-
-.media-overlay-resize-options__header {
-  top: 0;
-  display: grid;
-  gap: 10px;
-  padding: 2px 3px 4px;
-}
-
-.media-overlay-resize-options[data-compact="true"] .media-overlay-resize-options__header {
-  position: static;
-}
-
-.media-overlay-resize-options__footer {
-  bottom: 0;
-  display: grid;
-  gap: 10px;
-  /* Match the list's 3px inset and 12px safety gap + 5px scrollbar. */
-  padding: 8px 17px 8px 3px;
-  background: inherit;
-}
-
-.media-overlay-resize-options__footer .media-overlay-edit-form__actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.media-overlay-resize-options__footer .media-overlay-edit-form__actions > span {
-  flex-basis: 160px;
-}
-
-.media-overlay-resize-options__footer button[type="submit"] {
-  border: 1px solid color-mix(in srgb, var(--c-cta) 80%, var(--c-on-media));
-  background-clip: padding-box;
-}
-
-.media-overlay-resize-options__footer button[type="submit"]:focus-visible {
-  border-radius: var(--radius-lg);
-  outline-color: var(--c-accent-ring);
-}
-
-.media-overlay-resize-options__footer > .media-overlay-resize-options__error {
-  max-height: 54px;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  padding-right: 12px;
-}
-
-.media-overlay-resize-options fieldset {
-  min-width: 0;
-  margin: 0;
-  border: 0;
-  padding: 0;
-}
-
-.media-overlay-resize-options__header > strong {
-  padding: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.media-overlay-resize-options__model,
-.media-overlay-resize-options__empty {
-  margin: 0;
-  color: color-mix(in srgb, var(--c-on-media) 65%, transparent);
-  font-size: 0.75rem;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-
-.media-overlay-resize-options__error {
+.media-overlay-action-error {
   margin: 0;
   color: color-mix(in srgb, var(--c-on-media) 70%, var(--c-error-text));
   font-size: 0.75rem;
@@ -1639,102 +1508,89 @@ select.input-base {
   overflow-wrap: anywhere;
 }
 
-.media-overlay-resize-options__reload {
-  justify-self: start;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--c-on-media) 20%, transparent);
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-}
-
-.media-overlay-resize-options__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
-  gap: 7px;
-}
-
-.media-overlay-resize-options__list--ratios {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-@container overlay-actions (min-width: 300px) {
-  .media-overlay-resize-options__list--ratios {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@container overlay-actions (min-width: 420px) {
-  .media-overlay-resize-options__list--ratios {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.media-overlay-resize-options__list label {
+.media-overlay-resize-menu {
+  --resize-safe-top: env(safe-area-inset-top, 0px);
+  --resize-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --resize-safe-left: env(safe-area-inset-left, 0px);
+  --resize-safe-right: env(safe-area-inset-right, 0px);
+  position: fixed;
   display: flex;
+  flex-direction: column;
+  z-index: 70;
+  inset: auto;
+  box-sizing: border-box;
+  width: 272px;
+  margin: 0;
+  border: 1px solid var(--c-viewer-border);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  background: var(--c-viewer-panel);
+  color: var(--c-viewer-text);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.media-overlay-resize-menu__list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 2px 12px 2px 2px;
+  scroll-padding-block: 2px;
+  touch-action: pan-y;
+}
+
+.media-overlay-resize-feedback {
+  max-height: min(120px, 30dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.media-overlay-resize-menu__list > button {
+  display: flex;
+  width: 100%;
   min-height: 44px;
-  min-width: 0;
   align-items: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-on-media) 16%, transparent);
+  gap: 12px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  background: color-mix(in srgb, var(--c-overlay-panel) 60%, transparent);
-  color: var(--c-on-media);
-  font-size: 0.75rem;
+  padding: 6px 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8125rem;
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  text-align: left;
   cursor: pointer;
 }
 
-.media-overlay-resize-options__list--ratios label {
-  position: relative;
-  min-height: 54px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1px;
-  padding: 2px 6px;
-  text-align: center;
+.media-overlay-resize-menu__list > button > span {
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
-.media-overlay-resize-options__list input:not(.sr-only) {
-  width: 14px;
-  height: 14px;
-  margin: 0;
+.media-overlay-resize-menu__list > button > svg {
   flex-shrink: 0;
-  accent-color: var(--c-accent);
 }
 
-.media-overlay-resize-options__ratio {
-  flex-shrink: 0;
-  color: color-mix(in srgb, var(--c-on-media) 75%, transparent);
+.media-overlay-resize-menu__list > button:hover:not([aria-disabled="true"]) {
+  background: var(--c-viewer-hover);
 }
 
-.media-overlay-resize-options__list label:has(input:checked),
-.media-overlay-resize-options__list label:hover:not(:has(input:disabled)) {
-  border-color: var(--c-accent);
-  background: color-mix(in srgb, var(--c-accent) 8%, transparent);
+.media-overlay-resize-menu__list > button[aria-checked="true"] {
+  background: var(--c-viewer-selected);
+  color: var(--c-viewer-accent);
 }
 
-.media-overlay-resize-options__list label:has(input:checked) .media-overlay-resize-options__ratio {
-  color: var(--c-accent-ring);
+.media-overlay-resize-menu__list > button:focus-visible {
+  outline: 2px solid var(--c-viewer-focus);
+  outline-offset: -2px;
 }
 
-.media-overlay-resize-options__list--ratios label:has(input:checked) {
-  color: var(--c-accent-ring);
-}
-
-.media-overlay-resize-options__list label:has(input:focus-visible) {
-  outline: 2px solid var(--c-on-media);
-  outline-offset: 2px;
-}
-
-.media-overlay-resize-options__list input:focus-visible {
-  outline: none;
-}
-
-.media-overlay-resize-options__list label:has(input:disabled) {
+.media-overlay-resize-menu__list > button[aria-disabled="true"],
+.media-overlay-image-action[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.6;
 }
