@@ -492,6 +492,7 @@ async def _post_json(
             code="provider_http_error",
             message=f"Tuzi image provider returned HTTP {response.status_code}",
             raw_error=response_payload,
+            safe_to_fallback=response.status_code == 429 and not _extract_task_id(response_payload),
         )
     if not isinstance(response_payload, dict):
         raise ProviderError(
@@ -530,6 +531,7 @@ async def _post_multipart(
             code="provider_http_error",
             message=f"Tuzi image provider returned HTTP {response.status_code}",
             raw_error=response_payload,
+            safe_to_fallback=response.status_code == 429 and not _extract_task_id(response_payload),
         )
     if not isinstance(response_payload, dict):
         raise ProviderError(

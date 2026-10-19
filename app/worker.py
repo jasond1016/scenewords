@@ -156,8 +156,51 @@ class TaskWorker:
             request.provider_options["__resume_provider_query_endpoint"] = (
                 resume_provider_query_endpoint.strip()
             )
+        route = request.provider_options.get("__routing")
+
+        def persist_route() -> None:
+            snapshot = request.model_copy(deep=False)
+            snapshot.provider_options = {k: v for k, v in request.provider_options.items()
+                                         if k != "__provider_progress_reporter"}
+            self.store.update_execution(task_id, snapshot.model_dump(mode="json"), task["estimated_cost"])
+
         try:
-            result = await provider.generate(provider_config=provider_config, request=request)
+            while True:
+                if route:
+                    # Recovery resumes only the current checkpoint, never advances the plan.
+                    if not resume_provider_job_id:
+                        index = len(route["attempts"])
+                        if index >= len(route["plan"]) or sum(a["cost"] for a in route["attempts"]) + route["plan"][index]["cost"] > route["budget"] + 1e-9:
+                            route["stop_reason"] = "attempt_or_budget_limit"
+                            persist_route()
+                            raise ProviderError("routing_limit", "Routing attempt or budget limit reached")
+                        choice = route["plan"][index]
+                        unavailable = generation_unavailable_reason(self.provider_configs, choice["provider"], choice["model"])
+                        if unavailable:
+                            raise ProviderError("generation_unavailable", unavailable)
+                        request.provider, request.model = choice["provider"], choice["model"]
+                        provider_config = self.provider_configs[request.provider]
+                        provider = self.providers[request.provider]
+                        task["estimated_cost"] = choice["cost"]
+                        route["attempts"].append({**choice, "status": "submitting"})
+                    persist_route()
+                try:
+                    result = await provider.generate(provider_config=provider_config, request=request)
+                    if route:
+                        route["attempts"][-1]["status"] = "succeeded"
+                        route["stop_reason"] = "succeeded"
+                        persist_route()
+                    break
+                except ProviderError as error:
+                    if route:
+                        route["attempts"][-1].update(status="failed", code=error.code)
+                        checkpoint = self.store.get_task(task_id).get("provider_job_id")
+                        safe = error.safe_to_fallback and not checkpoint and request.seed is None
+                        route["stop_reason"] = "rejected_before_acceptance" if safe else "unsafe_to_resubmit"
+                        persist_route()
+                        if safe and len(route["attempts"]) < len(route["plan"]):
+                            continue
+                    raise
             result = await _archive_result_assets(
                 task_id=task_id,
                 asset_type=task.get("asset_type", "video"),
@@ -175,18 +218,23 @@ class TaskWorker:
             self.store.set_error(
                 task_id=task_id,
                 code=error.code,
-                message=error.message,
-                raw_error=error.raw_error,
+                message="Upstream generation failed; see routing diagnostics" if route else error.message,
+                raw_error={"code": error.code} if route else error.raw_error,
             )
         except asyncio.CancelledError:
             # Cancellation is expected when users cancel/delete an in-progress task.
             pass
         except Exception as error:
+            if route:
+                route["stop_reason"] = "unsafe_to_resubmit"
+                if route["attempts"]:
+                    route["attempts"][-1].update(status="failed", code="internal_error")
+                persist_route()
             self.store.set_error(
                 task_id=task_id,
                 code="internal_error",
                 message="Unexpected worker error",
-                raw_error=str(error),
+                raw_error={"code": "internal_error"} if route else str(error),
             )
 
 

@@ -633,7 +633,7 @@ def test_retry_video_task_keeps_seed_for_supported_provider(
     assert new_task["request"]["seed"] == 12345
 
 
-def test_retry_image_task_clears_seed_for_tuzi_provider(
+def test_exact_retry_image_task_preserves_historical_seed(
     client_factory,
 ) -> None:
     with client_factory() as client:
@@ -666,7 +666,7 @@ def test_retry_image_task_clears_seed_for_tuzi_provider(
         new_task = client.app.state.store.get_task(response.json()["task_id"])
 
     assert response.status_code == 200
-    assert new_task["request"]["seed"] is None
+    assert new_task["request"]["seed"] == 67890
 
 
 def test_scene_generation_retry_creates_linear_versions(client_factory) -> None:

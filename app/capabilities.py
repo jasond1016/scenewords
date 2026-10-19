@@ -872,6 +872,9 @@ def _tuzi_image_operations(
                 options=[_option("", "服务商默认"), _option("low", "低"), _option("high", "高")],
             ),
         )
+        operations[0].fields.append(_field(
+            "image_file_ids", "参考图文件", target="provider_options", input_type="file_list",
+        ))
         return operations
     return operations
 

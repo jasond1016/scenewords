@@ -163,7 +163,7 @@ class _TuziAsyncVideoProvider(Provider):
                 provider_job_id=task_id,
             )
         except ProviderError as error:
-            if (not (resume_task_id and resume_query_endpoint)) and _should_retry_upload_failure(
+            if not request.provider_options.get("__routing") and (not (resume_task_id and resume_query_endpoint)) and _should_retry_upload_failure(
                 error=error, submit_request=submit_request
             ):
                 retry_submit_request = _build_submit_request(
@@ -280,6 +280,7 @@ class _TuziAsyncVideoProvider(Provider):
                 code="provider_http_error",
                 message=f"Tuzi provider returned HTTP {response.status_code} on submit",
                 raw_error=payload,
+                safe_to_fallback=response.status_code == 429 and not _extract_task_id(payload),
             )
         if not isinstance(payload, dict):
             raise ProviderError(

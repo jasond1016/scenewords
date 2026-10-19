@@ -29,6 +29,7 @@ from app.capabilities import (
 from app.config import AppConfig, ProviderConfig, load_app_config, load_provider_configs
 from app.db import TaskStore
 from app.pricing import PricingCatalog
+from app.routing import RoutingConfig
 from app.providers import PROVIDER_TYPE_REGISTRY
 from app.providers.base import Provider
 from app.providers.base import ProviderError
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
 
         provider_configs = load_provider_configs(app_config.provider_config_path)
         pricing_catalog = PricingCatalog.load(app_config.pricing_config_path)
+        routing_config = RoutingConfig.load(Path(os.getenv("VIDEO_GATEWAY_ROUTING_CONFIG", "config/routing.json")))
         store = TaskStore(app_config.db_path)
         http_client = httpx.AsyncClient()
         providers_by_type: dict[str, Provider] = {
@@ -144,6 +146,7 @@ def create_app() -> FastAPI:
         app.state.config = app_config
         app.state.provider_configs = provider_configs
         app.state.pricing_catalog = pricing_catalog
+        app.state.routing_config = routing_config
         app.state.store = store
         app.state.http_client = http_client
         app.state.worker = worker
@@ -267,7 +270,7 @@ def create_app() -> FastAPI:
                     ],
                 )
             )
-        return ProviderCatalogResponse(providers=providers, max_upload_bytes=app.state.config.max_upload_bytes)
+        return ProviderCatalogResponse(providers=providers, routing_providers=app.state.routing_config.catalog(provider_configs), max_upload_bytes=app.state.config.max_upload_bytes)
 
     def _build_queue_position_map(asset_type: str | None = None) -> dict[str, int]:
         active_tasks = app.state.store.list_active_tasks(asset_type=asset_type)
@@ -318,6 +321,12 @@ def create_app() -> FastAPI:
         operations = build_model_operations(
             provider_config=provider_config, model_name=payload.model
         )
+        configured_sizes = {size for sizes in app.state.routing_config.ratio_sizes.values() for size in sizes.values()}
+        if payload.model in GPT_IMAGE_25_OFFICIAL_MODELS and payload.resolution in configured_sizes:
+            for operation in operations:
+                for field in operation.fields:
+                    if field.key == "resolution":
+                        field.options = []
         try:
             apply_operation_defaults_and_validate(request=payload, operations=operations)
             if provider_config.provider_type == "tuzi_image" and payload.model.lower() in GPT_IMAGE_25_OFFICIAL_MODELS:
@@ -342,11 +351,14 @@ def create_app() -> FastAPI:
         payload: VideoGenerationRequest,
     ) -> tuple[float | None, str | None, str]:
         pricing_catalog: PricingCatalog = app.state.pricing_catalog
-        quality = payload.provider_options.get("resolution_tier")
+        route = payload.provider_options.get("__routing")
+        if route:
+            return route["plan"][0]["cost"], route["currency"], "local_config"
+        quality = payload.resolution_tier or payload.provider_options.get("resolution_tier")
         if quality is None:
             quality = payload.provider_options.get("quality")
         quality_text = quality.strip() if isinstance(quality, str) and quality.strip() else None
-        return pricing_catalog.estimate(
+        amount, currency, source = pricing_catalog.estimate(
             provider=payload.provider,
             model=payload.model,
             operation=payload.operation,
@@ -354,6 +366,9 @@ def create_app() -> FastAPI:
             resolution=payload.resolution,
             quality=quality_text,
         )
+        if amount is not None and payload.model in GPT_IMAGE_25_OFFICIAL_MODELS:
+            amount = round(amount * int(payload.provider_options.get("n", 1)), 6)
+        return amount, currency, source
 
     async def _enqueue_task(
         payload: VideoGenerationRequest,
@@ -361,7 +376,17 @@ def create_app() -> FastAPI:
         asset_type: str,
         allowed_provider_types: set[str] | None = None,
         prepare_lineage: bool = True,
+        smart_retry: bool = False,
     ) -> VideoTaskResponse:
+        if any(key.startswith("__") for key in payload.provider_options):
+            raise HTTPException(status_code=400, detail="Internal provider options cannot be supplied")
+        if bool(payload.provider) != bool(payload.model):
+            raise HTTPException(status_code=400, detail="Supply both provider and model, or neither")
+        if not payload.provider or smart_retry:
+            try:
+                payload = app.state.routing_config.resolve(payload, asset_type, app.state.provider_configs, app.state.pricing_catalog)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
         _, operation = _validate_generation_payload(
             payload,
             allowed_provider_types=allowed_provider_types,
@@ -409,15 +434,43 @@ def create_app() -> FastAPI:
             queue_map=_build_queue_position_map(asset_type=asset_type),
         )
 
-    async def _enqueue_video_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
-        return await _enqueue_task(payload, asset_type="video")
+    async def _enqueue_video_task(payload: VideoGenerationRequest, *, smart_retry: bool = False) -> VideoTaskResponse:
+        return await _enqueue_task(payload, asset_type="video", smart_retry=smart_retry)
 
-    async def _enqueue_image_task(payload: VideoGenerationRequest) -> VideoTaskResponse:
+    async def _enqueue_image_task(payload: VideoGenerationRequest, *, smart_retry: bool = False) -> VideoTaskResponse:
         return await _enqueue_task(
             payload,
             asset_type="image",
             allowed_provider_types={"tuzi_image"},
+            smart_retry=smart_retry,
         )
+
+    def _retry_request(task: dict[str, Any], retry: RetryTaskRequest) -> VideoGenerationRequest:
+        stored = task["request"]
+        route = stored.get("provider_options", {}).get("__routing")
+        source = route["intent"] if route and retry.routing_mode == "auto" else stored
+        payload = VideoGenerationRequest.model_validate(source)
+        if not payload.resolution_tier:
+            rule = next((r for r in app.state.routing_config.models if r.provider == task["provider"] and r.model == task["model"]), None)
+            if rule and len(rule.tiers) == 1:
+                payload.resolution_tier = rule.tiers[0]
+        payload.provider_options = _strip_internal_provider_options(payload.provider_options)
+        if retry.prompt is not None:
+            payload.prompt = retry.prompt
+        if retry.retry_mode == "new_seed":
+            if not _provider_supports_seed_retry(task["provider"], app.state.provider_configs):
+                raise HTTPException(status_code=400, detail="This provider cannot honor new_seed")
+            payload.seed = random.SystemRandom().randint(1, 2_147_483_647)
+        pinned = retry.routing_mode == "exact" or (retry.retry_mode == "same_seed" and payload.seed is not None)
+        if pinned:
+            payload.provider, payload.model = task["provider"], task["model"]
+        else:
+            payload.provider = payload.model = ""
+        if task.get("generation_id"):
+            payload.scene_id = task.get("scene_id")
+            payload.generation_id = task["generation_id"]
+            payload.parent_version_id = task["task_id"]
+        return payload
 
     @app.post("/v1/video/generations", response_model=VideoTaskResponse)
     async def create_video_task(
@@ -439,25 +492,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found")
 
         unavailable = generation_unavailable_reason(app.state.provider_configs, task["provider"], task["model"])
-        if unavailable:
+        if unavailable and retry_payload.routing_mode == "exact":
             raise HTTPException(status_code=503, detail=unavailable)
-        source_request = VideoGenerationRequest.model_validate(task["request"])
-        source_request.provider_options = _strip_internal_provider_options(
-            source_request.provider_options
-        )
-        if retry_payload.prompt is not None:
-            source_request.prompt = retry_payload.prompt
-        if not _provider_supports_seed_retry(
-            source_request.provider, app.state.provider_configs
-        ):
-            source_request.seed = None
-        elif retry_payload.retry_mode == "new_seed":
-            source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
-        if task.get("generation_id"):
-            source_request.scene_id = task.get("scene_id")
-            source_request.generation_id = task.get("generation_id")
-            source_request.parent_version_id = task_id
-        return await _enqueue_video_task(source_request)
+        return await _enqueue_video_task(_retry_request(task, retry_payload), smart_retry=retry_payload.routing_mode == "auto")
 
     @app.post("/v1/video/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
     async def cancel_video_task(
@@ -601,25 +638,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found")
 
         unavailable = generation_unavailable_reason(app.state.provider_configs, task["provider"], task["model"])
-        if unavailable:
+        if unavailable and retry_payload.routing_mode == "exact":
             raise HTTPException(status_code=503, detail=unavailable)
-        source_request = VideoGenerationRequest.model_validate(task["request"])
-        source_request.provider_options = _strip_internal_provider_options(
-            source_request.provider_options
-        )
-        if retry_payload.prompt is not None:
-            source_request.prompt = retry_payload.prompt
-        if not _provider_supports_seed_retry(
-            source_request.provider, app.state.provider_configs
-        ):
-            source_request.seed = None
-        elif retry_payload.retry_mode == "new_seed":
-            source_request.seed = random.SystemRandom().randint(1, 2_147_483_647)
-        if task.get("generation_id"):
-            source_request.scene_id = task.get("scene_id")
-            source_request.generation_id = task.get("generation_id")
-            source_request.parent_version_id = task_id
-        return await _enqueue_image_task(source_request)
+        return await _enqueue_image_task(_retry_request(task, retry_payload), smart_retry=retry_payload.routing_mode == "auto")
 
     @app.post("/v1/image/tasks/{task_id}/cancel", response_model=VideoTaskDetail)
     async def cancel_image_task(
@@ -1627,6 +1648,7 @@ def _to_task_detail(
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
         operation=task.get("operation") or request_payload.get("operation"),
+        routing=provider_options.get("__routing") if isinstance(provider_options, dict) else None,
         provider_job_id=task.get("provider_job_id"),
         provider_status=task.get("provider_status"),
         provider_query_endpoint=task.get("provider_query_endpoint"),

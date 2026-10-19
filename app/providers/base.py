@@ -10,11 +10,12 @@ from app.schemas import VideoGenerationRequest
 
 
 class ProviderError(RuntimeError):
-    def __init__(self, code: str, message: str, raw_error: Any | None = None) -> None:
+    def __init__(self, code: str, message: str, raw_error: Any | None = None, *, safe_to_fallback: bool = False) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.raw_error = raw_error
+        self.safe_to_fallback = safe_to_fallback
 
 
 class Provider(ABC):

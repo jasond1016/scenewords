@@ -1,0 +1,29 @@
+{
+  "version": "phase1-2026-10-19",
+  "max_attempts": 2,
+  "budget": {"image": 1.0, "video": 1.4},
+  "currency": "RMB",
+  "defaults": {"image": "1k", "video": "720p"},
+  "ratio_sizes": {
+    "1k": {"1:1": "1024x1024", "2:3": "1024x1536", "3:2": "1536x1024", "3:4": "1104x1472", "4:3": "1472x1104", "4:5": "1152x1440", "5:4": "1440x1152", "9:16": "1024x1824", "16:9": "1824x1024", "21:9": "2016x864"},
+    "2k": {"1:1": "2048x2048", "2:3": "2048x3072", "3:2": "3072x2048", "3:4": "1920x2560", "4:3": "2560x1920", "4:5": "2048x2560", "5:4": "2560x2048", "9:16": "1440x2560", "16:9": "2560x1440", "21:9": "3024x1296"},
+    "4k": {"1:1": "4096x4096", "2:3": "2736x4096", "3:2": "4096x2736", "3:4": "3072x4096", "4:3": "4096x3072", "4:5": "3280x4096", "5:4": "4096x3280", "9:16": "2160x3840", "16:9": "3840x2160", "21:9": "4032x1728"}
+  },
+  "models": [
+    {"provider": "nano_banana2", "model": "gpt-image-2.5-1k", "kind": "image", "protocol": "ratio", "tiers": ["1k"], "group": "ratio-1k", "priority": 0},
+    {"provider": "nano_banana2", "model": "gpt-image-2.5", "kind": "image", "protocol": "official", "tiers": ["1k", "2k", "4k"], "group": "official", "priority": 1},
+    {"provider": "nano_banana2", "model": "gpt-image-2.5-vip", "kind": "image", "protocol": "official", "tiers": ["1k", "2k", "4k"], "group": "official", "priority": 2},
+    {"provider": "nano_banana2", "model": "gpt-image-2.5-flare", "kind": "image", "protocol": "official", "tiers": ["1k", "2k", "4k"], "group": "official", "priority": 3},
+    {"provider": "nano_banana2", "model": "gpt-image-2.5-sunburst", "kind": "image", "protocol": "official", "tiers": ["1k", "2k", "4k"], "group": "official", "priority": 4},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview-async", "kind": "image", "protocol": "async", "tiers": ["1k"], "group": "async-1k", "priority": 8},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview-2k-async", "kind": "image", "protocol": "async", "tiers": ["2k"], "group": "async-2k", "priority": 8},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview-4k-async", "kind": "image", "protocol": "async", "tiers": ["4k"], "group": "async-4k", "priority": 8},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview", "kind": "image", "protocol": "ratio", "tiers": ["1k"], "group": "ratio-1k", "priority": 5},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview-2k", "kind": "image", "protocol": "ratio", "tiers": ["2k"], "group": "ratio-2k", "priority": 6},
+    {"provider": "nano_banana2", "model": "gemini-3-pro-image-preview-4k", "kind": "image", "protocol": "ratio", "tiers": ["4k"], "group": "ratio-4k", "priority": 7},
+    {"provider": "veo31", "model": "veo3.1", "kind": "video", "protocol": "frames", "tiers": ["720p"], "group": "veo-frames-720p", "priority": 0},
+    {"provider": "veo31", "model": "veo3.1-4k", "kind": "video", "protocol": "frames", "tiers": ["4k"], "group": "veo-frames-4k", "priority": 1},
+    {"provider": "veo31", "model": "veo3.1-components", "kind": "video", "protocol": "components", "tiers": ["720p"], "group": "veo-components-720p", "priority": 2},
+    {"provider": "veo31", "model": "veo3.1-components-4k", "kind": "video", "protocol": "components", "tiers": ["4k"], "group": "veo-components-4k", "priority": 3}
+  ]
+}

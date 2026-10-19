@@ -179,6 +179,16 @@ class TaskStore:
             )
             self._connection.commit()
 
+    def update_execution(self, task_id: str, request_payload: dict[str, Any], estimated_cost: float) -> None:
+        """Persist the selected attempt before any upstream submission, including its budget reservation."""
+        with self._lock:
+            self._connection.execute(
+                "UPDATE tasks SET provider = ?, model = ?, request_json = ?, estimated_cost = ?, updated_at = ? WHERE task_id = ?",
+                (request_payload["provider"], request_payload["model"], json.dumps(request_payload, ensure_ascii=False),
+                 estimated_cost, _now_iso(), task_id),
+            )
+            self._connection.commit()
+
     def set_provider_progress(
         self,
         task_id: str,

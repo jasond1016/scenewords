@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VideoGenerationRequest(BaseModel):
-    provider: str = Field(..., description="Provider id from /v1/models")
-    model: str = Field(..., description="Model name")
+    model_config = ConfigDict(extra="forbid")
+    provider: str = Field(default="", description="Legacy explicit provider; omit for smart routing")
+    model: str = Field(default="", description="Legacy explicit model; omit for smart routing")
+    resolution_tier: Literal["1k", "2k", "4k", "720p"] | None = None
+    routing_budget: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     operation: str | None = Field(default=None, description="Operation id for selected model")
     scene_id: str | None = None
     generation_id: str | None = None
@@ -50,6 +53,7 @@ class VideoTaskResponse(BaseModel):
 
 class VideoTaskDetail(VideoTaskResponse):
     operation: str | None = None
+    routing: dict[str, Any] | None = None
     provider_job_id: str | None = None
     provider_status: str | None = None
     provider_query_endpoint: str | None = None
@@ -72,6 +76,7 @@ class VideoTaskDetail(VideoTaskResponse):
 class ProviderModelInfo(BaseModel):
     name: str
     display_name: str
+    routing_goal: dict[str, Any] | None = None
     is_default: bool = False
     operations: list["ProviderModelOperationInfo"] = Field(default_factory=list)
 
@@ -86,6 +91,7 @@ class ProviderInfo(BaseModel):
 
 class ProviderCatalogResponse(BaseModel):
     providers: list[ProviderInfo]
+    routing_providers: list[ProviderInfo] = Field(default_factory=list)
     max_upload_bytes: int | None = None
 
 
@@ -207,6 +213,7 @@ class SceneDetailResponse(SceneResponse):
 
 class RetryTaskRequest(BaseModel):
     retry_mode: Literal["same_seed", "new_seed"] = "same_seed"
+    routing_mode: Literal["auto", "exact"] = "exact"
     prompt: str | None = None
 
 
