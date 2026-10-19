@@ -71,6 +71,16 @@ need at least 3:1. Retain the caramel CTA fill but use dark readable text in the
 light application theme; the warm-gallery viewer retains its own CTA palette.
 Do not use the muted decorative border color as a text color.
 
+Form controls have a separate neutral focus palette: `--c-input-focus` is gray
+`#666666` in light mode and `#A8A8A8` in dark mode, with a soft three-pixel
+`--c-input-focus-halo`. Native inputs, selects and textareas never inherit the
+gold action outline. Search and composer inputs place this single treatment on
+their containing frame, not on both the input and its frame. Invalid fields keep
+their error semantics; disabled fields do not receive a focus treatment. In
+forced-colors mode, a two-pixel system-color inset outline replaces the halo so
+focus remains visible without adding a second separated frame. CTA and selected
+state accents are independent and remain caramel.
+
 Capability catalog metadata is Chinese at source. `localizeDynamicField` localizes
 known labels, choices, hints and placeholders at the presentation boundary, including
 quick parameters and validation messages. It must not change request keys, option

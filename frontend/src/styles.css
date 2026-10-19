@@ -23,6 +23,8 @@
     --c-border-subtle: rgba(40, 32, 20, 0.05);
     --c-border-strong: #D6D4D0;
     --c-border-focus: #BDB9B2;
+    --c-input-focus: #666666;
+    --c-input-focus-halo: rgb(102 102 102 / 16%);
 
     /* Text */
     --c-text: #1A1917;
@@ -135,6 +137,8 @@
     --c-border-subtle: rgba(255, 245, 230, 0.06);
     --c-border-strong: #3B3834;
     --c-border-focus: #57524B;
+    --c-input-focus: #A8A8A8;
+    --c-input-focus-halo: rgb(168 168 168 / 18%);
 
     --c-text: #EDEBE7;
     --c-text-secondary: #A29F99;
@@ -254,7 +258,7 @@ button, input, select, textarea {
 }
 
 /* ── Focus Ring (Accessibility) ─────────────────────── */
-:focus-visible:not(.composer-textarea, .media-overlay-icon-button, .media-overlay-edit-form textarea, .media-overlay-resize-menu__list > button, .session-result-more, .session-turn-failure-reason) {
+:focus-visible:not(input, select, textarea, .media-overlay-icon-button, .media-overlay-resize-menu__list > button, .session-result-more, .session-turn-failure-reason) {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: 2px;
   border-radius: 4px;
@@ -743,9 +747,34 @@ p {
   color: var(--c-text-tertiary);
 }
 
-.input-base:focus {
-  border-color: var(--c-accent-ring);
-  box-shadow: 0 0 0 3px var(--c-cta-subtle);
+/* Native form controls own one neutral focus treatment, independently of CTA
+   and selected-state accents. The halo adds a visible shape, not just a hue. */
+:is(input, select, textarea):focus:enabled {
+  border-color: var(--c-input-focus);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--c-input-focus-halo);
+}
+
+:is(input, select, textarea):is([aria-invalid="true"], :user-invalid) {
+  border-color: var(--c-error-text);
+}
+
+:is(.search-field input, .composer-textarea):focus:enabled {
+  outline: none;
+  box-shadow: none;
+}
+
+@media (forced-colors: active) {
+  :is(input, select, textarea):focus:enabled {
+    border-color: CanvasText;
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+
+  :is(.search-field input, .composer-textarea):focus:enabled {
+    outline: none;
+  }
 }
 
 .input-base:disabled {
@@ -779,8 +808,8 @@ select.input-base {
 }
 
 .search-field:focus-within {
-  border-color: var(--c-accent-ring);
-  box-shadow: 0 0 0 3px var(--c-cta-subtle);
+  border-color: var(--c-input-focus);
+  box-shadow: 0 0 0 3px var(--c-input-focus-halo);
 }
 
 .search-field input {
@@ -1230,7 +1259,7 @@ select.input-base {
   color-scheme: light;
 }
 
-:root:not(.dark) .media-overlay-edit-form textarea {
+:where(:root:not(.dark)) .media-overlay-edit-form textarea {
   border-color: var(--c-viewer-input-border);
   background: var(--c-viewer-input);
 }
@@ -1240,11 +1269,6 @@ select.input-base {
 :root:not(.dark) .media-overlay-edit-form__actions,
 :root:not(.dark) .media-overlay-image-action-chevron {
   color: var(--c-viewer-secondary);
-}
-
-:root:not(.dark) .media-overlay-edit-form textarea:focus-visible {
-  border-color: var(--c-viewer-focus);
-  box-shadow: 0 0 0 1px var(--c-viewer-focus);
 }
 
 :root:not(.dark) .media-overlay-image-action[aria-expanded="true"] {
@@ -1514,11 +1538,6 @@ select.input-base {
 
 .media-overlay-edit-form textarea::placeholder {
   color: color-mix(in srgb, var(--c-on-media) 50%, transparent);
-}
-
-.media-overlay-edit-form textarea:focus-visible {
-  border-color: color-mix(in srgb, var(--c-accent-ring) 45%, var(--c-overlay-muted));
-  outline: none;
 }
 
 .media-overlay-edit-form__actions {
@@ -1899,7 +1918,7 @@ select.input-base {
 .media-detail :is(button, summary):focus-visible,
 .media-detail-icon:focus-visible,
 .media-overlay-sidebar-scroll:focus-visible,
-.media-comparison :is(button, select, summary, [tabindex]):focus-visible {
+.media-comparison :is(button, summary, [tabindex]):not(input, select, textarea):focus-visible {
   outline: 2px solid var(--c-accent-ring);
   outline-offset: -2px;
 }
@@ -3386,6 +3405,21 @@ select.input-base {
 
 .composer-card:focus-within {
   border-color: var(--c-border-strong);
+}
+
+.composer-card:has(.composer-textarea:focus) {
+  border-color: var(--c-input-focus);
+  box-shadow: 0 0 0 3px var(--c-input-focus-halo);
+}
+
+@media (forced-colors: active) {
+  .search-field:focus-within,
+  .composer-card:has(.composer-textarea:focus) {
+    border-color: CanvasText;
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+    box-shadow: none;
+  }
 }
 
 .composer-add {
