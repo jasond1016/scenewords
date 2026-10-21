@@ -182,20 +182,46 @@ interface ImageActionsProps {
 export function MediaOverlayImageActions(props: ImageActionsProps) {
   const { disabled = false, isEditPromptOpen, isResizeOptionsOpen, resize, onCloseResize, onEdit, onAdjustSize, onRegenerate, onGenerateHighResolutionCandidate } = props;
   const { t } = useI18n();
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) return;
+    const buttons = Array.from(toolbar.querySelectorAll<HTMLButtonElement>(":scope > button"));
+    const labels = buttons.map((button) => button.querySelector<HTMLElement>(".media-overlay-image-action-label")!);
+    const fits = () => buttons.every((button) => button.scrollWidth <= button.clientWidth + 1);
+    const fit = () => {
+      // Measure real translations/fonts, not a language- or device-specific guess.
+      toolbar.dataset.layout = "full";
+      if (!fits()) {
+        toolbar.dataset.layout = "compact";
+        if (!fits()) toolbar.dataset.layout = "icons";
+      }
+    };
+    const observer = new ResizeObserver(fit);
+    for (const element of [toolbar, ...buttons, ...labels]) observer.observe(element);
+    document.fonts.addEventListener("loadingdone", fit);
+    fit();
+    return () => {
+      observer.disconnect();
+      document.fonts.removeEventListener("loadingdone", fit);
+    };
+  }, [t, resize.catalog, resize.task.task_id]);
 
   return (
     <div className="media-overlay-image-tools">
-      <div className="media-overlay-image-actions" role="toolbar" aria-label={t("works.imageActions")}>
+      <div ref={toolbarRef} className="media-overlay-image-actions" role="toolbar" aria-label={t("works.imageActions")}>
         <button
           type="button"
           className="media-overlay-image-action"
           onClick={onEdit}
           disabled={disabled}
           title={t("works.editImageHint")}
+          aria-label={t("works.editImage")}
           aria-expanded={isEditPromptOpen}
           aria-controls={isEditPromptOpen ? "media-overlay-edit-form" : undefined}
         >
-          <PencilSimple size={20} weight="regular" />
+          <PencilSimple size={20} weight="regular" aria-hidden="true" />
           <span className="media-overlay-image-action-label">
             {t("works.editImage")}
             <CaretDown className="media-overlay-image-action-chevron" size={12} weight="regular" aria-hidden="true" />
@@ -208,9 +234,10 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
           onClick={onRegenerate}
           disabled={disabled}
           title={t("works.regenerateHint")}
+          aria-label={t("works.regenerate")}
         >
-          <ArrowClockwise size={20} weight="regular" />
-          <span>{t("works.regenerate")}</span>
+          <ArrowClockwise size={20} weight="regular" aria-hidden="true" />
+          <span className="media-overlay-image-action-label">{t("works.regenerate")}</span>
         </button>
         <button
           type="button"
@@ -218,9 +245,10 @@ export function MediaOverlayImageActions(props: ImageActionsProps) {
           onClick={onGenerateHighResolutionCandidate}
           disabled={disabled}
           title={t("works.generateHighResolutionCandidateHint")}
+          aria-label={t("works.highResolutionCandidateShort")}
         >
-          <Sparkle size={20} weight="regular" />
-          <span>{t("works.highResolutionCandidateShort")}</span>
+          <Sparkle size={20} weight="regular" aria-hidden="true" />
+          <span className="media-overlay-image-action-label">{t("works.highResolutionCandidateShort")}</span>
         </button>
       </div>
     </div>
@@ -435,6 +463,7 @@ export function MediaOverlayResizeMenu(props: ResizeMenuProps) {
         aria-controls={open ? "media-overlay-resize-menu" : undefined}
         aria-disabled={blocked}
         aria-busy={pending}
+        aria-label={t("works.adjustImageSize")}
         title={t("works.adjustImageSizeHint")}
       >
         {pending ? <CircleNotch className="media-overlay-export-spinner" size={20} aria-hidden="true" /> : <Crop size={20} aria-hidden="true" />}

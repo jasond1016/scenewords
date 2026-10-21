@@ -1394,9 +1394,9 @@ select.input-base {
 }
 
 .media-overlay-bottom-actions {
-  right: 0;
+  right: env(safe-area-inset-right, 0px);
   bottom: calc(var(--overlay-keyboard-offset, 0px) + max(16px, env(safe-area-inset-bottom)) + var(--overlay-bottom-extra, 0px));
-  left: 0;
+  left: env(safe-area-inset-left, 0px);
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -1469,6 +1469,8 @@ select.input-base {
 
 .media-overlay-image-actions {
   width: min(100%, 560px);
+  min-width: 0;
+  flex-wrap: nowrap;
   gap: 6px;
   padding: 8px;
   border: 1px solid color-mix(in srgb, var(--c-on-media) 14%, transparent);
@@ -1719,12 +1721,25 @@ select.input-base {
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.media-overlay-image-action > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
 }
 
 .media-overlay-image-action-label {
   display: inline-flex;
+  min-width: 0;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 
 .media-overlay-image-action-chevron {
@@ -1753,17 +1768,56 @@ select.input-base {
 
 @container overlay-actions (max-width: 540px) {
   .media-overlay-image-actions {
-    gap: 4px;
+    gap: 2px;
+    padding: 6px;
   }
 
   .media-overlay-image-action {
     min-height: 56px;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    padding-inline: 2px;
     font-size: var(--text-caption);
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
+
+  .media-overlay-image-action > svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .media-overlay-image-action-label {
+    gap: 2px;
+  }
+
+  .media-overlay-image-action-chevron {
+    width: 10px;
+  }
+}
+
+.media-overlay-image-actions:is([data-layout="compact"], [data-layout="icons"]) .media-overlay-image-action {
+  min-height: 56px;
+  flex-direction: column;
+  gap: 4px;
+  padding-inline: 2px;
+  font-size: var(--text-caption);
+}
+
+.media-overlay-image-actions:is([data-layout="compact"], [data-layout="icons"]) .media-overlay-image-action > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.media-overlay-image-actions[data-layout="icons"] .media-overlay-image-action-label {
+  /* Keep labels measurable for font scaling/loading while hiding them visually.
+     Full accessible names and native tooltips live on the buttons. */
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 @container overlay-actions (max-width: 360px) {
@@ -4239,8 +4293,8 @@ select.input-base {
   }
 
   .media-overlay-layout--with-sidebar .media-overlay-bottom-actions {
-    right: 0;
-    left: 0;
+    right: env(safe-area-inset-right, 0px);
+    left: env(safe-area-inset-left, 0px);
   }
 
   .media-overlay-export-actions {

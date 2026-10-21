@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { fetchCatalog } from "../src/api";
 import { prepareMediaFile, shareMedia } from "../src/mediaExport";
 import { MediaDetailSidebar } from "../src/components/MediaDetailSidebar";
-import { MediaOverlayEditComposer, MediaOverlayResizeMenu } from "../src/components/MediaOverlayActions";
+import { MediaOverlayEditComposer, MediaOverlayImageActions, MediaOverlayResizeMenu } from "../src/components/MediaOverlayActions";
 import { SessionImage } from "../src/components/SessionImage";
 import {
   getImageResizeOptions,
@@ -189,6 +189,22 @@ test("resize menu exposes every model option in one level without a separate sub
   assert.equal(render(catalog([operation("edit", "other_files")])), "", "hide resizing when model lacks image reference support");
   field.options = [];
   assert.equal(render(), "", "hide resizing when the catalog has no choices");
+});
+
+test("all four image actions retain names and tooltips when labels collapse to icons", () => {
+  const html = renderToStaticMarkup(createElement(MediaOverlayImageActions, {
+    isEditPromptOpen: false, isResizeOptionsOpen: false,
+    resize: { task, catalog: catalog([operation("edit", "image_file_ids")]),
+      pending: false, queued: false, onQueued() {}, onDismissError() {}, onSubmit() {} },
+    onCloseResize() {}, onEdit() {}, onAdjustSize() {}, onRegenerate() {}, onGenerateHighResolutionCandidate() {},
+  }));
+  const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map(([button]) => button);
+  assert.equal(buttons.length, 4);
+  ["编辑", "调整尺寸", "再生成", "高清候选"].forEach((name, index) => {
+    assert.ok(buttons[index].includes(`aria-label="${name}"`));
+    assert.match(buttons[index], /title="[^"]+"/);
+  });
+  assert.match(buttons[1], /aria-haspopup="menu"/);
 });
 
 test("unsupported references fail before upload or task creation", async (t) => {
