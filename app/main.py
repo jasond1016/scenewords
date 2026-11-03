@@ -36,6 +36,7 @@ from app.providers.base import ProviderError
 from app.providers.tuzi_image import _validate_official_image_options
 from app.providers.tuzi_image_models import GPT_IMAGE_25_OFFICIAL_MODELS
 from app.schemas import (
+    ImageContext,
     PricingCatalogResponse,
     PricingEntryResponse,
     ProviderCatalogResponse,
@@ -370,6 +371,47 @@ def create_app() -> FastAPI:
             amount = round(amount * int(payload.provider_options.get("n", 1)), 6)
         return amount, currency, source
 
+    async def _resolve_image_context(payload: VideoGenerationRequest, asset_type: str) -> None:
+        context = payload.image_context
+        if context is None or context.mode == "none":
+            return
+        if asset_type != "image":
+            raise HTTPException(status_code=400, detail="Image context is only supported for images")
+        # Validate caller lineage before importing anything, without creating a generation.
+        _prepare_generation_lineage(payload, asset_type=asset_type, store=app.state.store, create=False)
+        if any(payload.provider_options.get(key) for key in (
+            "image_file_ids", "image", "input_reference_file_ids", "input_references", "input_reference",
+        )):
+            # In particular, retries already carry the durable file ids. Never reselect.
+            if context.mode == "latest":
+                payload.image_context = ImageContext(mode="none")
+            return
+        source = None
+        image_index = context.image_index
+        if context.mode == "latest":
+            image_index = 0
+            if payload.scene_id:
+                source = next((task for task in app.state.store.list_scene_image_results(payload.scene_id)
+                               if _has_image_output(task, 0, app.state.config)), None)
+            if source is None:
+                # Freeze the absence of context too: retries must not acquire a later image.
+                payload.image_context = ImageContext(mode="none")
+                return
+        else:
+            if not context.task_id:
+                raise HTTPException(status_code=400, detail="Selected image context requires task_id")
+            try:
+                source = app.state.store.get_task(context.task_id)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail="Task not found") from error
+        # Pin the source before the first await; do not query latest after download/queueing.
+        payload.image_context = ImageContext(mode="selected", task_id=source["task_id"], image_index=image_index)
+        if context.mode == "latest" and source.get("generation_id"):
+            payload.generation_id = source["generation_id"]
+            payload.parent_version_id = source["task_id"]
+        imported = await _archive_image_output_as_file(source["task_id"], image_index)
+        payload.provider_options["image_file_ids"] = [imported.file_id]
+
     async def _enqueue_task(
         payload: VideoGenerationRequest,
         *,
@@ -382,6 +424,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Internal provider options cannot be supplied")
         if bool(payload.provider) != bool(payload.model):
             raise HTTPException(status_code=400, detail="Supply both provider and model, or neither")
+        await _resolve_image_context(payload, asset_type)
         if not payload.provider or smart_retry:
             try:
                 payload = app.state.routing_config.resolve(payload, asset_type, app.state.provider_configs, app.state.pricing_catalog)
@@ -855,6 +898,26 @@ def create_app() -> FastAPI:
             file_bytes = response.content
             source_elapsed_ms = (perf_counter() - source_started) * 1000
 
+        # Reuse by verified content, not by the caller-controlled original filename.
+        file_hash_started = perf_counter()
+        file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+        file_hash_ms = (perf_counter() - file_hash_started) * 1000
+        for record in app.state.store.find_files_by_sha256(file_sha256):
+            stored_path = app.state.config.upload_dir / record["stored_name"]
+            try:
+                matches = (record["mime_type"] == mime_type and stored_path.is_file()
+                           and hashlib.sha256(stored_path.read_bytes()).hexdigest() == file_sha256)
+            except OSError:
+                continue
+            if matches:
+                app.state.store.touch_file(record["file_id"])
+                return UploadedFileResponse(
+                    file_id=record["file_id"], original_name=record["original_name"],
+                    mime_type=record["mime_type"], size_bytes=record["size_bytes"],
+                    sha256=record["sha256"], created_at=_as_datetime(record["created_at"]),
+                    url=f"/v1/files/{record['file_id']}",
+                )
+
         write_started = perf_counter()
         try:
             file_id = str(uuid4())
@@ -864,9 +927,6 @@ def create_app() -> FastAPI:
         except OSError as error:
             raise HTTPException(status_code=500, detail="Failed to persist generated image") from error
         file_write_ms = (perf_counter() - write_started) * 1000
-        file_hash_started = perf_counter()
-        file_sha256 = hashlib.sha256(file_bytes).hexdigest()
-        file_hash_ms = (perf_counter() - file_hash_started) * 1000
         record_started = perf_counter()
         file_record = app.state.store.create_file(
             file_id=file_id,
@@ -1244,6 +1304,7 @@ def _prepare_generation_lineage(
     *,
     asset_type: str,
     store: TaskStore,
+    create: bool = True,
 ) -> tuple[str | None, str | None, str | None]:
     scene_id = (payload.scene_id or "").strip() or None
     generation_id = (payload.generation_id or "").strip() or None
@@ -1276,7 +1337,7 @@ def _prepare_generation_lineage(
             raise HTTPException(status_code=400, detail="Generation does not belong to this scene")
         if parent and parent.get("generation_id") != generation_id:
             raise HTTPException(status_code=400, detail="Parent version belongs to another generation")
-    else:
+    elif create:
         generation_id = str(uuid4())
         store.create_generation(
             generation_id=generation_id,
@@ -1519,6 +1580,21 @@ def _extract_result_image_urls(result: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+def _has_image_output(task: dict[str, Any], image_index: int, config: AppConfig) -> bool:
+    result = task.get("result") or {}
+    local_urls = result.get("local_image_urls")
+    if isinstance(local_urls, list) and image_index < len(local_urls):
+        url = local_urls[image_index]
+        prefix = f"/v1/assets/{task['task_id']}/"
+        if isinstance(url, str) and url.startswith(prefix):
+            filename = url.removeprefix(prefix).split("?", 1)[0]
+            if (Path(filename).name == filename
+                    and mimetypes.guess_type(filename)[0] in ALLOWED_IMAGE_MIME_TYPES
+                    and (config.output_dir / "assets" / task["task_id"] / filename).is_file()):
+                return True
+    return image_index < len(_extract_result_image_urls(result))
+
+
 def _delete_archived_assets(output_dir: Path, task_id: str) -> None:
     target = output_dir / "assets" / task_id
     try:
@@ -1648,6 +1724,7 @@ def _to_task_detail(
         parent_version_id=task.get("parent_task_id"),
         version_number=task.get("version_number"),
         operation=task.get("operation") or request_payload.get("operation"),
+        image_context=request_payload.get("image_context"),
         routing=provider_options.get("__routing") if isinstance(provider_options, dict) else None,
         provider_job_id=task.get("provider_job_id"),
         provider_status=task.get("provider_status"),

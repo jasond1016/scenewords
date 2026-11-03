@@ -74,6 +74,7 @@ export interface VideoGenerationRequest {
   scene_id?: string | null;
   generation_id?: string | null;
   parent_version_id?: string | null;
+  image_context?: { mode: "latest" | "selected" | "none"; task_id?: string | null; image_index?: number } | null;
   prompt?: string | null;
   negative_prompt?: string | null;
   duration_sec?: number | null;
@@ -142,6 +143,7 @@ export interface VideoTaskResponse {
 
 export interface VideoTaskDetail extends VideoTaskResponse {
   operation: string | null;
+  image_context?: VideoGenerationRequest["image_context"];
   routing?: { goal: { resolution_tier: "1k" | "2k" | "4k" | "720p"; resolution: string | null }; intent?: VideoGenerationRequest; [key: string]: unknown } | null;
   provider_job_id?: string | null;
   provider_status?: string | null;

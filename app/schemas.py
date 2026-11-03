@@ -6,6 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ImageContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["latest", "selected", "none"]
+    task_id: str | None = None
+    image_index: int = Field(default=0, ge=0)
+
+
 class VideoGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(default="", description="Legacy explicit provider; omit for smart routing")
@@ -16,6 +23,7 @@ class VideoGenerationRequest(BaseModel):
     scene_id: str | None = None
     generation_id: str | None = None
     parent_version_id: str | None = None
+    image_context: ImageContext | None = None
     prompt: str | None = None
     negative_prompt: str | None = None
     duration_sec: int | None = Field(default=None, ge=1, le=60)
@@ -53,6 +61,7 @@ class VideoTaskResponse(BaseModel):
 
 class VideoTaskDetail(VideoTaskResponse):
     operation: str | None = None
+    image_context: ImageContext | None = None
     routing: dict[str, Any] | None = None
     provider_job_id: str | None = None
     provider_status: str | None = None

@@ -540,6 +540,26 @@ class TaskStore:
             )
             self._connection.commit()
 
+    def find_files_by_sha256(self, sha256: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM files WHERE sha256 = ? ORDER BY created_at DESC, file_id DESC",
+                (sha256,),
+            ).fetchall()
+        return [_file_row_to_dict(row) for row in rows]
+
+    def list_scene_image_results(self, scene_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM tasks
+                WHERE scene_id = ? AND asset_type = 'image' AND status = 'succeeded'
+                ORDER BY created_at DESC, task_id DESC
+                """,
+                (scene_id,),
+            ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
     def create_scene(
         self, *, scene_id: str, title: str, description: str
     ) -> dict[str, Any]:

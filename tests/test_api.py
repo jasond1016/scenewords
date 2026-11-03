@@ -1219,3 +1219,262 @@ def test_retired_models_unavailable_without_losing_history(
         assert "unavailable" in retry.json()["detail"]
         assert store.get_task(task_id) == before
         assert len(client.get(f"/v1/{asset_type}/tasks").json()) == 1
+
+
+@pytest.fixture
+def context_client(client_factory):
+    with client_factory() as client:
+        async def no_submit(task_id):
+            pass
+
+        client.app.state.worker.submit = no_submit
+        # Exercise the real router with only temporary demo providers and pricing.
+        client.app.state.routing_config = app_main.RoutingConfig.model_validate({
+            "version": "context-test", "max_attempts": 1, "budget": {"image": 1, "video": 1},
+            "currency": "USD", "defaults": {"image": "1k", "video": "720p"}, "ratio_sizes": {},
+            "models": [{"provider": "tuzi_image_demo", "model": "gemini-3-pro-image-preview",
+                        "kind": "image", "protocol": "ratio", "tiers": ["1k"], "group": "image", "priority": 0}],
+        })
+        entry = client.app.state.pricing_catalog.entries[0]
+        client.app.state.pricing_catalog.entries.append(type(entry)(
+            provider="tuzi_image_demo", model="gemini-3-pro-image-preview", operation="generate",
+            quality=None, resolution=None, duration_sec=None, fixed_cost=0.1, cost_per_second=None,
+            discount_rate=None, currency="USD", effective_from=None,
+        ))
+        yield client
+
+
+def _context_scene(client):
+    return client.post("/v1/scenes", json={"title": "Context scene"}).json()["scene_id"]
+
+
+def _context_task(client, scene_id, *, task_id=None, status="succeeded", outputs=2, created_at=None):
+    store = client.app.state.store
+    task_id = task_id or str(uuid4())
+    generation_id = str(uuid4())
+    store.create_generation(generation_id=generation_id, scene_id=scene_id, asset_type="image")
+    store.create_task(
+        task_id=task_id, provider="tuzi_image_demo", model="gemini-3-pro-image-preview",
+        operation="generate", prompt="source", request_payload={"prompt": "source"},
+        asset_type="image", scene_id=scene_id, generation_id=generation_id,
+    )
+    archive = client.app.state.config.output_dir / "assets" / task_id
+    archive.mkdir(parents=True)
+    for index in range(outputs):
+        (archive / f"image_{index}.png").write_bytes(f"{task_id}-{index}".encode())
+    store.set_result(task_id, {"local_image_urls": [f"/v1/assets/{task_id}/image_{i}.png" for i in range(outputs)]})
+    store.set_status(task_id, status)
+    if created_at:
+        with store._lock:
+            store._connection.execute("UPDATE tasks SET created_at = ? WHERE task_id = ?", (created_at, task_id))
+            store._connection.commit()
+    return store.get_task(task_id)
+
+
+def _context_submit(client, scene_id=None, **overrides):
+    response = client.post("/v1/image/generations", json={
+        "prompt": "make it blue", "scene_id": scene_id, "image_context": {"mode": "latest"}, **overrides,
+    })
+    assert response.status_code == 200, response.text
+    return client.get(f"/v1/image/tasks/{response.json()['task_id']}").json()
+
+
+def test_image_context_latest_deterministic_ignores_unfinished_and_pins_lineage(context_client):
+    client = context_client
+    scene = _context_scene(client)
+    old = _context_task(client, scene, task_id="a", created_at="2026-01-01T00:00:00+00:00")
+    chosen = _context_task(client, scene, task_id="z", created_at="2026-01-01T00:00:00+00:00")
+    _context_task(client, scene, task_id="zz", created_at="2025-12-31T00:00:00+00:00")
+    for status in ("failed", "running", "queued"):
+        stale = _context_task(client, scene, status=status)
+    _context_task(client, scene, outputs=0)
+    _context_task(client, _context_scene(client))
+    # Merely opening history must not import or fix a source.
+    assert client.get(f"/v1/scenes/{scene}").status_code == 200
+    assert not list(client.app.state.config.upload_dir.iterdir())
+    detail = _context_submit(client, scene, generation_id=stale["generation_id"], parent_version_id=stale["task_id"])
+    assert detail["image_context"] == {"mode": "selected", "task_id": chosen["task_id"], "image_index": 0}
+    assert detail["parent_version_id"] == chosen["task_id"]
+    assert detail["generation_id"] == chosen["generation_id"]
+    file_id = detail["provider_options"]["image_file_ids"][0]
+    assert client.get(f"/v1/files/{file_id}").content == b"z-0"
+    intent = detail["routing"]["intent"]
+    assert intent["provider_options"]["image_file_ids"] == [file_id]
+    assert intent["image_context"] == detail["image_context"]
+    assert detail["prompt"] == "make it blue"  # No prompt/history concatenation.
+    assert old["task_id"] != detail["parent_version_id"]
+
+
+@pytest.mark.parametrize("routing_mode", ["auto", "exact"])
+def test_image_context_queue_and_retries_keep_pinned_file(context_client, monkeypatch, routing_mode):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene)
+    task = _context_submit(client, scene)
+    file_ids = task["provider_options"]["image_file_ids"]
+    assert task["status"] == "queued"
+    _context_task(client, scene)
+    # Remove the original output: retry must use the already-imported reference.
+    archive = client.app.state.config.output_dir / "assets" / source["task_id"]
+    for path in archive.iterdir():
+        path.unlink()
+    seen = []
+
+    async def generate(*, provider_config, request):
+        reference = request.provider_options["__resolved_image_file_ids"][0]
+        seen.append((reference["file_id"], Path(reference["path"]).read_bytes()))
+        return {}
+
+    worker = client.app.state.worker
+    monkeypatch.setattr(worker.providers["tuzi_image_demo"], "generate", generate)
+    # Release the persisted queued task through the real worker after latest changed.
+    client.portal.call(worker._process_task, task["task_id"])
+    assert seen == [(file_ids[0], f"{source['task_id']}-0".encode())]
+    assert client.get(f"/v1/image/tasks/{task['task_id']}").json()["status"] == "succeeded"
+    response = client.post(f"/v1/image/tasks/{task['task_id']}/retry", json={"routing_mode": routing_mode})
+    assert response.status_code == 200, response.text
+    retry = client.get(f"/v1/image/tasks/{response.json()['task_id']}").json()
+    assert retry["provider_options"]["image_file_ids"] == file_ids
+    assert retry["image_context"] == task["image_context"]
+    assert retry["parent_version_id"] == task["task_id"]
+    assert len(list(client.app.state.config.upload_dir.iterdir())) == 1
+    saved = client.app.state.store.get_task(retry["task_id"])["request"]
+    assert saved["provider_options"]["__resolved_image_file_ids"][0]["file_id"] == file_ids[0]
+    client.portal.call(worker._process_task, retry["task_id"])
+    assert seen == [(file_ids[0], f"{source['task_id']}-0".encode())] * 2
+
+
+@pytest.mark.parametrize("mode", ["latest", "selected"])
+@pytest.mark.parametrize("reference_key", ["image_file_ids", "image"])
+def test_image_context_explicit_references_win_without_import(context_client, mode, reference_key):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene)
+    upload = client.post("/v1/files", files={"file": ("ref.png", b"explicit", "image/png")}).json()
+    reference = [upload["file_id"]] if reference_key == "image_file_ids" else ["https://example.com/explicit.png"]
+    task = _context_submit(client, scene, image_context={"mode": mode, "task_id": "ignored-source"},
+                           provider="tuzi_image_demo", model="gemini-3-pro-image-preview",
+                           generation_id=source["generation_id"], parent_version_id=source["task_id"],
+                           provider_options={reference_key: reference})
+    assert task["provider_options"][reference_key] == reference
+    if reference_key != "image_file_ids":
+        assert not task["provider_options"].get("image_file_ids")
+    assert task["parent_version_id"] == source["task_id"]
+    assert len(list(client.app.state.config.upload_dir.iterdir())) == 1
+
+
+def test_image_context_selected_cross_scene_index_and_import_reuse(context_client):
+    client = context_client
+    scene = _context_scene(client)
+    parent = _context_task(client, scene)
+    selected = _context_task(client, _context_scene(client))
+    context = {"mode": "selected", "task_id": selected["task_id"], "image_index": 1}
+    task = _context_submit(client, scene, image_context=context, generation_id=parent["generation_id"],
+                           parent_version_id=parent["task_id"])
+    assert task["image_context"] == context
+    assert task["parent_version_id"] == parent["task_id"]
+    file_id = task["provider_options"]["image_file_ids"][0]
+    assert client.get(f"/v1/files/{file_id}").content == f"{selected['task_id']}-1".encode()
+    repeated = _context_submit(client, scene, image_context=context)
+    assert repeated["provider_options"]["image_file_ids"] == [file_id]
+    assert len(list(client.app.state.config.upload_dir.iterdir())) == 1
+
+
+@pytest.mark.parametrize("context", [None, {"mode": "none"}, {"mode": "latest"}])
+def test_image_context_no_scene_or_no_result_and_legacy(context_client, context):
+    client = context_client
+    scene = _context_scene(client)
+    task = _context_submit(client, scene, image_context=context)
+    assert not task["provider_options"].get("image_file_ids")
+    _context_task(client, scene)
+    response = client.post(f"/v1/image/tasks/{task['task_id']}/retry", json={"routing_mode": "auto"})
+    assert response.status_code == 200, response.text
+    assert not client.get(f"/v1/image/tasks/{response.json()['task_id']}").json()["provider_options"].get("image_file_ids")
+    if context != {"mode": "latest"}:
+        assert not _context_submit(client, scene, image_context=context)["provider_options"].get("image_file_ids")
+    assert not _context_submit(client, image_context=context)["provider_options"].get("image_file_ids")
+
+
+@pytest.mark.parametrize("mode", [None, "none", "latest", "selected"])
+def test_image_context_video_opt_in_is_rejected(context_client, mode):
+    client = context_client
+    response = client.post("/v1/video/generations", json={
+        "provider": "demo_provider", "model": "demo-model", "prompt": "video",
+        "image_context": {"mode": mode} if mode else None,
+    })
+    assert response.status_code == (400 if mode in {"latest", "selected"} else 200)
+    assert not list(client.app.state.config.upload_dir.iterdir())
+
+
+@pytest.mark.parametrize("lineage", ["scene", "parent", "generation"])
+def test_image_context_validates_lineage_before_import(context_client, lineage):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene)
+    foreign = _context_task(client, _context_scene(client))
+    overrides = {"scene_id": "unknown"} if lineage == "scene" else {
+        "parent_version_id" if lineage == "parent" else "generation_id":
+            foreign["task_id"] if lineage == "parent" else foreign["generation_id"],
+    }
+    response = client.post("/v1/image/generations", json={
+        "prompt": "invalid", "scene_id": scene, "image_context": {"mode": "selected", "task_id": source["task_id"]},
+        **overrides,
+    })
+    assert response.status_code == 400
+    assert not list(client.app.state.config.upload_dir.iterdir())
+
+
+def test_image_context_freezes_before_async_download(context_client, monkeypatch):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene)
+    client.app.state.store.set_result(source["task_id"], {"image_urls": ["https://example.com/source.png"]})
+
+    async def download(url, **kwargs):
+        _context_task(client, scene)
+        return httpx.Response(200, content=b"downloaded-original", headers={"content-type": "image/png"})
+
+    monkeypatch.setattr(client.app.state.http_client, "get", download)
+    task = _context_submit(client, scene)
+    assert task["image_context"]["task_id"] == source["task_id"]
+    assert client.get(f"/v1/files/{task['provider_options']['image_file_ids'][0]}").content == b"downloaded-original"
+
+
+def test_image_context_import_failure_does_not_enqueue_text_only(context_client, monkeypatch):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene)
+    store = client.app.state.store
+    store.set_result(source["task_id"], {"image_urls": ["https://example.com/missing.png"]})
+
+    async def failed_download(url, **kwargs):
+        return httpx.Response(503)
+
+    monkeypatch.setattr(client.app.state.http_client, "get", failed_download)
+    response = client.post("/v1/image/generations", json={
+        "prompt": "must not generate", "scene_id": scene, "image_context": {"mode": "latest"},
+    })
+    assert response.status_code == 502
+    assert len(client.get("/v1/image/tasks").json()) == 1
+    assert len(store.get_scene_generations(scene)) == 1
+    assert not list(client.app.state.config.upload_dir.iterdir())
+
+
+@pytest.mark.parametrize("case,status", [("missing_id", 400), ("unknown", 404), ("running", 409), ("index", 400)])
+def test_image_context_invalid_selection_fails_without_enqueue(context_client, case, status):
+    client = context_client
+    scene = _context_scene(client)
+    source = _context_task(client, scene, status="running" if case == "running" else "succeeded")
+    context = {"mode": "selected", "task_id": source["task_id"]}
+    if case == "missing_id":
+        context.pop("task_id")
+    elif case == "unknown":
+        context["task_id"] = "unknown"
+    elif case == "index":
+        context["image_index"] = 99
+    response = client.post("/v1/image/generations", json={
+        "prompt": "invalid selection", "scene_id": scene, "image_context": context,
+    })
+    assert response.status_code == status
+    assert len(client.get("/v1/image/tasks").json()) == 1
+    assert not list(client.app.state.config.upload_dir.iterdir())
