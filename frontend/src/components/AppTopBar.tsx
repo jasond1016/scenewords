@@ -114,11 +114,6 @@ export function AppTopBar({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const returnSessionId =
     (location.state as { returnSessionId?: string } | null)?.returnSessionId;
-  const currentTitle = isWorksPath(location.pathname)
-    ? t("nav.works")
-    : location.pathname.startsWith("/settings")
-      ? t("nav.settings")
-      : t("nav.subjects");
   const isDark =
     theme === "dark" ||
     (theme === "system" &&
@@ -174,7 +169,6 @@ export function AppTopBar({
           </NavLink>
         </div>
         <PrimaryNavigation inProgressCount={inProgressCount} />
-        <span className="app-topbar-mobile-title">{currentTitle}</span>
         <div className="app-topbar-trailing">
           <div className="topbar-actions" ref={onSlotChange} />
           <div className="dropdown-anchor app-topbar-more" ref={menuRef}>
@@ -249,6 +243,7 @@ export function CreateTopBar({
     if (!menuOpen) {
       return;
     }
+    menuRef.current?.querySelector<HTMLElement>(".menu-popover button")?.focus();
     const onPointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
@@ -256,7 +251,9 @@ export function CreateTopBar({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         setMenuOpen(false);
+        menuRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -294,7 +291,7 @@ export function CreateTopBar({
             <button
               type="button"
               className="topbar-icon-btn"
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-expanded={menuOpen}
               aria-label={t("create.header.more")}
               onClick={() => setMenuOpen((open) => !open)}
@@ -302,14 +299,17 @@ export function CreateTopBar({
               <DotsThree size={20} weight="regular" />
             </button>
             {menuOpen ? (
-              <div className="menu-popover" role="menu">
-                <button type="button" role="menuitem" className="menu-item" onClick={() => go("/settings")}>
+              <div className="menu-popover" role="dialog" aria-label={t("create.header.more")}>
+                <button type="button" className="menu-item" onClick={() => go("/settings")}>
                   <span className="menu-item-label">{t("nav.settings")}</span>
                 </button>
+                <details className="conversation-help">
+                  <summary>{t("create.sessions.helpTitle")}</summary>
+                  <p>{t("create.sessions.helpBody")}</p>
+                </details>
                 <div className="menu-divider" />
                 <button
                   type="button"
-                  role="menuitem"
                   className="menu-item"
                   onClick={() => {
                     setSettings({ theme: isDark ? "light" : "dark" });

@@ -1,4 +1,6 @@
-import { Package, ImageSquare, VideoCamera } from "@phosphor-icons/react";
+import { Package, ImageSquare } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
+import { useI18n } from "../i18n";
 
 /* ── Skeleton Loaders ───────────────────────────────── */
 
@@ -63,15 +65,17 @@ export function EmptyStateGeneric({
   icon: Icon = Package,
   title,
   description,
+  children,
 }: {
   icon?: React.ElementType;
   title: string;
   description?: string;
+  children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 py-24">
+    <div className="flex min-w-0 flex-col items-center justify-center gap-4 py-16 text-center" role="status">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--c-surface-inset)] shadow-[var(--shadow-xs)]">
-        <Icon size={28} weight="light" className="text-[var(--c-text-tertiary)]" />
+        <Icon size={28} weight="regular" aria-hidden="true" className="text-[var(--c-text-tertiary)]" />
       </div>
       <p className="m-0 text-sm font-semibold text-[var(--c-text)]">{title}</p>
       {description ? (
@@ -79,36 +83,21 @@ export function EmptyStateGeneric({
           {description}
         </p>
       ) : null}
+      {children}
     </div>
   );
 }
 
-export function EmptyStateWorks({ locale }: { locale: string }) {
-  const isZh = locale === "zh-CN";
+export function EmptyStateWorks({ filtered, onAction }: { filtered: boolean; onAction: () => void }) {
+  const { t } = useI18n();
   return (
     <EmptyStateGeneric
       icon={ImageSquare}
-      title={isZh ? "还没有作品" : "No works yet"}
-      description={
-        isZh
-          ? "创建第一个生成任务，完成后作品会出现在这里。"
-          : "Create your first generation task. Completed works will appear here."
-      }
-    />
-  );
-}
-
-export function EmptyStateTasks({ locale }: { locale: string }) {
-  const isZh = locale === "zh-CN";
-  return (
-    <EmptyStateGeneric
-      icon={VideoCamera}
-      title={isZh ? "暂无任务" : "No tasks yet"}
-      description={
-        isZh
-          ? "在创建页提交任务后，最近的任务会显示在这里。"
-          : "Submit a task from the Create page. Recent tasks will show here."
-      }
-    />
+      title={t(filtered ? "works.assetEmpty" : "works.emptyTitle")}
+    >
+      <button type="button" className="btn-secondary" onClick={onAction}>
+        {t(filtered ? "works.clearFilters" : "nav.create")}
+      </button>
+    </EmptyStateGeneric>
   );
 }

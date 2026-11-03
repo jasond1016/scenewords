@@ -57,6 +57,15 @@ export function MediaOverlayFrame(props: Props) {
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = layoutRef.current?.parentElement;
+    if (frame && !frame.contains(document.activeElement)) {
+      frame.querySelector<HTMLButtonElement>(".media-overlay-close")?.focus({ preventScroll: true });
+    }
+    return () => { if (opener?.isConnected) opener.focus({ preventScroll: true }); };
+  }, []);
+
+  useEffect(() => {
     const layout = layoutRef.current;
     if (!layout || !feedbackTarget) return;
     const actions = layout.querySelector<HTMLElement>(".media-overlay-bottom-actions");
@@ -246,6 +255,18 @@ export function MediaOverlayFrame(props: Props) {
       className="media-overlay-frame fixed inset-0 z-50 h-dvh"
       role="dialog"
       aria-modal="true"
+      aria-label={detailsLabel}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab" || event.defaultPrevented || event.currentTarget.inert) return;
+        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+          "button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[tabindex='0']",
+        )).filter((element) => element.tabIndex >= 0 && !element.closest("[inert],[aria-hidden='true']") && element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
+        const index = controls.indexOf(document.activeElement as HTMLElement);
+        if (index < 0 || (event.shiftKey ? index === 0 : index === controls.length - 1)) {
+          event.preventDefault();
+          controls[event.shiftKey ? controls.length - 1 : 0]?.focus();
+        }
+      }}
       onTouchStartCapture={handleTouchStart}
       onTouchMoveCapture={handleTouchMove}
       onTouchEndCapture={handleTouchEnd}

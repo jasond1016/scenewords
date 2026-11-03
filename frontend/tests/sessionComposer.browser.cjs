@@ -252,7 +252,7 @@ const pass = name => process.stdout.write(`PASS ${name}\n`);
   pass("gateway identities isolate drafts even for the same scene ID");
 
   await page.evaluate(() => { location.hash = "/settings"; });
-  await page.getByRole("button", { name: "隐私与存储", exact: true }).click();
+  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "清理本地缓存", exact: true }).click();
   await until(async () => assert.ok((await page.locator("body").innerText()).includes("已清理本地会话缓存")), "cache cleared");
   await page.goto(`${base}/#/create?sceneId=a`); await expectValue(page, "");

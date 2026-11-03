@@ -180,7 +180,7 @@ export function MediaDetailSidebar(props: Props) {
               </button>
             ))}
           </div>
-        ) : <span className="media-detail-muted">{t("works.detail.imageInfo")}</span>}
+        ) : null}
         {downloadUrl && comparisonCandidates.length ? (
           <button ref={compareButtonRef} type="button" className="media-detail-link" aria-label={t("works.detail.compare")} onClick={() => setIsComparing(true)}>
             {t("works.detail.compareAction")}
@@ -237,8 +237,10 @@ export function MediaDetailSidebar(props: Props) {
             <InfoCell label={t("works.detail.updated")} value={updatedAtLabel} />
           </dl>
           {task.routing ? <details className="media-detail-section"><summary>{t("works.detail.routing")}<CaretDown size={16} weight="regular" aria-hidden="true" /></summary><pre className="overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(task.routing, null, 2)}</pre></details> : null}
-          <h3>{t("works.detail.fullPrompt")}</h3><p className="media-detail-full-text">{task.prompt || t("works.emptyPrompt")}</p>
-          <button type="button" className="media-detail-link" onClick={() => void copy(task.prompt)}>{t("works.detail.copy")}</button>
+          {description.text !== task.prompt.trim() ? <>
+            <h3>{t("works.detail.fullPrompt")}</h3><p className="media-detail-full-text">{task.prompt || t("works.emptyPrompt")}</p>
+            <button type="button" className="media-detail-link" onClick={() => void copy(task.prompt)}>{t("works.detail.copy")}</button>
+          </> : null}
           {task.negative_prompt ? <><h3>{t("works.negativePrompt")}</h3><p className="media-detail-full-text">{task.negative_prompt}</p></> : null}
         </div> : null}
       </details>

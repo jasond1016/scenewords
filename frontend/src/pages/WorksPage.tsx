@@ -652,14 +652,11 @@ export function WorksPage(props: Props) {
       </HeaderActions>
 
       <header className="page-header">
-        <div>
-          <h1 className="page-title">{t("works.title")}</h1>
-          <p className="page-subtitle">{t("works.subtitle")}</p>
-        </div>
+        <h1 className="page-title">{t("works.title")}</h1>
       </header>
 
       <div className="asset-toolbar">
-        <label className="search-field flex-1">
+        <label className="search-field">
           <MagnifyingGlass size={13} weight="regular" className="shrink-0" />
           <input
             value={searchQuery}
@@ -819,7 +816,17 @@ export function WorksPage(props: Props) {
           }}
         />
       ) : (
-        <EmptyStateWorks locale={locale} />
+        <EmptyStateWorks filtered={Boolean(searchQuery || browseFilter !== "all" || projectFilter !== ALL_PROJECTS || providerFilter !== "all")}
+          onAction={() => {
+            if (!searchQuery && browseFilter === "all" && projectFilter === ALL_PROJECTS && providerFilter === "all") {
+              navigate("/create");
+              return;
+            }
+            setSearchQuery("");
+            setBrowseFilter("all");
+            setProjectFilter(ALL_PROJECTS);
+            setProviderFilter("all");
+          }} />
       )}
 
       {hasMorePages && !loading ? (
@@ -836,7 +843,7 @@ export function WorksPage(props: Props) {
       ) : null}
 
       {selectMode ? (
-        <div className="select-bar" role="toolbar">
+        <div className="select-bar" role="group" aria-label={t("works.select")}>
           <span className="tabular-nums text-[var(--c-text-secondary)]">
             {t("works.selectedCount", { count: checkedTasks.length })}
           </span>
@@ -1178,24 +1185,17 @@ function AssetTile({
               : t("works.queuedTile")
             : t("works.runningTile")}
         </span>
-        <span
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
+          disabled={cancelDisabled}
           className={`btn-outline mt-1 ${cancelDisabled ? "pointer-events-none opacity-40" : ""}`}
           onClick={(event) => {
             event.stopPropagation();
             onCancel();
           }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              event.stopPropagation();
-              onCancel();
-            }
-          }}
         >
           {t("works.cancelInProgress")}
-        </span>
+        </button>
       </div>
     );
   } else if (task.status === "failed") {
@@ -1238,12 +1238,14 @@ function AssetTile({
     );
   }
 
+  const Tile = inProgress ? "div" : "button";
   return (
-    <button
-      type="button"
+    <Tile
+      type={inProgress ? undefined : "button"}
+      role={inProgress ? "group" : undefined}
       className={`asset-tile media-ring ${ringed ? "media-ring-active" : ""} ${inProgress ? "cursor-default" : ""}`}
-      style={grow ? { flex: "1 1 0", minWidth: 0, height } : { width, height }}
-      onClick={onClick}
+      style={{ ...(grow ? { flex: "1 1 0", minWidth: 0 } : { width }), minHeight: height, height: "100%" }}
+      onClick={inProgress ? undefined : onClick}
       aria-label={task.prompt?.slice(0, 80) || task.task_id}
       aria-pressed={selectMode ? checked : undefined}
     >
@@ -1258,7 +1260,7 @@ function AssetTile({
           {checked ? <Check size={11} weight="bold" /> : null}
         </span>
       ) : null}
-    </button>
+    </Tile>
   );
 }
 

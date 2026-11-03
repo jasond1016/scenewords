@@ -41,7 +41,7 @@ import {
   fetchUploadedFileBinary,
   uploadFile,
 } from "../api";
-import { localizeDynamicField, useI18n, type SupportedLocale } from "../i18n";
+import { localizeDynamicField, useI18n } from "../i18n";
 import { useFeedbackTimeout, useMutationFeedback } from "../useActionFeedback";
 import {
   useAppSettingsStore,
@@ -88,6 +88,8 @@ import { useComposerDraft } from "../composerDrafts";
 interface Props {
   catalog?: ProviderCatalogResponse;
   loading: boolean;
+  catalogError?: string;
+  onRetryCatalog: () => void;
 }
 
 const RECENT_PROMPTS_KEY = "scenewords_recent_prompts_v1";
@@ -147,7 +149,7 @@ interface VideoModelFamily {
 }
 
 export function CreatePage(props: Props) {
-  const { catalog, loading } = props;
+  const { catalog, loading, catalogError, onRetryCatalog } = props;
   const { locale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
@@ -622,6 +624,21 @@ export function CreatePage(props: Props) {
       resizeObserver.disconnect();
     };
   }, [openPopover, selectedModel?.name, subjectsQuery.data?.length]);
+  useEffect(() => {
+    if (!openPopover) return;
+    const anchor = openPopover === "add" ? addButtonRef.current : settingsButtonRef.current;
+    const popover = openPopover === "add" ? addPopoverRef.current : settingsPopoverRef.current;
+    popover?.querySelector<HTMLElement>("button,input,select")?.focus({ preventScroll: true });
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenPopover(null);
+      anchor?.focus({ preventScroll: true });
+    };
+    document.addEventListener("keydown", dismiss, true);
+    return () => document.removeEventListener("keydown", dismiss, true);
+  }, [openPopover]);
   const supportsInlineImageInput = Boolean(
     selectedOperation?.fields.some(
       (field) =>
@@ -1977,7 +1994,10 @@ export function CreatePage(props: Props) {
         {topBar}
         {historyDrawer}
         <div className="create-stage">
-          <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>
+          {catalogError ? <div className="card flex max-w-full flex-wrap items-center gap-3" role="alert">
+            <span className="min-w-0 break-words">{catalogError}</span>
+            <button type="button" className="btn-secondary" onClick={onRetryCatalog}>{t("create.failure.retry")}</button>
+          </div> : <p className="text-sm text-[var(--c-text-secondary)]">{t("create.noAvailable")}</p>}
         </div>
       </div>
     );
@@ -2171,8 +2191,7 @@ export function CreatePage(props: Props) {
         </section>
       ) : (
         <div className="session-welcome">
-          <h1>{t("create.sessions.welcome")}</h1>
-          <p>{t("create.sessions.welcomeDescription")}</p>
+          <h1>{t("create.title")}</h1>
         </div>
       )}
       <form
@@ -2246,6 +2265,7 @@ export function CreatePage(props: Props) {
                   className="composer-textarea"
                   rows={COMPOSER_PROMPT_MIN_ROWS}
                   value={modificationInstruction}
+                  aria-label={t("works.editInstruction")}
                   onChange={(event) => {
                     setModificationInstruction(event.target.value);
                     autoResizeTextarea();
@@ -2415,11 +2435,11 @@ export function CreatePage(props: Props) {
             aria-label={t("create.quickType")}
           >
             <div className="composer-popover-section">
-              <p className="composer-popover-heading">{t("create.quickType")}</p>
-              <div className="segment-group w-full">
+              <div className="segment-group w-full" role="group" aria-label={t("create.quickType")}>
                 <button
                   type="button"
                   className={`segment-item flex-1 ${currentGenerationKind === "image" ? "segment-active" : ""}`}
+                  aria-pressed={currentGenerationKind === "image"}
                   onClick={() => onGenerationKindChanged("image")}
                   disabled={!imageProviders.length}
                 >
@@ -2429,6 +2449,7 @@ export function CreatePage(props: Props) {
                 <button
                   type="button"
                   className={`segment-item flex-1 ${currentGenerationKind === "video" ? "segment-active" : ""}`}
+                  aria-pressed={currentGenerationKind === "video"}
                   onClick={() => onGenerationKindChanged("video")}
                   disabled={!videoProviders.length}
                 >
@@ -2450,6 +2471,7 @@ export function CreatePage(props: Props) {
                           type="button"
                           key={`ratio_${ratio}`}
                           className={`composer-ratio-card ${currentRatioDisplay === ratio ? "composer-ratio-card-active" : ""}`}
+                          aria-pressed={currentRatioDisplay === ratio}
                           onClick={() => onRatioChanged(ratio)}
                         >
                           <span className="composer-ratio-card__preview">
@@ -2483,6 +2505,7 @@ export function CreatePage(props: Props) {
                               type="button"
                               key={resolution}
                               className={`composer-resolution-card ${currentImageResolutionLabel === resolution ? "composer-resolution-card-active" : ""}`}
+                              aria-pressed={currentImageResolutionLabel === resolution}
                               onClick={() => {
                                 if (!currentImageFamily) {
                                   return;
@@ -2492,9 +2515,6 @@ export function CreatePage(props: Props) {
                                 });
                               }}
                             >
-                              <span className="composer-resolution-card__eyebrow">
-                                {describeResolutionChoice(resolution, locale)}
-                              </span>
                               <span className="composer-resolution-card__label">{resolution}</span>
                             </button>
                           ))
@@ -2516,9 +2536,9 @@ export function CreatePage(props: Props) {
                                 type="button"
                                 key={`size_${size}`}
                                 className={`composer-resolution-card ${resolvedActive ? "composer-resolution-card-active" : ""}`}
+                                aria-pressed={resolvedActive}
                                 onClick={() => onSizeChanged(size)}
                               >
-                                <span className="composer-resolution-card__eyebrow">{t("create.quickSize")}</span>
                                 <span className="composer-resolution-card__label">{label}</span>
                               </button>
                             );
@@ -2536,6 +2556,7 @@ export function CreatePage(props: Props) {
                           type="button"
                           key={`o_${option.value}`}
                           className={`composer-choice-pill ${orientationValue === option.value ? "composer-choice-pill-active" : ""}`}
+                          aria-pressed={orientationValue === option.value}
                           onClick={() => onOrientationChanged(option.value)}
                         >
                           <span className="composer-choice-pill__label">{option.label}</span>
@@ -2554,6 +2575,7 @@ export function CreatePage(props: Props) {
                           type="button"
                           key={`d_${seconds}`}
                           className={`composer-choice-pill ${durationValue === String(seconds) ? "composer-choice-pill-active" : ""}`}
+                          aria-pressed={durationValue === String(seconds)}
                           onClick={() => onFieldChanged(durationField!, String(seconds))}
                         >
                           <span className="composer-choice-pill__label">{seconds}s</span>
@@ -3441,35 +3463,6 @@ function rankImageResolution(key: "1k" | "2k" | "4k"): number {
     return 1;
   }
   return 2;
-}
-
-function describeResolutionChoice(
-  resolution: string,
-  locale: SupportedLocale,
-): string {
-  const normalized = resolution.trim().toUpperCase();
-  if (locale === "zh-CN") {
-    if (normalized === "4K") {
-      return "超清";
-    }
-    if (normalized === "2K") {
-      return "高清";
-    }
-    if (normalized === "1K") {
-      return "标准";
-    }
-    return "分辨率";
-  }
-  if (normalized === "4K") {
-    return "Ultra";
-  }
-  if (normalized === "2K") {
-    return "HD";
-  }
-  if (normalized === "1K") {
-    return "Base";
-  }
-  return "Resolution";
 }
 
 function buildRatioPreviewStyle(ratio: string): CSSProperties {

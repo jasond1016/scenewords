@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -67,8 +67,23 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
   const [existingReferences, setExistingReferences] = useState<SubjectReference[]>([]);
   const [pendingReferences, setPendingReferences] = useState<PendingReference[]>([]);
   const [error, setError] = useState("");
+  const editorRef = useRef<HTMLDialogElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const editorTriggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!showEditor) return;
+    const dialog = editorRef.current;
+    dialog?.showModal();
+    dialog?.querySelector<HTMLInputElement>("input[name='name']")?.focus();
+    return () => {
+      dialog?.close();
+      if (editorTriggerRef.current?.isConnected) editorTriggerRef.current.focus();
+    };
+  }, [showEditor]);
 
   const resetEditor = (subject?: SubjectAsset) => {
+    editorTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setEditing(subject ?? null);
     setKind(subject?.kind ?? "character");
     setName(subject?.name ?? "");
@@ -128,6 +143,7 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
       await queryClient.invalidateQueries({ queryKey: ["subjects", token] });
       setShowEditor(false);
     },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : String(reason)),
   });
 
   const collectMutation = useMutation({
@@ -201,31 +217,30 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
   ];
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="flex w-full min-w-0 flex-col">
       <HeaderActions>
         <button
           type="button"
-          className="topbar-icon-btn"
+          className="btn-secondary min-h-11"
           aria-label={t("subjects.create")}
           title={t("subjects.create")}
           onClick={() => resetEditor()}
         >
           <UserPlus size={19} weight="regular" />
+          {t("subjects.create")}
         </button>
       </HeaderActions>
 
       <header className="page-header mb-10">
         <div>
           <h1 className="page-title">{t("subjects.title")}</h1>
-          <p className="page-subtitle">{t("subjects.subtitle")}</p>
         </div>
-        <div className="mb-1 flex flex-wrap items-center gap-2" role="tablist">
+        <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label={t("subjects.title")}>
           {kindFilters.map((filter) => (
             <button
               key={filter.value}
               type="button"
-              role="tab"
-              aria-selected={kindFilter === filter.value}
+              aria-pressed={kindFilter === filter.value}
               className={`filter-pill ${kindFilter === filter.value ? "filter-pill-active" : ""}`}
               onClick={() => setKindFilter(filter.value)}
             >
@@ -236,13 +251,18 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
       </header>
 
       {subjectsQuery.isLoading ? (
-        <div className="subject-grid" aria-hidden="true">
+        <div role="status" aria-label={t("common.loading")}><div className="subject-grid" aria-hidden="true">
           {Array.from({ length: 10 }, (_, index) => (
             <div key={index} className="flex flex-col gap-3">
               <div className="skeleton aspect-square w-full" />
               <div className="skeleton h-3 w-1/3" />
             </div>
           ))}
+        </div></div>
+      ) : subjectsQuery.isError ? (
+        <div className="card flex flex-wrap items-center gap-3" role="alert">
+          <span>{subjectsQuery.error.message}</span>
+          <button type="button" className="btn-secondary" onClick={() => void subjectsQuery.refetch()}>{t("create.failure.retry")}</button>
         </div>
       ) : allSubjects.length === 0 ? (
         <button
@@ -252,9 +272,6 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
         >
           <IdentificationCard size={30} weight="light" className="text-[var(--c-text-tertiary)]" />
           <strong className="text-sm font-medium text-[var(--c-text)]">{t("subjects.emptyTitle")}</strong>
-          <span className="max-w-md text-xs leading-6 text-[var(--c-text-secondary)]">
-            {t("subjects.emptyBody")}
-          </span>
         </button>
       ) : visibleSubjects.length === 0 ? (
         <p className="py-16 text-center text-sm text-[var(--c-text-secondary)]">{t("subjects.emptyFiltered")}</p>
@@ -266,20 +283,11 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
             return (
               <div
                 key={subject.subject_id}
-                role="button"
-                tabIndex={0}
-                className="subject-card"
+                className="subject-card min-w-0"
                 onClick={() => resetEditor(subject)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    resetEditor(subject);
-                  }
-                }}
-                aria-label={subject.name}
               >
                 <div className="subject-card-media media-ring">
-                  <div className="subject-card-media-inner">
+                  <button type="button" className="subject-card-media-inner block w-full border-0 bg-transparent p-0" aria-label={subject.name}>
                     {primary ? (
                       <UploadedImage
                         fileId={primary.file_id}
@@ -292,20 +300,20 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
                         <Icon size={32} weight="light" />
                       </div>
                     )}
-                  </div>
-                  <button
-                    type="button"
-                    className="subject-use-pill"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      navigate(`/create?useSubject=${encodeURIComponent(subject.subject_id)}`);
-                    }}
-                  >
-                    {t("subjects.useForCreate")}
-                    <ArrowRight size={13} weight="regular" />
                   </button>
                 </div>
                 <span className="subject-card-name">{subject.name}</span>
+                <button
+                  type="button"
+                  className="subject-use-pill"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/create?useSubject=${encodeURIComponent(subject.subject_id)}`);
+                  }}
+                >
+                  {t("subjects.useForCreate")}
+                  <ArrowRight size={13} weight="regular" />
+                </button>
               </div>
             );
           })}
@@ -313,16 +321,21 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
       )}
 
       {showEditor ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--c-overlay-scrim)] p-0 sm:items-center sm:p-6" onMouseDown={() => setShowEditor(false)}>
+        <dialog
+          ref={editorRef}
+          aria-labelledby="subject-editor-title"
+          className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none items-end justify-center border-0 bg-[var(--c-overlay-scrim)] p-0 open:flex sm:items-center sm:p-6"
+          onCancel={() => setShowEditor(false)}
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setShowEditor(false); }}
+        >
           <form
-            className="subject-editor max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-t-3xl border border-border bg-[var(--c-surface)] shadow-[var(--shadow-overlay)] sm:rounded-3xl"
+            className="subject-editor max-h-[92dvh] w-full min-w-0 max-w-3xl overflow-y-auto rounded-t-3xl border border-border bg-[var(--c-surface)] shadow-[var(--shadow-overlay)] sm:rounded-3xl"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event: FormEvent) => { event.preventDefault(); saveMutation.mutate(); }}
           >
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <p className="m-0 text-label">{editing ? (isZh ? "编辑主体" : "Edit subject") : (isZh ? "新建主体" : "New subject")}</p>
-                <h2 className="m-0 mt-1 text-heading">{name || (isZh ? "未命名主体" : "Untitled subject")}</h2>
+                <h2 id="subject-editor-title" className="m-0 text-heading">{editing ? (isZh ? "编辑主体" : "Edit subject") : (isZh ? "新建主体" : "New subject")}</h2>
               </div>
               <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setShowEditor(false)}><X size={20} /></button>
             </div>
@@ -338,13 +351,13 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-[var(--c-text)]">
                 {isZh ? "名称" : "Name"}
-                <input className="input-base" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+                <input name="name" required className="input-base min-w-0" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
               </label>
             </div>
 
             <label className="mt-5 flex flex-col gap-2 text-sm font-medium text-[var(--c-text)]">
               {isZh ? "身份描述" : "Identity description"}
-              <textarea className="input-base min-h-24 resize-y" value={description} onChange={(event) => setDescription(event.target.value)} placeholder={isZh ? "描述这个主体最稳定、最容易辨认的外观。" : "Describe the stable, recognizable appearance of this subject."} />
+              <textarea className="input-base min-h-24 resize-y" value={description} onChange={(event) => setDescription(event.target.value)} />
             </label>
 
             <div className="mt-5 grid gap-5 sm:grid-cols-2">
@@ -358,16 +371,18 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
               </label>
             </div>
 
-            <div className="mt-6 flex items-center justify-between gap-3">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="m-0 text-sm font-semibold text-[var(--c-text)]">{isZh ? "参考集" : "Reference set"}</h3>
-                <p className="m-0 mt-1 text-xs text-[var(--c-text-secondary)]">{isZh ? "标记一张主参考，并注明角度或用途。" : "Choose one primary anchor and label each angle or purpose."}</p>
               </div>
-              <label className="btn-secondary min-h-11 cursor-pointer">
+              <button type="button" className="btn-secondary min-h-11" onClick={() => uploadRef.current?.click()}>
                 <UploadSimple size={16} />
                 {isZh ? "添加图片" : "Add images"}
+              </button>
                 <input
+                  ref={uploadRef}
                   type="file"
+                  aria-label={isZh ? "添加参考图片" : "Add reference images"}
                   className="hidden"
                   accept="image/jpeg,image/png,image/webp"
                   multiple
@@ -381,7 +396,6 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
                     event.target.value = "";
                   }}
                 />
-              </label>
             </div>
 
             {editing ? (
@@ -393,13 +407,7 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
                       {isZh ? "AI 辅助参考集" : "AI-assisted reference set"}
                     </h3>
                     <p className="m-0 mt-1 text-xs leading-5 text-[var(--c-text-secondary)]">
-                      {isZh
-                        ? existingReferences.length
-                          ? "以主锚点派生不同角度，生成完成后回到这里筛选收录。"
-                          : "先生成候选形象并选一张主锚点，再派生其他角度。"
-                        : existingReferences.length
-                          ? "Derive useful angles from the anchor, then return here to curate them."
-                          : "Generate identity candidates, choose one anchor, then derive other angles."}
+                      {isZh ? "生成完成后，回到这里收录参考。" : "Return here after generation to add references."}
                     </p>
                   </div>
                 </div>
@@ -480,8 +488,8 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
               ))}
             </div>
 
-            {error ? <p className="mt-4 text-sm text-[var(--c-error-text)]">{error}</p> : null}
-            <div className="mt-7 flex items-center justify-between gap-3 border-t border-border pt-5">
+            {error ? <p role="alert" className="mt-4 text-sm text-[var(--c-error-text)]">{error}</p> : null}
+            <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
               {editing ? (
                 <button
                   type="button"
@@ -496,7 +504,7 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
                   <Trash size={16} /> {isZh ? "删除主体" : "Delete subject"}
                 </button>
               ) : <span />}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn-secondary min-h-11" onClick={() => setShowEditor(false)}>{isZh ? "取消" : "Cancel"}</button>
                 <button type="submit" className="btn-primary min-h-11" disabled={saveMutation.isPending}>
                   {saveMutation.isPending ? (isZh ? "保存中…" : "Saving…") : (isZh ? "保存主体" : "Save subject")}
@@ -504,7 +512,7 @@ export function SubjectsPage({ tasks }: { tasks: VideoTaskDetail[] }) {
               </div>
             </div>
           </form>
-        </div>
+        </dialog>
       ) : null}
     </div>
   );
@@ -520,15 +528,18 @@ function ReferenceRow(props: {
   onRemove: () => void;
   isZh: boolean;
 }) {
+  const roleId = useId();
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border bg-[var(--c-surface-raised)] p-2.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-2xl border border-border bg-[var(--c-surface-raised)] p-2.5">
       {props.image}
-      <div className="min-w-0 flex-1">
-        <p className="m-0 truncate text-xs text-[var(--c-text-secondary)]">{props.name}</p>
-        <input className="input-base mt-1 w-full py-1.5 text-sm" value={props.role} onChange={(event) => props.onRoleChange(event.target.value)} placeholder={props.isZh ? "例如：3/4 全身" : "e.g. 3/4 full body"} />
+      <div className="min-w-0 flex-[1_1_12rem]">
+        <p className="m-0 break-all text-xs text-[var(--c-text-secondary)]">{props.name}</p>
+        <label htmlFor={roleId} className="text-xs text-[var(--c-text-secondary)]">{props.isZh ? "角度或用途" : "Angle or purpose"}</label>
+        <input id={roleId} className="input-base mt-1 w-full min-w-0 py-1.5 text-sm" value={props.role} onChange={(event) => props.onRoleChange(event.target.value)} placeholder={props.isZh ? "例如：3/4 全身" : "e.g. 3/4 full body"} />
       </div>
-      <button type="button" className={props.primary ? "btn-primary px-3" : "btn-ghost px-3"} onClick={props.onPrimary} title={props.isZh ? "设为主参考" : "Set primary"}>
+      <button type="button" className={props.primary ? "btn-primary px-3" : "btn-ghost px-3"} onClick={props.onPrimary} aria-pressed={props.primary} aria-label={`${props.isZh ? "设为主参考" : "Set primary"}: ${props.name}`} title={props.isZh ? "设为主参考" : "Set primary"}>
         <Star size={16} weight={props.primary ? "fill" : "regular"} />
+        {props.primary ? (props.isZh ? "主参考" : "Primary") : (props.isZh ? "设为主参考" : "Set primary")}
       </button>
       <button type="button" className="btn-ghost px-3" onClick={props.onRemove} aria-label={props.isZh ? "移除" : "Remove"}><X size={16} /></button>
     </div>

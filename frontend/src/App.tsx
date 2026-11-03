@@ -84,8 +84,15 @@ export default function App() {
     <CreatePage
       catalog={catalogQuery.data}
       loading={catalogQuery.isLoading}
+      catalogError={catalogQuery.error?.message}
+      onRetryCatalog={() => void catalogQuery.refetch()}
     />
   );
+  const failedQuery = catalogQuery.isError ? catalogQuery : !isCreateRoute && tasksQuery.isError ? tasksQuery : null;
+  const loadError = failedQuery ? <div className="card flex flex-wrap items-center gap-3" role="alert">
+    <span className="min-w-0 break-words">{failedQuery.error?.message}</span>
+    <button type="button" className="btn-secondary" onClick={() => void failedQuery.refetch()}>{t("create.failure.retry")}</button>
+  </div> : null;
 
   if (isCreateRoute) {
     return <div className="app-shell">{createPage}</div>;
@@ -100,6 +107,7 @@ export default function App() {
       />
       <HeaderSlotProvider value={{ header: headerSlot, mobileMenu: mobileMenuSlot }}>
         <main className="page-container">
+          {loadError}
           <Routes>
             <Route path="/jobs" element={<Navigate to="/works" replace />} />
             <Route path="/assets" element={<Navigate to="/works" replace />} />
@@ -107,7 +115,7 @@ export default function App() {
             <Route path="/scenes/*" element={<Navigate to="/create" replace />} />
             <Route
               path="/works"
-              element={<WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
+              element={tasksQuery.isError && !tasksQuery.data ? null : <WorksPage tasks={tasksQuery.data ?? []} loading={tasksQuery.isLoading} />}
             />
             <Route
               path="/settings"

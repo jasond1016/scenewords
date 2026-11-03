@@ -165,14 +165,14 @@ export function SessionResultActions(props: {
                   <CaretLeft size={20} weight="regular" />
                 </button>
               ) : null}
-              <strong>{t(imageAction ? "create.sessions.chooseImage" : "create.sessions.resultActions")}</strong>
+              <strong>{t(imageAction === "download" ? "works.download" : imageAction === "edit" ? "works.editImage" : imageAction === "resize" ? "works.adjustImageSize" : imageAction === "highResolutionCandidate" ? "works.highResolutionCandidateShort" : "create.sessions.resultActions")}</strong>
               <button type="button" className="session-result-more" aria-label={t("common.close")} onClick={close}>
                 <X size={18} weight="regular" />
               </button>
             </div>
             {imageAction ? (
               <>
-                <p className="session-result-menu-description">{t(imageAction === "download" ? "create.sessions.chooseDownloadHint" : imageAction === "highResolutionCandidate" ? "create.sessions.chooseHighResolutionImageHint" : "create.sessions.chooseImageHint")}</p>
+                {imageAction === "highResolutionCandidate" ? <p className="session-result-menu-description">{t("create.sessions.highResolutionHint")}</p> : null}
                 <div className="session-result-image-picker">
                   {images.map((url, index) => (
                     <button type="button" key={url} onClick={() => {

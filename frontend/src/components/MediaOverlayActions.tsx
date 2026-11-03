@@ -1,5 +1,5 @@
 import { ArrowClockwise, ArrowRight, CaretDown, Check, CircleNotch, Crop, DownloadSimple, PencilSimple, ShareNetwork, Sparkle, X } from "@phosphor-icons/react";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { getImageResizeOptions } from "../overlayTaskActions";
@@ -343,7 +343,7 @@ export function MediaOverlayResizeMenu(props: ResizeMenuProps) {
     callbacks.current.onClose();
     buttonRef.current?.focus({ preventScroll: true });
   };
-  useEffect(() => {
+  useLayoutEffect(() => {
     const menu = menuRef.current;
     const anchor = buttonRef.current;
     if (!open || !menu || !anchor) return;
@@ -367,7 +367,6 @@ export function MediaOverlayResizeMenu(props: ResizeMenuProps) {
       menu.style.left = `${Math.max(leftEdge, Math.min(rect.left, rightEdge - menu.offsetWidth))}px`;
       menu.style.top = `${Math.max(topEdge, up ? rect.top - 8 - height : rect.bottom + 8)}px`;
       menu.dataset.placement = up ? "top" : "bottom";
-      menu.style.visibility = "visible";
     };
     position();
     const index = Math.max(0, options.findIndex((option) => option.value === selectedValue));

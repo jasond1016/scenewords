@@ -13,10 +13,6 @@ interface Props {
   providers: ProviderInfo[];
 }
 
-type SettingCategory =
-  | "language_gateway"
-  | "privacy_storage";
-
 const SETTINGS_STORE_KEY = "scenewords_gateway_settings_v1";
 const SCENEWORDS_CACHE_PREFIX = "scenewords_";
 
@@ -26,7 +22,6 @@ export function SettingsPage(props: Props) {
   const settings = useAppSettingsStore();
   const [hint, setHint] = useState("");
   const [showGatewayToken, setShowGatewayToken] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<SettingCategory>("language_gateway");
   const [cacheRevision, setCacheRevision] = useState(0);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const costSummaryQuery = useQuery({
@@ -66,28 +61,7 @@ export function SettingsPage(props: Props) {
     }
   }, [settings.defaultVideoProvider, settings.setSettings, videoProviders]);
 
-  const sectionIds: Record<SettingCategory, string> = {
-    language_gateway: "settings_language_gateway",
-    privacy_storage: "settings_privacy_storage",
-  };
-
   const cacheStats = useMemo(() => collectSceneWordsCacheStats(), [cacheRevision]);
-  const historyStatusLabel = settings.savePromptHistory
-    ? isZh
-      ? "开启"
-      : "On"
-    : isZh
-      ? "关闭"
-      : "Off";
-
-  const jumpToCategory = (category: SettingCategory) => {
-    setActiveCategory(category);
-    const element = document.getElementById(sectionIds[category]);
-    if (!element) {
-      return;
-    }
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   const handleRestoreDefaults = () => {
     if (!confirmRestore) {
@@ -116,6 +90,7 @@ export function SettingsPage(props: Props) {
   };
 
   const clearLocalCache = async () => {
+    if (!window.confirm(t("settings.clearLocalCacheConfirm"))) return;
     try {
       await clearComposerDrafts();
       clearSceneWordsCache();
@@ -130,51 +105,41 @@ export function SettingsPage(props: Props) {
   const costLocale = isZh ? "zh-CN" : "en-US";
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-6">
       <header className="page-header mb-0">
         <div>
           <h1 className="page-title">{t("settings.title")}</h1>
-          <p className="page-subtitle">{t("settings.subtitle")}</p>
         </div>
       </header>
 
-      <section className="card grid gap-4 sm:grid-cols-[auto_1fr_1fr] sm:items-center">
-        <h3 className="m-0 text-heading">{t("settings.costs")}</h3>
-        <div className="flex flex-col gap-1">
+      <section aria-labelledby="settings-costs-title" className="card grid min-w-0 gap-4 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+        <h2 id="settings-costs-title" className="m-0 text-heading">{t("settings.costs")}</h2>
+        <div className="flex min-w-0 flex-col gap-1 break-words">
           <span className="text-label">{t("works.totalCharged")}</span>
           <strong className="text-xl font-semibold tabular-nums text-[var(--c-text)]">
-            {formatCostAmount(costSummaryQuery.data?.charged_cost_total ?? 0, costCurrency, costLocale)}
+            {costSummaryQuery.data ? formatCostAmount(costSummaryQuery.data.charged_cost_total, costCurrency, costLocale) : "—"}
           </strong>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1 break-words">
           <span className="text-label">{t("works.pendingEstimated")}</span>
           <strong className="text-xl font-semibold tabular-nums text-[var(--c-text-secondary)]">
-            {formatCostAmount(costSummaryQuery.data?.pending_estimated_cost_total ?? 0, costCurrency, costLocale)}
+            {costSummaryQuery.data ? formatCostAmount(costSummaryQuery.data.pending_estimated_cost_total, costCurrency, costLocale) : "—"}
             {" "}
             <span className="text-xs font-normal">{t("works.estimatedSuffix")}</span>
           </strong>
         </div>
+        {costSummaryQuery.isError ? <div className="sm:col-span-3 flex flex-wrap items-center gap-2" role="alert">
+          <span>{costSummaryQuery.error.message}</span>
+          <button type="button" className="btn-secondary" onClick={() => void costSummaryQuery.refetch()}>{t("create.failure.retry")}</button>
+        </div> : null}
       </section>
 
-      {/* Category pills + restore defaults */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="segment-group flex-wrap">
-          <CategoryButton
-            label={isZh ? "语言与网关" : "Language & Gateway"}
-            active={activeCategory === "language_gateway"}
-            onClick={() => jumpToCategory("language_gateway")}
-          />
-          <CategoryButton
-            label={t("settings.privacyStorage")}
-            active={activeCategory === "privacy_storage"}
-            onClick={() => jumpToCategory("privacy_storage")}
-          />
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {confirmRestore ? (
             <>
               <button type="button" onClick={handleRestoreDefaults} className="btn-danger text-xs">
-                {isZh ? "确认恢复" : "Confirm"}
+                {isZh ? "确认恢复默认设置" : "Confirm restore defaults"}
               </button>
               <button type="button" onClick={() => setConfirmRestore(false)} className="btn-ghost text-xs">
                 {t("common.close")}
@@ -183,7 +148,7 @@ export function SettingsPage(props: Props) {
           ) : (
             <button type="button" onClick={handleRestoreDefaults} className="btn-ghost text-xs">
               <ArrowCounterClockwise size={13} />
-              {isZh ? "恢复默认" : "Restore"}
+              {isZh ? "恢复默认" : "Restore defaults"}
             </button>
           )}
         </div>
@@ -192,12 +157,13 @@ export function SettingsPage(props: Props) {
       <section className="flex flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-4">
           <section
-            id={sectionIds.language_gateway}
-            className="card"
+            id="settings_language_gateway"
+            aria-labelledby="settings-language-title"
+            className="card min-w-0"
           >
-            <h3 className="m-0 text-heading">
+            <h2 id="settings-language-title" className="m-0 text-heading">
               {isZh ? "语言与网关" : "Language & Gateway"}
-            </h3>
+            </h2>
             <div className="mt-3 flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-raised px-3 py-2">
                 <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.language")}</span>
@@ -210,10 +176,10 @@ export function SettingsPage(props: Props) {
 
               <div className="rounded-xl bg-surface-raised p-4">
                 <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-label">
+                  <label htmlFor="settings-gateway-token" className="text-label">
                     Gateway · Bearer Token
-                  </span>
-                  <div className="flex items-center gap-2">
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                         settings.gatewayToken.trim()
@@ -231,6 +197,9 @@ export function SettingsPage(props: Props) {
                     </span>
                     <button
                       type="button"
+                      aria-controls="settings-gateway-token"
+                      aria-pressed={showGatewayToken}
+                      aria-label={showGatewayToken ? (isZh ? "隐藏网关 Token" : "Hide gateway token") : (isZh ? "显示网关 Token" : "Show gateway token")}
                       onClick={() => setShowGatewayToken((current) => !current)}
                       className="min-h-11 min-w-11 rounded-full bg-[var(--c-surface-inset)] px-2.5 py-1 text-xs font-semibold text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
                     >
@@ -245,6 +214,7 @@ export function SettingsPage(props: Props) {
                   </div>
                 </div>
                 <input
+                  id="settings-gateway-token"
                   type={showGatewayToken ? "text" : "password"}
                   value={settings.gatewayToken}
                   onChange={(event) => settings.setSettings({ gatewayToken: event.target.value })}
@@ -292,10 +262,11 @@ export function SettingsPage(props: Props) {
           </details>
         </div>
         <section
-          id={sectionIds.privacy_storage}
-          className="card"
+          id="settings_privacy_storage"
+          aria-labelledby="settings-privacy-title"
+          className="card min-w-0"
         >
-          <h3 className="m-0 text-heading">{t("settings.privacyStorage")}</h3>
+          <h2 id="settings-privacy-title" className="m-0 text-heading">{t("settings.privacyStorage")}</h2>
           <div className="mt-3 flex flex-col gap-2">
             <ToggleRow
               label={t("settings.restoreLastSession")}
@@ -311,8 +282,9 @@ export function SettingsPage(props: Props) {
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-raised px-3 py-2">
-              <span className="text-sm font-medium text-[var(--c-text)]">{t("settings.historyRetentionDays")}</span>
+              <label htmlFor="settings-history-retention" className="text-sm font-medium text-[var(--c-text)]">{t("settings.historyRetentionDays")}</label>
               <input
+                id="settings-history-retention"
                 type="number"
                 min={1}
                 step={1}
@@ -328,9 +300,6 @@ export function SettingsPage(props: Props) {
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-warning-text">
                   {isZh ? "本地缓存摘要" : "Local Cache Summary"}
-                </span>
-                <span className="rounded-full bg-warning-bg px-2 py-1 text-xs font-semibold text-warning-text">
-                  {historyStatusLabel}
                 </span>
               </div>
               <p className="m-0 text-xs text-warning-text">
@@ -352,28 +321,8 @@ export function SettingsPage(props: Props) {
         </section>
       </section>
 
-      {hint ? <p className="m-0 text-xs text-[var(--c-text-tertiary)]">{hint}</p> : null}
+      {hint ? <p role="status" className="m-0 text-xs text-[var(--c-text-secondary)]">{hint}</p> : null}
     </div>
-  );
-}
-
-function CategoryButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`segment-item ${active ? "segment-active" : ""}`}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -387,7 +336,7 @@ function SettingField({
   className?: string;
 }) {
   return (
-    <label className={className}>
+    <label className={`min-w-0 ${className ?? ""}`}>
       <span className="text-label mb-1.5 block">{label}</span>
       {children}
     </label>
@@ -410,7 +359,7 @@ function LanguageSwitcher({
   ];
 
   return (
-    <div className="segment-group">
+    <div className="segment-group min-w-0 flex-wrap" role="group" aria-label={t("settings.language")}>
       {options.map((option) => {
         const active = value === option.value;
         return (
@@ -418,6 +367,7 @@ function LanguageSwitcher({
             type="button"
             key={option.value}
             onClick={() => onChange(option.value)}
+            aria-pressed={active}
             className={`segment-item ${active ? "segment-active" : ""}`}
           >
             {option.label}
@@ -444,6 +394,9 @@ function ToggleRow({
       <span className="text-sm text-[var(--c-text)]">{label}</span>
       <button
         type="button"
+        role="switch"
+        aria-label={label}
+        aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`min-h-11 min-w-11 rounded-full px-3 py-1 text-xs font-semibold transition-all duration-200 ${
           checked
