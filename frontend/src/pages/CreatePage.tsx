@@ -39,7 +39,6 @@ import {
   fetchScenes,
   fetchSubjects,
   fetchUploadedFileBinary,
-  importTaskImageAsFile,
   uploadFile,
 } from "../api";
 import { localizeDynamicField, useI18n, type SupportedLocale } from "../i18n";
@@ -71,8 +70,6 @@ import {
   isDurationField,
   isFieldEmpty,
   parseFieldValue,
-  restoreSession,
-  saveSession,
   valueToStoredString,
 } from "../utils";
 import { CreateTopBar } from "../components/AppTopBar";
@@ -86,6 +83,7 @@ import { getImageResizeOptions, runRetryTask, runTaskAction, submitHighResolutio
 import { buildMediaSidebarActions, describeTaskPrompt, providerSupportsSeedRetry } from "../overlayTaskPresentation";
 import { prepareMediaFile, startMediaDownload } from "../mediaExport";
 import { isComposerField, sanitizeComposerOptions, sanitizeComposerValues } from "../composerOptions";
+import { useComposerDraft } from "../composerDrafts";
 
 interface Props {
   catalog?: ProviderCatalogResponse;
@@ -158,15 +156,25 @@ export function CreatePage(props: Props) {
   const providers = catalog?.routing_providers ?? [];
 
   const [providerId, setProviderId] = useState("");
-  const [modelName, setModelName] = useState("");
   const [operationId, setOperationId] = useState("");
   const [currentGenerationKind, setCurrentGenerationKind] = useState<"image" | "video">("image");
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [files, setFiles] = useState<Record<string, File[]>>({});
-  const [reusedFileIds, setReusedFileIds] = useState<Record<string, string[]>>({});
-  const [imageSourceFiles, setImageSourceFiles] = useState<File[]>([]);
-  const [imageSourceReusedFileIds, setImageSourceReusedFileIds] = useState<string[]>([]);
-  const [sessionContextFileIds, setSessionContextFileIds] = useState<string[]>([]);
+  const [sceneId, setSceneId] = useState("");
+  const [openingSession, setOpeningSession] = useState(() => Boolean(new URLSearchParams(location.search).get("sceneId")?.trim()));
+  const composerDraft = useComposerDraft(settings.gatewayToken, sceneId, currentGenerationKind, settings.restoreLastSession);
+  const modelName = composerDraft.draft.routingModel;
+  const setModelName = composerDraft.setField("routingModel");
+  const { values, files, reusedFileIds, imageSourceFiles, imageSourceReusedFileIds,
+    selectedSubjectIds, generationId, parentVersionId, versionEditBasePrompt, modificationInstruction } = composerDraft.draft;
+  const setValues = composerDraft.setField("values");
+  const setFiles = composerDraft.setField("files");
+  const setReusedFileIds = composerDraft.setField("reusedFileIds");
+  const setImageSourceFiles = composerDraft.setField("imageSourceFiles");
+  const setImageSourceReusedFileIds = composerDraft.setField("imageSourceReusedFileIds");
+  const setSelectedSubjectIds = composerDraft.setField("selectedSubjectIds");
+  const setGenerationId = composerDraft.setField("generationId");
+  const setParentVersionId = composerDraft.setField("parentVersionId");
+  const setVersionEditBasePrompt = composerDraft.setField("versionEditBasePrompt");
+  const setModificationInstruction = composerDraft.setField("modificationInstruction");
   const [hintFeedback, setHintFeedback] = useState<{ message: string; kind: "info" | "pending" | "error" } | null>(null);
   const hint = hintFeedback?.message ?? "";
   const setHint = useCallback((message: string, kind: "info" | "pending" | "error" = "error") => setHintFeedback(message ? { message, kind } : null), []);
@@ -180,9 +188,24 @@ export function CreatePage(props: Props) {
     readLastSubmittedTaskId(),
   );
   const skipNextPendingClearHydrationRef = useRef(false);
-  const skipUnhydratedSessionSaveRef = useRef(false);
   const openSessionRequestRef = useRef(0);
-  const latestSessionReferenceTaskIdRef = useRef("");
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      openSessionRequestRef.current += 1;
+      // StrictMode remounts effects synchronously. Only a real departure should
+      // invalidate a late explicit-reuse import targeted at this composer.
+      queueMicrotask(() => {
+        if (!mountedRef.current) {
+          const store = useAppSettingsStore.getState();
+          store.setPendingReuseLoading(false);
+          store.setPendingReuseDraft(null);
+        }
+      });
+    };
+  }, [settings.gatewayToken]);
   const formRef = useRef<HTMLFormElement | null>(null);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -196,8 +219,6 @@ export function CreatePage(props: Props) {
     advancedDialogRef.current?.showModal();
     return () => settingsButtonRef.current?.focus();
   }, [showAdvanced]);
-  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
-  const [sceneId, setSceneId] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessionImagePreview, setSessionImagePreview] = useState<{
     taskId: string;
@@ -209,10 +230,6 @@ export function CreatePage(props: Props) {
   const closeSessionImagePreview = useCallback(() => setSessionImagePreview(null), []);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const shouldStickTranscriptToBottomRef = useRef(true);
-  const [generationId, setGenerationId] = useState<string | null>(null);
-  const [parentVersionId, setParentVersionId] = useState<string | null>(null);
-  const [versionEditBasePrompt, setVersionEditBasePrompt] = useState<string | null>(null);
-  const [modificationInstruction, setModificationInstruction] = useState("");
   const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
@@ -621,7 +638,6 @@ export function CreatePage(props: Props) {
   const hasImageSourceAttachments =
     imageSourceFiles.length > 0 ||
     imageSourceReusedFileIds.length > 0 ||
-    sessionContextFileIds.length > 0 ||
     activeSubjectReferenceFileIds.length > 0;
   const currentImageResolutionLabel = currentImageVariant?.resolutionLabel ?? "1K";
   const currentImageAsyncEnabled = currentImageVariant?.asyncEnabled ?? false;
@@ -757,13 +773,12 @@ export function CreatePage(props: Props) {
     return {
       ...reusedFileIds,
       [fieldKey(sharedImageSourceField)]: Array.from(
-        new Set([...imageSourceReusedFileIds, ...sessionContextFileIds, ...activeSubjectReferenceFileIds]),
+        new Set([...imageSourceReusedFileIds, ...activeSubjectReferenceFileIds]),
       ),
     };
   }, [
     currentGenerationKind,
     imageSourceReusedFileIds,
-    sessionContextFileIds,
     reusedFileIds,
     sharedImageSourceField,
     activeSubjectReferenceFileIds,
@@ -831,15 +846,6 @@ export function CreatePage(props: Props) {
       setProviderId(videoProviders[0].id);
     }
   }, [currentGenerationKind, providerId, videoProviders]);
-
-  useEffect(() => {
-    if (currentGenerationKind === "image") {
-      return;
-    }
-    setImageSourceFiles([]);
-    setImageSourceReusedFileIds([]);
-    setSessionContextFileIds([]);
-  }, [currentGenerationKind]);
 
   useEffect(() => {
     if (
@@ -922,26 +928,6 @@ export function CreatePage(props: Props) {
     if (!providers.length || providerId) {
       return;
     }
-    const restoredSession = restoreSession(settings.restoreLastSession, currentGenerationKind);
-    if (restoredSession) {
-      const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
-      const restoredProviderMatchesKind = restoredProvider
-        ? currentGenerationKind === "image"
-          ? isImageProviderType(restoredProvider.type)
-          : !isImageProviderType(restoredProvider.type)
-        : false;
-      const restoredModel =
-        restoredProvider?.models.find((model) => model.name === restoredSession.model) ?? null;
-      const restoredOperation =
-        restoredModel?.operations.find((operation) => operation.id === restoredSession.operation) ??
-        null;
-      if (restoredProvider && restoredProviderMatchesKind && restoredModel && restoredOperation) {
-        setProviderId(restoredProvider.id);
-        setModelName(restoredModel.name);
-        setOperationId(restoredOperation.id);
-        return;
-      }
-    }
     const preferredProviderId =
       currentGenerationKind === "image"
         ? settings.defaultImageProvider
@@ -966,7 +952,6 @@ export function CreatePage(props: Props) {
     providers,
     settings.defaultImageProvider,
     settings.defaultVideoProvider,
-    settings.restoreLastSession,
   ]);
 
   useEffect(() => {
@@ -999,11 +984,6 @@ export function CreatePage(props: Props) {
       setOperationId(pending.operation);
     }
     setSceneId(pending.sceneId ?? "");
-    setGenerationId(pending.generationId);
-    setParentVersionId(pending.parentVersionId);
-    setSelectedSubjectIds(pending.subjectIds ?? []);
-    setVersionEditBasePrompt(pending.editBaseFileId ? pending.prompt : null);
-    setModificationInstruction(pending.modificationInstruction ?? "");
   }, [
     currentGenerationKind,
     modelName,
@@ -1014,6 +994,7 @@ export function CreatePage(props: Props) {
   ]);
 
   useEffect(() => {
+    if (!composerDraft.ready) return;
     const params = new URLSearchParams(location.search);
     const subjectId = params.get("subjectId")?.trim() ?? "";
     if (!subjectId) {
@@ -1029,12 +1010,14 @@ export function CreatePage(props: Props) {
       return;
     }
   }, [
+    composerDraft.ready,
     currentGenerationKind,
     location.search,
     subjectsQuery.data,
   ]);
 
   useEffect(() => {
+    if (!composerDraft.ready) return;
     const params = new URLSearchParams(location.search);
     const subjectId = params.get("useSubject")?.trim() ?? "";
     if (!subjectId || !subjectsQuery.data?.some((item) => item.subject_id === subjectId)) {
@@ -1042,20 +1025,19 @@ export function CreatePage(props: Props) {
     }
     setSelectedSubjectIds((ids) => (ids.includes(subjectId) ? ids : [...ids, subjectId]));
     navigate("/create", { replace: true });
-  }, [location.search, navigate, subjectsQuery.data]);
+  }, [composerDraft.ready, location.search, navigate, subjectsQuery.data]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const launchSceneId = params.get("sceneId")?.trim() ?? "";
-    if (!launchSceneId || !scenesQuery.data?.some((scene) => scene.scene_id === launchSceneId)) {
+    if (!launchSceneId || !scenesQuery.data) return;
+    if (!scenesQuery.data.some((scene) => scene.scene_id === launchSceneId)) {
+      setOpeningSession(false);
+      navigate("/create", { replace: true });
       return;
     }
-    setSceneId(launchSceneId);
-    setGenerationId(null);
-    setParentVersionId(null);
-    setVersionEditBasePrompt(null);
-    setModificationInstruction("");
-  }, [location.search, scenesQuery.data]);
+    navigate("/create", { replace: true, state: { returnSessionId: launchSceneId } });
+  }, [location.search, navigate, scenesQuery.data]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -1074,7 +1056,7 @@ export function CreatePage(props: Props) {
       null;
     setModelName(nextModel?.name ?? "");
     setOperationId(nextOperation?.id ?? "");
-  }, [modelName, selectedProvider]);
+  }, [composerDraft.ready, modelName, selectedProvider]);
 
   useEffect(() => {
     if (!selectedModel) {
@@ -1091,60 +1073,45 @@ export function CreatePage(props: Props) {
   }, [operationId, selectedModel]);
 
   useEffect(() => {
-    if (!selectedOperation) {
+    if (!selectedOperation || !composerDraft.ready) {
       return;
     }
     if (skipNextPendingClearHydrationRef.current && !settings.pendingReuseDraft) {
       skipNextPendingClearHydrationRef.current = false;
       return;
     }
-    const previousPrompt = values["request:prompt"] ?? "";
-    const previousResolution = values["request:resolution"] ?? "";
-    const hydrated: Record<string, string> = {};
-    const hydratedReusedFileIds: Record<string, string[]> = {};
+    // Only the current scene's unsent draft supplies content. Legacy field
+    // storage supplies preferences, never a prompt, attachment or edit source.
+    const hydrated: Record<string, string> = { ...values };
     for (const field of selectedOperation.fields) {
       if (!isComposerField(field.target, field.key)) continue;
       const key = fieldKey(field);
-      const existingReused = reusedFileIds[key];
-      if (
-        (field.input_type === "file" || field.input_type === "file_list") &&
-        Array.isArray(existingReused) &&
-        existingReused.length > 0
-      ) {
-        hydratedReusedFileIds[key] = existingReused;
-      }
+      if (hydrated[key] !== undefined || field.key === "prompt"
+        || field.input_type === "file" || field.input_type === "file_list") continue;
       const stored = localStorage.getItem(
         fieldStorageKey(providerId, modelName, selectedOperation.id, field),
       );
       if (stored != null) {
         hydrated[key] = stored;
-        continue;
       }
-      if (field.default != null) {
-        hydrated[key] = valueToStoredString(field.default);
-      }
-    }
-
-    const session = restoreSession(settings.restoreLastSession, currentGenerationKind);
-    if (
-      session &&
-      session.provider === providerId &&
-      session.model === modelName &&
-      session.operation === selectedOperation.id
-    ) {
-      Object.assign(hydrated, session.values);
     }
 
     const pending = settings.pendingReuseDraft;
     let pendingImageSourceFileIds: string[] = [];
     if (
       pending &&
+      (pending.sceneId ?? "") === sceneId &&
       pending.provider === providerId &&
       pending.model === modelName &&
       pending.operation === selectedOperation.id
     ) {
       const applied = applyDraft(hydrated, selectedOperation, pending);
-      Object.assign(hydratedReusedFileIds, applied.reusedFileIds);
+      setReusedFileIds(applied.reusedFileIds);
+      setGenerationId(pending.generationId);
+      setParentVersionId(pending.parentVersionId);
+      setSelectedSubjectIds(pending.subjectIds ?? []);
+      setVersionEditBasePrompt(pending.editBaseFileId ? pending.prompt : null);
+      setModificationInstruction(pending.modificationInstruction ?? "");
       pendingImageSourceFileIds = extractDraftImageSourceFileIds(pending.providerOptions);
       skipNextPendingClearHydrationRef.current = true;
       settings.setPendingReuseDraft(null);
@@ -1169,22 +1136,13 @@ export function CreatePage(props: Props) {
       );
     }
 
-    // Keep the current prompt when switching model/operation unless the target already has one.
-    if (promptField) {
-      const promptKey = fieldKey(promptField);
-      if (!hydrated[promptKey] && previousPrompt.trim()) {
-        hydrated[promptKey] = previousPrompt;
-      }
-    }
-    if (resolutionField) {
-      const resolutionKey = fieldKey(resolutionField);
-      if (!hydrated[resolutionKey] && previousResolution.trim()) {
-        hydrated[resolutionKey] =
-          pickResolutionValue(resolutionField, "", parseResolutionMeta(previousResolution)) ??
-          previousResolution;
-      }
-    }
+    applySettingDefaults(hydrated, selectedOperation, settings, providerId);
     for (const field of selectedOperation.fields) {
+      if (isComposerField(field.target, field.key) && field.key !== "prompt"
+        && field.input_type !== "file" && field.input_type !== "file_list"
+        && hydrated[fieldKey(field)] === undefined && field.default != null) {
+        hydrated[fieldKey(field)] = valueToStoredString(field.default);
+      }
       if (field.input_type !== "select" || !field.options.length) {
         continue;
       }
@@ -1200,17 +1158,14 @@ export function CreatePage(props: Props) {
         delete hydrated[key];
       }
     }
-    applySettingDefaults(hydrated, selectedOperation, settings, providerId);
-
-    skipUnhydratedSessionSaveRef.current = true;
     setValues(sanitizeComposerValues(hydrated));
-    setFiles({});
-    setReusedFileIds(hydratedReusedFileIds);
     if (pendingImageSourceFileIds.length) {
       setImageSourceFiles([]);
       setImageSourceReusedFileIds(pendingImageSourceFileIds);
     }
   }, [
+    composerDraft.ready,
+    composerDraft.scope,
     currentGenerationKind,
     location.search,
     modelName,
@@ -1223,7 +1178,6 @@ export function CreatePage(props: Props) {
     settings.historyRetentionDays,
     settings.pendingReuseDraft,
     settings.providerDefaults,
-    settings.restoreLastSession,
     settings.setPendingReuseDraft,
     subjectsQuery.data,
   ]);
@@ -1237,13 +1191,7 @@ export function CreatePage(props: Props) {
   }, [settings.historyRetentionDays, settings.savePromptHistory]);
 
   useEffect(() => {
-    if (!selectedProvider || !selectedModel || !selectedOperation) {
-      return;
-    }
-    // Hydration schedules values for the next render; do not overwrite the
-    // saved draft with this render's empty or previous-model values meanwhile.
-    if (skipUnhydratedSessionSaveRef.current) {
-      skipUnhydratedSessionSaveRef.current = false;
+    if (!selectedProvider || !selectedModel || !selectedOperation || !composerDraft.ready) {
       return;
     }
     const nextProviderDefaults = captureProviderDefaultsFromValues(
@@ -1273,24 +1221,14 @@ export function CreatePage(props: Props) {
     const defaultsUnchanged =
       currentDefaults?.defaultRatio === nextProviderDefaults.defaultRatio &&
       currentDefaults?.defaultDurationSec === nextProviderDefaults.defaultDurationSec &&
-      currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality;
+      currentDefaults?.defaultQuality === nextProviderDefaults.defaultQuality &&
+      currentDefaults?.defaultOutputFormat === nextProviderDefaults.defaultOutputFormat;
     if (providerUnchanged && videoProviderUnchanged && defaultsUnchanged) {
-      saveSession(currentGenerationKind, {
-        provider: providerId,
-        model: modelName,
-        operation: selectedOperation.id,
-        values,
-      });
       return;
     }
     settings.setSettings(nextSettings);
-    saveSession(currentGenerationKind, {
-      provider: providerId,
-      model: modelName,
-      operation: selectedOperation.id,
-      values,
-    });
   }, [
+    composerDraft.ready,
     modelName,
     operationId,
     providerId,
@@ -1302,7 +1240,7 @@ export function CreatePage(props: Props) {
   ]);
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (_submission: { scope: string; revision: number; prompt: string; navigationRevision: number }) => {
       if (!selectedOperation) {
         throw new Error(t("create.errorNoOperation"));
       }
@@ -1314,6 +1252,8 @@ export function CreatePage(props: Props) {
         scene_id: sceneId || null,
         generation_id: sceneId ? generationId : null,
         parent_version_id: sceneId ? parentVersionId : null,
+        image_context: currentGenerationKind === "image" && sceneId && !hasImageSourceAttachments
+          ? { mode: "latest" } : undefined,
         provider_options: {},
       };
       const requestPayload = payload as unknown as Record<string, unknown>;
@@ -1340,7 +1280,6 @@ export function CreatePage(props: Props) {
                   sourceReusedFileIds: Array.from(
                     new Set([
                       ...imageSourceReusedFileIds,
-                      ...sessionContextFileIds,
                       ...activeSubjectReferenceFileIds,
                     ]),
                   ),
@@ -1365,7 +1304,8 @@ export function CreatePage(props: Props) {
           }
           const uploadedIds: string[] = [];
           for (let index = 0; index < selectedFiles.length; index += 1) {
-            setHint(
+            if (_submission.navigationRevision === openSessionRequestRef.current
+              && composerDraft.isCurrent(_submission.scope, _submission.revision)) setHint(
               t("create.hintUploading", {
                 index: index + 1,
                 total: selectedFiles.length,
@@ -1409,7 +1349,6 @@ export function CreatePage(props: Props) {
       const sourceFileIds = Array.from(
         new Set([
           ...imageSourceReusedFileIds,
-          ...sessionContextFileIds,
           ...activeSubjectReferenceFileIds,
         ]),
       );
@@ -1481,40 +1420,24 @@ export function CreatePage(props: Props) {
         const title = (promptValue.trim() || (locale === "zh-CN" ? "新会话" : "New chat")).slice(0, 160);
         const session = await createScene({ title, description: "" }, settings.gatewayToken);
         payload.scene_id = session.scene_id;
-        setSceneId(session.scene_id);
         await queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] });
       }
       return createVideoTask(payload, settings.gatewayToken, selectedProvider?.type);
     },
-    onSuccess: async (response) => {
-      if (promptField) {
-        setValues((current) => ({ ...current, [fieldKey(promptField)]: "" }));
+    onSuccess: async (response, submission) => {
+      const stillCurrent = submission.navigationRevision === openSessionRequestRef.current
+        && composerDraft.isCurrent(submission.scope, submission.revision);
+      composerDraft.acknowledge(submission.scope, submission.revision);
+      if (stillCurrent) {
+        if (response.scene_id) setSceneId(response.scene_id);
+        setOpenPopover(null);
+        setShowAdvanced(false);
+        setHint("");
+        setLastSubmittedTaskId(response.task_id);
+        requestAnimationFrame(autoResizeTextarea);
       }
-      setVersionEditBasePrompt(null);
-      setModificationInstruction("");
-      setFiles({});
-      setReusedFileIds({});
-      setImageSourceFiles([]);
-      setImageSourceReusedFileIds([]);
-      setSelectedSubjectIds([]);
-      setOpenPopover(null);
-      setShowAdvanced(false);
-      requestAnimationFrame(autoResizeTextarea);
-      if (response.scene_id) {
-        setSceneId(response.scene_id);
-        setGenerationId(response.generation_id);
-        setParentVersionId(response.task_id);
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
-          queryClient.invalidateQueries({
-            queryKey: ["scene", settings.gatewayToken, response.scene_id],
-          }),
-        ]);
-      }
-      setLastSubmittedTaskId(response.task_id);
-      setHint("");
       if (settings.savePromptHistory && promptField) {
-        const promptValue = (values[fieldKey(promptField)] ?? "").trim();
+        const promptValue = submission.prompt.trim();
         if (promptValue) {
           appendRecentPrompt({
             text: promptValue,
@@ -1526,17 +1449,28 @@ export function CreatePage(props: Props) {
           });
         }
       }
-      await queryClient.invalidateQueries({
-        queryKey: ["tasks", settings.gatewayToken],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tasks", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scenes", settings.gatewayToken] }),
+        queryClient.invalidateQueries({ queryKey: ["scene", settings.gatewayToken, response.scene_id] }),
+      ]);
     },
-    onError: (error: Error) => {
-      setHint(t("create.hintSubmitFailed", { message: error.message }));
+    onError: (error: Error, submission) => {
+      if (submission.navigationRevision === openSessionRequestRef.current
+        && composerDraft.isCurrent(submission.scope, submission.revision)) {
+        setHint(t("create.hintSubmitFailed", { message: error.message }));
+      }
     },
   });
 
   const onFileFieldChanged = (field: ProviderOperationField, nextFiles: File[]) => {
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
+      if (nextFiles.length && versionEditBasePrompt !== null) {
+        setImageSourceReusedFileIds([]);
+        setVersionEditBasePrompt(null);
+        setValues((current) => ({ ...current, "request:prompt": modificationInstruction }));
+        setModificationInstruction("");
+      }
       setImageSourceFiles(nextFiles);
       return;
     }
@@ -1556,8 +1490,8 @@ export function CreatePage(props: Props) {
 
   const onReusedFileIdsChanged = (field: ProviderOperationField, nextFileIds: string[]) => {
     if (field.key === SHARED_IMAGE_SOURCE_FIELD_KEY) {
-      setImageSourceReusedFileIds(nextFileIds.filter((id) => !sessionContextFileIds.includes(id)));
-      setSessionContextFileIds((current) => current.filter((id) => nextFileIds.includes(id)));
+      setImageSourceReusedFileIds(nextFileIds);
+      if (!nextFileIds.length && versionEditBasePrompt !== null) removeVersionEditBasePrompt();
       return;
     }
     const key = fieldKey(field);
@@ -1580,7 +1514,7 @@ export function CreatePage(props: Props) {
   ) => {
     const key = fieldKey(field);
     setValues((current) => ({ ...current, [key]: nextValue }));
-    if (field.input_type === "password" || field.input_type === "file" || field.input_type === "file_list") {
+    if (field.key === "prompt" || field.input_type === "password" || field.input_type === "file" || field.input_type === "file_list") {
       return;
     }
     localStorage.setItem(
@@ -1693,26 +1627,6 @@ export function CreatePage(props: Props) {
       return;
     }
     setCurrentGenerationKind(nextKind);
-    const restoredSession = restoreSession(settings.restoreLastSession, nextKind);
-    if (restoredSession) {
-      const restoredProvider = providers.find((provider) => provider.id === restoredSession.provider);
-      const restoredProviderMatchesKind = restoredProvider
-        ? nextKind === "image"
-          ? isImageProviderType(restoredProvider.type)
-          : !isImageProviderType(restoredProvider.type)
-        : false;
-      const restoredModel =
-        restoredProvider?.models.find((model) => model.name === restoredSession.model) ?? null;
-      const restoredOperation =
-        restoredModel?.operations.find((operation) => operation.id === restoredSession.operation) ??
-        null;
-      if (restoredProvider && restoredProviderMatchesKind && restoredModel && restoredOperation) {
-        setProviderId(restoredProvider.id);
-        setModelName(restoredModel.name);
-        setOperationId(restoredOperation.id);
-        return;
-      }
-    }
     const preferredProviderId =
       nextKind === "image" ? settings.defaultImageProvider : settings.defaultVideoProvider;
     const nextProvider = pickProviderByKind(providers, nextKind, preferredProviderId);
@@ -1851,24 +1765,21 @@ export function CreatePage(props: Props) {
   );
   const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
   const startNewSession = () => {
+    openSessionRequestRef.current += 1;
+    setOpeningSession(false);
+    settings.setPendingReuseDraft(null);
+    settings.setPendingReuseLoading(false);
     clearHint();
     setSceneId("");
-    setGenerationId(null);
-    setParentVersionId(null);
-    setVersionEditBasePrompt(null);
-    setModificationInstruction("");
-    setValues((current) => ({ ...current, ...(promptField ? { [fieldKey(promptField)]: "" } : {}) }));
-    setFiles({});
-    setReusedFileIds({});
-    setImageSourceFiles([]);
-    setImageSourceReusedFileIds([]);
-    setSessionContextFileIds([]);
-    setSelectedSubjectIds([]);
     setCurrentGenerationKind("image");
     setHistoryOpen(false);
+    navigate("/create", { replace: true, state: null });
   };
   const openSession = async (sessionId: string) => {
+    settings.setPendingReuseDraft(null);
+    settings.setPendingReuseLoading(false);
     const requestId = ++openSessionRequestRef.current;
+    setOpeningSession(true);
     try {
       const session = await queryClient.fetchQuery({
         queryKey: sceneQueryKey(sessionId),
@@ -1880,32 +1791,18 @@ export function CreatePage(props: Props) {
       }
       const sessionVersions = session.generations
         .flatMap((generation) => generation.versions)
-        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.task_id.localeCompare(left.task_id));
       const latestVersion = sessionVersions[0];
       clearHint();
       setSceneId(sessionId);
-      setGenerationId(latestVersion?.generation_id ?? null);
-      setParentVersionId(latestVersion?.task_id ?? null);
-      setVersionEditBasePrompt(null);
-      setModificationInstruction("");
       setCurrentGenerationKind(latestVersion?.asset_type ?? "image");
-      setFiles({});
-      setReusedFileIds({});
-      setImageSourceFiles([]);
-      setImageSourceReusedFileIds([]);
-      setSessionContextFileIds([]);
-      setSelectedSubjectIds([]);
-      if (promptField) {
-        setValues((current) => ({
-          ...current,
-          [fieldKey(promptField)]: "",
-        }));
-      }
       setHistoryOpen(false);
     } catch (error) {
       if (requestId === openSessionRequestRef.current) {
         setHint(error instanceof Error ? error.message : t("common.error"));
       }
+    } finally {
+      if (requestId === openSessionRequestRef.current) setOpeningSession(false);
     }
   };
   const returnSessionId =
@@ -1934,51 +1831,6 @@ export function CreatePage(props: Props) {
       ),
     [conversationVersions],
   );
-  const latestSessionImageTask = [...sessionImageTasks]
-    .reverse()
-    .find((version) => version.status === "succeeded") ?? null;
-  useEffect(() => {
-    if (!sceneId || currentGenerationKind !== "image") {
-      latestSessionReferenceTaskIdRef.current = "";
-      setSessionContextFileIds([]);
-      return;
-    }
-    if (
-      !latestSessionImageTask ||
-      latestSessionImageTask.scene_id !== sceneId ||
-      latestSessionReferenceTaskIdRef.current === latestSessionImageTask.task_id
-    ) {
-      return;
-    }
-    latestSessionReferenceTaskIdRef.current = latestSessionImageTask.task_id;
-    let cancelled = false;
-    void importTaskImageAsFile(
-      latestSessionImageTask.task_id,
-      0,
-      settings.gatewayToken,
-    ).then(
-      (imported) => {
-        if (!cancelled) {
-          setSessionContextFileIds([imported.file_id]);
-        }
-      },
-      (error: unknown) => {
-        if (!cancelled) {
-          setHint(error instanceof Error ? error.message : t("common.error"));
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    currentGenerationKind,
-    latestSessionImageTask?.scene_id,
-    latestSessionImageTask?.task_id,
-    sceneId,
-    settings.gatewayToken,
-    t,
-  ]);
   const sessionImageItems = useMemo(
     () => buildLightboxItems(sessionImageTasks, "image"),
     [sessionImageTasks],
@@ -2095,7 +1947,7 @@ export function CreatePage(props: Props) {
   ) : null;
 
   const isPreparingReuse = settings.pendingReuseLoading || Boolean(settings.pendingReuseDraft);
-  if (loading || isPreparingReuse) {
+  if (loading || openingSession || returnSessionId || isPreparingReuse || !composerDraft.ready) {
     return (
       <div>
         {topBar}
@@ -2328,7 +2180,7 @@ export function CreatePage(props: Props) {
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
-          submitMutation.mutate();
+          if (!submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current });
         }}
       >
         {openPopover ? (
@@ -2784,6 +2636,7 @@ export function CreatePage(props: Props) {
           )
           : null}
 
+        {composerDraft.storageError ? <p className="composer-hint" role="alert">{t("create.draftStorageUnavailable")}</p> : null}
         {hint ? <p className="composer-hint" role={hintFeedback?.kind === "error" ? "alert" : "status"}>{hint}</p> : null}
       </form>
 
@@ -2798,7 +2651,7 @@ export function CreatePage(props: Props) {
           onClose={() => setShowAdvanced(false)}
           onClick={(event) => { if (event.target === event.currentTarget) setShowAdvanced(false); }}
         >
-          <form noValidate onSubmit={(event) => { event.preventDefault(); submitMutation.mutate(); }}>
+          <form noValidate onSubmit={(event) => { event.preventDefault(); if (!submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current }); }}>
             <header className="composer-advanced-header">
               <h3 id="composer-advanced-title" className="m-0 text-heading">{t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}</h3>
               <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setShowAdvanced(false)}>
@@ -3941,6 +3794,12 @@ function applySettingDefaults(
 ): void {
   const resolvedDefaults = resolveGenerationDefaults(settings, providerId);
 
+  const formatField = findField(operation, "output_format");
+  if (formatField && values[fieldKey(formatField)] === undefined && resolvedDefaults.defaultOutputFormat
+    && formatField.options.some((option) => option.value === resolvedDefaults.defaultOutputFormat)) {
+    values[fieldKey(formatField)] = resolvedDefaults.defaultOutputFormat;
+  }
+
   const durationField = findField(operation, "duration_sec");
   if (durationField) {
     const key = fieldKey(durationField);
@@ -4046,26 +3905,27 @@ function captureProviderDefaultsFromValues(
     }
   }
 
+  const formatField = findField(operation, "output_format");
   return {
     defaultRatio: nextRatio,
     defaultDurationSec: nextDurationSec,
     defaultQuality: nextQuality,
+    defaultOutputFormat: formatField
+      ? values[fieldKey(formatField)] ?? fallback.defaultOutputFormat
+      : fallback.defaultOutputFormat,
   };
 }
 
 function resolveGenerationDefaults(
   settings: AppSettingsState,
   providerId: string,
-): {
-  defaultRatio: "16:9" | "9:16";
-  defaultDurationSec: number;
-  defaultQuality: string;
-} {
+): ProviderGenerationDefaults {
   const providerDefaults = providerId ? settings.providerDefaults[providerId] : undefined;
   return {
     defaultRatio: providerDefaults?.defaultRatio ?? settings.defaultRatio,
     defaultDurationSec: providerDefaults?.defaultDurationSec ?? settings.defaultDurationSec,
     defaultQuality: providerDefaults?.defaultQuality ?? settings.defaultQuality,
+    defaultOutputFormat: providerDefaults?.defaultOutputFormat,
   };
 }
 

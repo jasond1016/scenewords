@@ -207,12 +207,15 @@ export function WorkDetailOverlay(props: Props) {
       settings.setPendingReuseLoading(true);
       navigate("/create");
       onClose();
+      return useAppSettingsStore.getState().reuseRevision;
     },
-    onSuccess: (draft) => {
+    onSuccess: (draft, _payload, revision) => {
+      if (useAppSettingsStore.getState().reuseRevision !== revision) return;
       settings.setPendingReuseDraft(draft);
       settings.setPendingReuseLoading(false);
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _payload, revision) => {
+      if (useAppSettingsStore.getState().reuseRevision !== revision) return;
       settings.setPendingReuseLoading(false);
       settings.setPendingReuseError(error.message);
     },

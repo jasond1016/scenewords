@@ -9,6 +9,7 @@ export interface ProviderGenerationDefaults {
   defaultRatio: "16:9" | "9:16";
   defaultDurationSec: number;
   defaultQuality: string;
+  defaultOutputFormat?: string;
 }
 
 export interface CreateDraft {
@@ -49,6 +50,7 @@ export interface AppSettingsState {
   pendingReuseDraft: CreateDraft | null;
   pendingReuseLoading: boolean;
   pendingReuseError: string | null;
+  reuseRevision: number;
   setSettings: (partial: Partial<AppSettingsState>) => void;
   setPendingReuseDraft: (draft: CreateDraft | null) => void;
   setPendingReuseLoading: (loading: boolean) => void;
@@ -77,6 +79,7 @@ const defaults: Omit<
   pendingReuseDraft: null,
   pendingReuseLoading: false,
   pendingReuseError: null,
+  reuseRevision: 0,
 };
 
 const SETTINGS_STORAGE_VERSION = 4;
@@ -113,6 +116,9 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         set((state) => ({
           ...state,
           ...partial,
+          ...(partial.gatewayToken !== undefined && partial.gatewayToken !== state.gatewayToken
+            ? { reuseRevision: state.reuseRevision + 1, pendingReuseDraft: null, pendingReuseLoading: false, pendingReuseError: null }
+            : {}),
         })),
       setPendingReuseDraft: (draft) => set(() => ({ pendingReuseDraft: draft ? {
         ...draft,
@@ -121,7 +127,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         seed: null,
         providerOptions: sanitizeComposerOptions(draft.providerOptions),
       } : null })),
-      setPendingReuseLoading: (loading) => set(() => ({ pendingReuseLoading: loading })),
+      setPendingReuseLoading: (loading) => set((state) => ({ pendingReuseLoading: loading, reuseRevision: state.reuseRevision + 1 })),
       setPendingReuseError: (error) => set(() => ({ pendingReuseError: error })),
     }),
     {

@@ -5,6 +5,7 @@ import { fetchTaskCostSummary } from "../api";
 import { useI18n } from "../i18n";
 import type { LanguagePreference } from "../state";
 import { useAppSettingsStore } from "../state";
+import { clearComposerDrafts } from "../composerDrafts";
 import { FIELD_STORAGE_PREFIX, SESSION_STORAGE_KEY, formatCostAmount } from "../utils";
 import type { ProviderInfo, RetryMode } from "../types";
 
@@ -114,10 +115,15 @@ export function SettingsPage(props: Props) {
     setHint(isZh ? "已恢复默认设置（Token 保留）。" : "Defaults restored (token kept).");
   };
 
-  const clearLocalCache = () => {
-    clearSceneWordsCache();
-    setCacheRevision((current) => current + 1);
-    setHint(t("settings.clearedLocalCache"));
+  const clearLocalCache = async () => {
+    try {
+      await clearComposerDrafts();
+      clearSceneWordsCache();
+      setCacheRevision((current) => current + 1);
+      setHint(t("settings.clearedLocalCache"));
+    } catch {
+      setHint(t("settings.clearLocalCacheFailed"));
+    }
   };
 
   const costCurrency = costSummaryQuery.data?.currency || settings.currency;
