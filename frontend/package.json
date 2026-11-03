@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "tsx --test tests/*.test.ts",
-    "test:browser": "node tests/sessionComposer.browser.cjs"
+    "test:browser": "node tests/sessionComposer.browser.cjs && node tests/conciseUi.browser.cjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
