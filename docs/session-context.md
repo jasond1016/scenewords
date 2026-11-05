@@ -71,7 +71,7 @@ feature adds no LLM call and does not concatenate history or alter prompt text.
 History entry (including `/#/create?sceneId=...`) selects a scene, not a sent
 prompt or a snapshot. The ordinary composer stays empty unless that exact scene
 has an unsent draft. Its implicit latest result is neither a user attachment nor
-a permanent context strip. The new-chat welcome briefly explains continuation.
+a permanent context strip. Continuation rules are available in More → Conversations & references.
 An explicit image edit in the viewer still uses the chosen task/output, including
 an older task or output 1+, and takes precedence over implicit latest context.
 User attachments/subject reference images remain visible; removing the final
@@ -94,6 +94,30 @@ can clear its accepted draft, but cannot reopen its scene after New chat.
 Late history/reuse responses are invalidated by new chat, scene change, gateway
 change, or departure. History loading and IndexedDB restoration do not permit
 typing into an as-yet-unselected scene.
+
+### Immediate history navigation
+
+Clicking history synchronously changes `sceneId` in the URL and closes the drawer.
+The URL (or a legacy `returnSessionId` navigation state) owns the selected identity;
+Back/Forward, reload and direct links use the same path. The scene detail query is
+the only detail-request owner. The history index, scene detail and scoped draft
+restoration start independently; a direct link does not need index membership.
+
+The existing in-memory React Query cache is keyed by gateway identity and scene.
+Only the target scene's cached transcript may appear; an uncached target shows a
+named loading skeleton, never the preceding transcript. No transcript is added to
+localStorage/IndexedDB, and no history-wide prefetch is introduced. Fresh queries
+reuse the five-second cache window; stale cached content can refresh in place.
+Leaving a scene consumes its query AbortSignal, and navigation revisions still
+invalidate late submissions/reuse. Failed or paused/offline reads show a local
+error and Retry without redirecting to a different scene.
+
+Composer activation waits for the target's image/video kind, matching operation
+and draft hydration, but transcript entry does not. Pending/failed unknown context
+cannot submit, including keyboard submission. Image loading/decoding only affects
+its existing aspect-ratio placeholder, not navigation or composer activation.
+The backend still resolves and pins implicit latest images when accepting a task;
+cached history never chooses an automatic upload or sends a historical prompt.
 
 “Restore this chat's unsent draft” controls disk restoration after reopening the
 page, not in-memory A → B → A navigation. Drafts are local to this browser, not
@@ -122,4 +146,7 @@ callers that omit `image_context` retain their previous behavior.
   Browser cases cover direct/history entry, old caches, scoped drafts, File
   restoration/preview/removal, delayed/failed/other-scene/unmounted submission,
   selected older output editing, new chat versus late history responses, videos,
-  gateway identity and clearing IndexedDB drafts.
+  gateway identity and clearing IndexedDB drafts. Held scene/index/media requests
+  cover immediate history entry, scoped cached transcripts, A → B → A,
+  Back/Forward, offline/error recovery, unmount and blocked premature submission;
+  English dark 200% text is checked at 320px as well.

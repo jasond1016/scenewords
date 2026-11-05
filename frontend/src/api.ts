@@ -284,14 +284,14 @@ export function addSubjectReferenceFromTask(
   );
 }
 
-export function fetchScenes(token: string): Promise<Scene[]> {
-  return request<Scene[]>("/v1/scenes", {}, token);
+export function fetchScenes(token: string, signal?: AbortSignal): Promise<Scene[]> {
+  return request<Scene[]>("/v1/scenes", { signal }, token);
 }
 
-export function fetchScene(sceneId: string, token: string): Promise<SceneDetail> {
+export function fetchScene(sceneId: string, token: string, signal?: AbortSignal): Promise<SceneDetail> {
   return request<SceneDetail>(
     `/v1/scenes/${encodeURIComponent(sceneId)}`,
-    {},
+    { signal },
     token,
   );
 }

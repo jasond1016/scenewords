@@ -4,6 +4,7 @@ const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
 
 const base = "http://127.0.0.1:4197";
 const server = spawn(process.execPath, [path.resolve(__dirname, "../node_modules/vite/bin/vite.js"),
@@ -38,6 +39,9 @@ tasks.push({ ...task("old-v", "v", "旧视频描述", "failed"), asset_type: "vi
 const settingsKey = "scenewords_gateway_settings_v1";
 const writes = [];
 let nextSubmit, nextScene;
+let listGate, mediaGate, sceneFailure, listFailure;
+const sceneGates = new Map();
+const reads = [];
 const failures = [];
 let browser;
 async function until(check, label) {
@@ -48,8 +52,12 @@ async function until(check, label) {
   throw new Error(`${label}: ${error?.message}`);
 }
 async function fixture(context) {
+  await context.route("**/*", route => new URL(route.request().url()).origin === base ? route.fallback() : route.abort());
   await context.route("**/static/**", route => route.continue({ url: route.request().url().replace("/static/", "/") }));
-  await context.route("**/fixture.png*", route => route.fulfill({ contentType: "image/png", body: png }));
+  await context.route("**/fixture.png*", async route => {
+    if (mediaGate) await mediaGate;
+    await route.fulfill({ contentType: "image/png", body: png });
+  });
   await context.route("**/v1/**", async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -65,11 +73,18 @@ async function fixture(context) {
       if (p.includes("/outputs/") || p === "/v1/files") return json({ file_id: "explicit-file", original_name: "reference.png", mime_type: "image/png", size_bytes: png.length, url: "/v1/files/explicit-file" });
       throw new Error(`Unexpected write ${p}`);
     }
+    reads.push({ path: p, token: request.headers().authorization, at: Date.now() });
     if (p === "/v1/models") return json(catalog);
-    if (p === "/v1/scenes") return json(scenes);
+    if (p === "/v1/scenes") {
+      if (listGate) await listGate;
+      if (listFailure) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "History unavailable" }) });
+      return json(scenes);
+    }
     if (p.startsWith("/v1/scenes/")) {
       if (nextScene) { const callback = nextScene; nextScene = null; await callback(); }
       const id = p.split("/").at(-1);
+      if (sceneGates.has(id)) await sceneGates.get(id);
+      if (sceneFailure === id) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Scene unavailable" }) });
       return json({ ...(scenes.find(s => s.scene_id === id) || scene(id, "New chat")), generations: [{ generation_id: `g-${id}`, asset_type: "image", created_at: time, versions: tasks.filter(t => t.scene_id === id) }] });
     }
     if (p.startsWith("/v1/files/")) return route.fulfill({ contentType: "image/png", body: png });
@@ -80,9 +95,12 @@ async function fixture(context) {
     throw new Error(`Unexpected read ${p}`);
   });
 }
-async function open(page, id) {
+async function selectSession(page, id) {
   await page.getByRole("button", { name: "展开会话历史", exact: true }).click();
   await page.locator(".session-sidebar-item").filter({ hasText: scenes.find(s => s.scene_id === id).title }).click();
+}
+async function open(page, id) {
+  await selectSession(page, id);
   await until(async () => assert.equal(await page.locator(".session-sidebar").count(), 0), "history closed");
   await until(async () => assert.equal(await page.locator(".composer-textarea").count(), 1), "composer ready");
 }
@@ -91,6 +109,12 @@ const fill = (page, text) => page.locator(".composer-textarea").fill(text);
 const send = page => page.locator(".composer-submit").click();
 async function expectValue(page, text) { await until(async () => assert.equal(await value(page), text), `draft ${text}`); }
 const pass = name => process.stdout.write(`PASS ${name}\n`);
+async function capture(page, name) {
+  if (!process.env.UI_ARTIFACTS) return;
+  fs.mkdirSync(process.env.UI_ARTIFACTS, { recursive: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name} no horizontal overflow`);
+  await page.screenshot({ path: path.join(process.env.UI_ARTIFACTS, `${name}.png`), animations: "disabled" });
+}
 
 (async () => {
   await until(async () => assert.equal((await fetch(base)).status, 200), "Vite preview starts");
@@ -107,6 +131,86 @@ const pass = name => process.stdout.write(`PASS ${name}\n`);
     localStorage.setItem("scenewords_field_v3__auto-image__auto-image-1k__generate__request__prompt", "不应复活的旧缓存");
     localStorage.setItem("scenewords_last_session_v3", JSON.stringify({ image: { provider: "auto-image", model: "auto-image-1k", prompt: "不应恢复的快照" } }));
   }, settingsKey);
+  // A cold deep link must not wait for the history index, IndexedDB or images.
+  let releaseList, releaseColdScene, releaseMedia;
+  listGate = new Promise(resolve => { releaseList = resolve; });
+  mediaGate = new Promise(resolve => { releaseMedia = resolve; });
+  sceneGates.set("a", new Promise(resolve => { releaseColdScene = resolve; }));
+  await page.goto(`${base}/#/create?sceneId=a`, { waitUntil: "domcontentloaded" });
+  await until(() => assert.ok(reads.some(read => read.path === "/v1/scenes/a")), "detail starts while index held");
+  assert.equal(await page.locator(".session-transcript").getAttribute("aria-busy"), "true");
+  assert.equal(await page.locator(".composer-submit").count(), 0);
+  await capture(page, "cold-loading");
+  await page.keyboard.press("Control+Enter"); assert.equal(writes.length, 0);
+  sceneGates.delete("a"); releaseColdScene();
+  await expectValue(page, "");
+  assert.equal(await page.locator(".session-transcript").getAttribute("aria-busy"), "false");
+  assert.ok(await page.locator('.session-image[data-state="loading"]').count());
+  await capture(page, "image-loading");
+  assert.equal(reads.filter(read => read.path === "/v1/scenes/a").length, 1, "single owned scene request");
+  mediaGate = null; releaseMedia(); listGate = null; releaseList();
+  pass("cold scene opens before history index/images; unknown context cannot submit; one detail request");
+
+  await fill(page, "navigation A draft");
+  let releaseB;
+  sceneGates.set("b", new Promise(resolve => { releaseB = resolve; }));
+  await selectSession(page, "b");
+  assert.ok(page.url().endsWith("sceneId=b"));
+  assert.equal(await page.locator(".session-sidebar").count(), 0);
+  assert.equal(await page.locator(".session-transcript").evaluate(el => el === document.activeElement), true, "focus enters target, not removed history item");
+  assert.equal(await page.locator(".session-transcript").getAttribute("aria-busy"), "true");
+  assert.equal(await page.getByText(tasks[0].prompt, { exact: true }).count(), 0, "never shows A in B");
+  assert.equal(await page.locator(".composer-textarea").count(), 0, "cannot edit wrong-kind draft before context");
+  await page.getByRole("button", { name: "展开会话历史", exact: true }).click();
+  assert.ok((await page.locator('.session-sidebar-item[aria-current="page"]').innerText()).includes(scenes[1].title));
+  await page.locator(".session-sidebar-item").filter({ hasText: scenes[0].title }).click();
+  await expectValue(page, "navigation A draft");
+  assert.ok((await page.locator(".session-transcript").innerText()).includes(tasks[0].prompt));
+  sceneFailure = "b"; sceneGates.delete("b"); releaseB();
+  await page.goBack();
+  await page.getByRole("alert").filter({ hasText: "Scene unavailable" }).waitFor();
+  await capture(page, "scene-error");
+  assert.ok(page.url().endsWith("sceneId=b"));
+  assert.equal(await page.locator(".composer-submit").count(), 0);
+  assert.equal(await page.getByText(tasks[0].prompt, { exact: true }).count(), 0);
+  sceneFailure = null;
+  await page.getByRole("alert").getByRole("button", { name: "重试", exact: true }).click();
+  await expectValue(page, ""); await fill(page, "navigation B draft");
+  await page.goForward(); await expectValue(page, "navigation A draft");
+  const bReads = reads.filter(read => read.path === "/v1/scenes/b").length;
+  await open(page, "b"); await expectValue(page, "navigation B draft");
+  await capture(page, "cached-session");
+  assert.equal(reads.filter(read => read.path === "/v1/scenes/b").length, bReads, "fresh scene cache avoids duplicate request");
+  pass("immediate selection, A → B → A, back/forward, scoped cache, inline failure/retry and drafts");
+
+  await context.setOffline(true);
+  await page.evaluate(() => { location.hash = "/create?sceneId=offline"; });
+  await page.getByRole("alert").filter({ hasText: "网络已断开" }).waitFor();
+  await capture(page, "offline");
+  assert.equal(await page.locator(".composer-submit").count(), 0);
+  assert.equal(await page.getByText(tasks[1].prompt, { exact: true }).count(), 0);
+  await page.keyboard.press("Control+Enter"); assert.equal(writes.length, 0);
+  sceneFailure = "offline"; await context.setOffline(false);
+  await page.getByRole("alert").waitFor();
+  await page.getByRole("button", { name: "新建会话", exact: true }).click();
+  await expectValue(page, "");
+  assert.equal(await page.locator(".session-transcript").count(), 0);
+  sceneFailure = null;
+  let releaseUnmountScene;
+  sceneGates.set("departed", new Promise(resolve => { releaseUnmountScene = resolve; }));
+  await page.evaluate(() => { location.hash = "/create?sceneId=departed"; });
+  await until(() => assert.ok(reads.some(read => read.path === "/v1/scenes/departed")), "unmount request starts");
+  await page.evaluate(() => { location.hash = "/works"; });
+  sceneGates.delete("departed"); releaseUnmountScene();
+  await page.evaluate(() => { location.hash = "/create?sceneId=a"; });
+  await expectValue(page, "navigation A draft");
+  assert.equal(await page.getByText(tasks[1].prompt, { exact: true }).count(), 0);
+  pass("offline target/new chat and unmount invalidate pending history without old content or writes");
+
+  await page.evaluate(() => { location.hash = "/settings"; });
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "清理本地缓存", exact: true }).click();
+  await until(async () => assert.ok((await page.locator("body").innerText()).includes("已清理本地会话缓存")), "navigation drafts cleared");
   await page.goto(`${base}/#/create?sceneId=a`);
   await expectValue(page, "");
   assert.equal(await page.locator(".composer-refs").count(), 0);
@@ -212,9 +316,9 @@ const pass = name => process.stdout.write(`PASS ${name}\n`);
   const sceneGate = new Promise(resolve => { releaseScene = resolve; });
   nextScene = async () => { sceneStarted = true; await sceneGate; };
   await page.getByRole("button", { name: "展开会话历史", exact: true }).click();
-  await page.locator(".session-sidebar-item").filter({ hasText: scenes[0].title }).click();
+  await page.locator(".session-sidebar-item").filter({ hasText: scenes[1].title }).click();
   await until(() => assert.ok(sceneStarted), "history request held");
-  await page.locator(".session-sidebar-new").click();
+  await page.locator(".session-new-button").click();
   await expectValue(page, ""); await fill(page, "新会话独立草稿");
   releaseScene();
   await until(async () => assert.equal(await page.locator(".composer-submit").isDisabled(), false), "history response released");
@@ -244,12 +348,18 @@ const pass = name => process.stdout.write(`PASS ${name}\n`);
   await open(page, "a"); await fill(page, "网关 A 的私有草稿");
   await page.evaluate(() => { location.hash = "/settings"; });
   await page.locator('input[type="password"]').fill("fixture-gateway-b");
-  await page.goto(`${base}/#/create?sceneId=a`); await expectValue(page, "");
+  let releaseGateway;
+  sceneGates.set("a", new Promise(resolve => { releaseGateway = resolve; }));
+  await page.evaluate(() => { location.hash = "/create?sceneId=a"; });
+  await until(() => assert.ok(reads.some(read => read.path === "/v1/scenes/a" && read.token === "Bearer fixture-gateway-b")), "other gateway scene starts");
+  assert.equal(await page.getByText(tasks[0].prompt, { exact: true }).count(), 0, "other gateway never borrows cached scene");
+  assert.equal(await page.locator(".composer-textarea").count(), 0);
+  sceneGates.delete("a"); releaseGateway(); await expectValue(page, "");
   await fill(page, "网关 B 的私有草稿");
   await page.evaluate(() => { location.hash = "/settings"; });
   await page.locator('input[type="password"]').fill("");
-  await page.goto(`${base}/#/create?sceneId=a`); await expectValue(page, "网关 A 的私有草稿");
-  pass("gateway identities isolate drafts even for the same scene ID");
+  await page.evaluate(() => { location.hash = "/create?sceneId=a"; }); await expectValue(page, "网关 A 的私有草稿");
+  pass("gateway identities isolate cached scenes and drafts even for the same scene ID");
 
   await page.evaluate(() => { location.hash = "/settings"; });
   page.once("dialog", dialog => dialog.accept());
@@ -270,6 +380,52 @@ const pass = name => process.stdout.write(`PASS ${name}\n`);
   await expectValue(page, "");
   assert.equal(await page.locator(".session-transcript").count(), 0);
   pass("New chat during first submission prevents late navigation into its accepted scene");
+
+  await context.close();
+  const largeTextContext = await browser.newContext({ viewport: { width: 320, height: 740 } });
+  await fixture(largeTextContext);
+  await largeTextContext.addInitScript(key => {
+    localStorage.setItem(key, JSON.stringify({ version: 4, state: { language: "en", theme: "dark" } }));
+    document.addEventListener("DOMContentLoaded", () => { document.documentElement.style.fontSize = "32px"; });
+  }, settingsKey);
+  const largeTextPage = await largeTextContext.newPage();
+  largeTextPage.on("pageerror", error => failures.push(error.message));
+  let releaseLargeText;
+  listFailure = true;
+  sceneGates.set("b", new Promise(resolve => { releaseLargeText = resolve; }));
+  await largeTextPage.goto(`${base}/#/create?sceneId=b`, { waitUntil: "domcontentloaded" });
+  await largeTextPage.locator('.session-transcript[aria-busy="true"]').waitFor();
+  await largeTextPage.locator(".session-history-toggle").click();
+  await largeTextPage.getByRole("alert").filter({ hasText: "History unavailable" }).waitFor();
+  await capture(largeTextPage, "large-text-history-error");
+  listFailure = false;
+  await largeTextPage.getByRole("alert").getByRole("button", { name: "Retry", exact: true }).click();
+  await largeTextPage.locator(".session-sidebar-item").first().waitFor();
+  await largeTextPage.locator(".session-sidebar-backdrop").click({ position: { x: 310, y: 10 } });
+  await capture(largeTextPage, "large-text-loading");
+  sceneFailure = "b"; sceneGates.delete("b"); releaseLargeText();
+  await largeTextPage.getByRole("alert").waitFor();
+  await capture(largeTextPage, "large-text-error");
+  sceneFailure = null;
+  await largeTextPage.getByRole("button", { name: "Retry", exact: true }).click();
+  await expectValue(largeTextPage, "");
+  assert.equal(await largeTextPage.locator(".composer-refs").count(), 0);
+  await largeTextContext.close();
+  pass("320px dark English 200% loading/error/retry retains empty composer; history-index failure independent");
+
+  const videoOnlyContext = await browser.newContext();
+  await fixture(videoOnlyContext);
+  await videoOnlyContext.route("**/v1/models", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...catalog, routing_providers: [videoProvider] }) }));
+  const videoOnlyPage = await videoOnlyContext.newPage();
+  videoOnlyPage.on("pageerror", error => failures.push(error.message));
+  await videoOnlyPage.goto(`${base}/#/create`, { waitUntil: "domcontentloaded" });
+  await expectValue(videoOnlyPage, "");
+  assert.equal(await videoOnlyPage.locator(".composer-submit").getAttribute("aria-label"), "生成视频");
+  await videoOnlyPage.evaluate(() => { location.hash = "/create?sceneId=a"; });
+  await videoOnlyPage.getByRole("alert").filter({ hasText: "没有可用的 Provider" }).waitFor();
+  assert.equal(await videoOnlyPage.locator(".composer-submit").count(), 0, "unsupported historical image is not silently converted to video");
+  await videoOnlyContext.close();
+  pass("video-only gateway can start fresh video but cannot silently convert historical image context");
 
   assert.deepEqual(failures, []);
   pass("no browser runtime errors");

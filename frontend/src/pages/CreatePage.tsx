@@ -160,8 +160,12 @@ export function CreatePage(props: Props) {
   const [providerId, setProviderId] = useState("");
   const [operationId, setOperationId] = useState("");
   const [currentGenerationKind, setCurrentGenerationKind] = useState<"image" | "video">("image");
-  const [sceneId, setSceneId] = useState("");
-  const [openingSession, setOpeningSession] = useState(() => Boolean(new URLSearchParams(location.search).get("sceneId")?.trim()));
+  // The URL owns identity before any request or draft hydration can finish.
+  const sceneId = new URLSearchParams(location.search).get("sceneId")?.trim()
+    || (location.state as { returnSessionId?: string } | null)?.returnSessionId || "";
+  const setSceneId = (id: string) => navigate(id ? `/create?sceneId=${encodeURIComponent(id)}` : "/create", { replace: true, state: null });
+  const sessionScope = JSON.stringify([settings.gatewayToken, sceneId]);
+  const [resolvedSessionScope, setResolvedSessionScope] = useState("");
   const composerDraft = useComposerDraft(settings.gatewayToken, sceneId, currentGenerationKind, settings.restoreLastSession);
   const modelName = composerDraft.draft.routingModel;
   const setModelName = composerDraft.setField("routingModel");
@@ -259,14 +263,17 @@ export function CreatePage(props: Props) {
   });
   const scenesQuery = useQuery({
     queryKey: ["scenes", settings.gatewayToken],
-    queryFn: () => fetchScenes(settings.gatewayToken),
+    queryFn: ({ signal }) => fetchScenes(settings.gatewayToken, signal),
+    staleTime: 5_000,
+    retry: false,
   });
   const sceneQueryKey = (id: string) => ["scene", settings.gatewayToken, id] as const;
   const activeSessionQuery = useQuery({
     queryKey: sceneQueryKey(sceneId),
-    queryFn: () => fetchScene(sceneId, settings.gatewayToken),
+    queryFn: ({ signal }) => fetchScene(sceneId, settings.gatewayToken, signal),
     enabled: Boolean(sceneId),
     staleTime: 5_000,
+    retry: false,
     refetchInterval: (query) => {
       const hasInProgressGeneration = query.state.data?.generations.some((generation) =>
         generation.versions.some(
@@ -278,6 +285,28 @@ export function CreatePage(props: Props) {
         : IDLE_SESSION_POLL_INTERVAL_MS;
     },
   });
+  useLayoutEffect(() => {
+    openSessionRequestRef.current += 1;
+    setHistoryOpen(false);
+    setSessionImagePreview(null);
+    setOpenPopover(null);
+    setShowAdvanced(false);
+    clearHint();
+    transcriptRef.current?.focus({ preventScroll: true });
+  }, [location.key, settings.gatewayToken]);
+  useLayoutEffect(() => {
+    if (!sceneId) {
+      setResolvedSessionScope("");
+      return;
+    }
+    if (!activeSessionQuery.data || resolvedSessionScope === sessionScope) return;
+    const latest = activeSessionQuery.data.generations.flatMap((generation) => generation.versions)
+      .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.task_id.localeCompare(left.task_id))[0];
+    setCurrentGenerationKind(latest?.asset_type ?? "image");
+    setResolvedSessionScope(sessionScope);
+  }, [sceneId, sessionScope, resolvedSessionScope, activeSessionQuery.data]);
+  const sessionContextReady = !sceneId || Boolean(activeSessionQuery.data && resolvedSessionScope === sessionScope);
+  const sessionUnavailable = Boolean(sceneId) && (activeSessionQuery.isError || activeSessionQuery.fetchStatus === "paused");
   const retryMutation = useMutation({
     mutationFn: (task: VideoTaskDetail) => runRetryTask({ task, mode: "same_seed" }, settings.gatewayToken),
     onSuccess: async (response) => {
@@ -389,6 +418,8 @@ export function CreatePage(props: Props) {
       null
     );
   }, [operationId, selectedModel]);
+  const canCompose = sessionContextReady && composerDraft.ready && Boolean(selectedModel && selectedOperation && selectedProvider
+    && isImageProviderType(selectedProvider.type) === (currentGenerationKind === "image"));
   const promptField = useMemo(
     () =>
       selectedOperation?.fields.find(
@@ -856,15 +887,6 @@ export function CreatePage(props: Props) {
     currentGenerationKind === "image" ? t("create.generateImage") : t("create.generateVideo");
 
   useEffect(() => {
-    if (currentGenerationKind !== "video" || !videoProviders.length) {
-      return;
-    }
-    if (!videoProviders.some((provider) => provider.id === providerId)) {
-      setProviderId(videoProviders[0].id);
-    }
-  }, [currentGenerationKind, providerId, videoProviders]);
-
-  useEffect(() => {
     if (
       currentGenerationKind !== "image" ||
       !currentImageFamily ||
@@ -942,7 +964,7 @@ export function CreatePage(props: Props) {
   }, [lastSubmittedTaskId]);
 
   useEffect(() => {
-    if (!providers.length || providerId) {
+    if (!providers.length || providerChoices.some((provider) => provider.id === providerId)) {
       return;
     }
     const preferredProviderId =
@@ -952,6 +974,11 @@ export function CreatePage(props: Props) {
     const defaultProvider =
       pickProviderByKind(providers, currentGenerationKind, preferredProviderId) ??
       providers[0];
+    const defaultKind = isImageProviderType(defaultProvider.type) ? "image" : "video";
+    if (!sceneId && defaultKind !== currentGenerationKind) {
+      setCurrentGenerationKind(defaultKind);
+      return;
+    }
     const defaultModel =
       defaultProvider.models.find((model) => model.is_default) ??
       defaultProvider.models[0] ??
@@ -966,7 +993,9 @@ export function CreatePage(props: Props) {
   }, [
     currentGenerationKind,
     providerId,
+    providerChoices,
     providers,
+    sceneId,
     settings.defaultImageProvider,
     settings.defaultVideoProvider,
   ]);
@@ -1000,7 +1029,7 @@ export function CreatePage(props: Props) {
     if (operationId !== pending.operation) {
       setOperationId(pending.operation);
     }
-    setSceneId(pending.sceneId ?? "");
+    if (sceneId !== (pending.sceneId ?? "")) setSceneId(pending.sceneId ?? "");
   }, [
     currentGenerationKind,
     modelName,
@@ -1043,18 +1072,6 @@ export function CreatePage(props: Props) {
     setSelectedSubjectIds((ids) => (ids.includes(subjectId) ? ids : [...ids, subjectId]));
     navigate("/create", { replace: true });
   }, [composerDraft.ready, location.search, navigate, subjectsQuery.data]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const launchSceneId = params.get("sceneId")?.trim() ?? "";
-    if (!launchSceneId || !scenesQuery.data) return;
-    if (!scenesQuery.data.some((scene) => scene.scene_id === launchSceneId)) {
-      setOpeningSession(false);
-      navigate("/create", { replace: true });
-      return;
-    }
-    navigate("/create", { replace: true, state: { returnSessionId: launchSceneId } });
-  }, [location.search, navigate, scenesQuery.data]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -1258,6 +1275,9 @@ export function CreatePage(props: Props) {
 
   const submitMutation = useMutation({
     mutationFn: async (_submission: { scope: string; revision: number; prompt: string; navigationRevision: number }) => {
+      if (!canCompose || _submission.navigationRevision !== openSessionRequestRef.current) {
+        throw new Error(t("common.loading"));
+      }
       if (!selectedOperation) {
         throw new Error(t("create.errorNoOperation"));
       }
@@ -1446,7 +1466,7 @@ export function CreatePage(props: Props) {
         && composerDraft.isCurrent(submission.scope, submission.revision);
       composerDraft.acknowledge(submission.scope, submission.revision);
       if (stillCurrent) {
-        if (response.scene_id) setSceneId(response.scene_id);
+        if (response.scene_id && response.scene_id !== sceneId) setSceneId(response.scene_id);
         setOpenPopover(null);
         setShowAdvanced(false);
         setHint("");
@@ -1783,54 +1803,20 @@ export function CreatePage(props: Props) {
   const selectedSession = orderedSessions.find((session) => session.scene_id === sceneId) ?? null;
   const startNewSession = () => {
     openSessionRequestRef.current += 1;
-    setOpeningSession(false);
     settings.setPendingReuseDraft(null);
     settings.setPendingReuseLoading(false);
     clearHint();
-    setSceneId("");
     setCurrentGenerationKind("image");
     setHistoryOpen(false);
-    navigate("/create", { replace: true, state: null });
+    navigate("/create", { state: null });
   };
-  const openSession = async (sessionId: string) => {
+  const openSession = (sessionId: string) => {
+    openSessionRequestRef.current += 1;
     settings.setPendingReuseDraft(null);
     settings.setPendingReuseLoading(false);
-    const requestId = ++openSessionRequestRef.current;
-    setOpeningSession(true);
-    try {
-      const session = await queryClient.fetchQuery({
-        queryKey: sceneQueryKey(sessionId),
-        queryFn: () => fetchScene(sessionId, settings.gatewayToken),
-        staleTime: 5_000,
-      });
-      if (requestId !== openSessionRequestRef.current) {
-        return;
-      }
-      const sessionVersions = session.generations
-        .flatMap((generation) => generation.versions)
-        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.task_id.localeCompare(left.task_id));
-      const latestVersion = sessionVersions[0];
-      clearHint();
-      setSceneId(sessionId);
-      setCurrentGenerationKind(latestVersion?.asset_type ?? "image");
-      setHistoryOpen(false);
-    } catch (error) {
-      if (requestId === openSessionRequestRef.current) {
-        setHint(error instanceof Error ? error.message : t("common.error"));
-      }
-    } finally {
-      if (requestId === openSessionRequestRef.current) setOpeningSession(false);
-    }
+    setHistoryOpen(false);
+    navigate(`/create?sceneId=${encodeURIComponent(sessionId)}`, { state: null });
   };
-  const returnSessionId =
-    (location.state as { returnSessionId?: string } | null)?.returnSessionId ?? "";
-  useEffect(() => {
-    if (!returnSessionId) {
-      return;
-    }
-    void openSession(returnSessionId);
-    navigate("/create", { replace: true, state: null });
-  }, [location.key]);
   const conversationVersions = useMemo(
     () =>
       [...(activeSessionQuery.data?.generations ?? [])]
@@ -1934,9 +1920,13 @@ export function CreatePage(props: Props) {
         </nav>
         <div className="session-sidebar-divider" />
         <div className="session-sidebar-section-title">{t("create.sessions.title")}</div>
-        {scenesQuery.isLoading ? (
-          <p className="session-sidebar-empty">{t("common.loading")}</p>
-        ) : orderedSessions.length === 0 ? (
+        {scenesQuery.isError || scenesQuery.fetchStatus === "paused" ? <div className="session-sidebar-empty" role="alert">
+          <p className="break-words">{scenesQuery.error?.message ?? t("create.sessions.offline")}</p>
+          <button type="button" className="btn-secondary" onClick={() => void scenesQuery.refetch()}>{t("create.failure.retry")}</button>
+        </div> : null}
+        {scenesQuery.isPending ? (
+          scenesQuery.fetchStatus === "paused" ? null : <p className="session-sidebar-empty" role="status">{t("common.loading")}</p>
+        ) : orderedSessions.length === 0 && !scenesQuery.isError ? (
           <p className="session-sidebar-empty">{t("create.sessions.empty")}</p>
         ) : (
           <nav className="session-sidebar-list" aria-label={t("create.sessions.title")}>
@@ -1964,7 +1954,7 @@ export function CreatePage(props: Props) {
   ) : null;
 
   const isPreparingReuse = settings.pendingReuseLoading || Boolean(settings.pendingReuseDraft);
-  if (loading || openingSession || returnSessionId || isPreparingReuse || !composerDraft.ready) {
+  if (loading || isPreparingReuse) {
     return (
       <div>
         {topBar}
@@ -1988,7 +1978,7 @@ export function CreatePage(props: Props) {
       </div>
     );
   }
-  if (!selectedProvider || !selectedModel || !selectedOperation) {
+  if (!providers.some((provider) => provider.models.some((model) => model.operations.length))) {
     return (
       <div>
         {topBar}
@@ -2035,7 +2025,9 @@ export function CreatePage(props: Props) {
         <section
           ref={transcriptRef}
           className="session-transcript"
-          aria-label={selectedSession?.title ?? t("create.sessions.title")}
+          tabIndex={-1}
+          aria-label={activeSessionQuery.data?.title ?? selectedSession?.title ?? t("create.sessions.title")}
+          aria-busy={activeSessionQuery.isPending && !sessionUnavailable}
           onScroll={() => {
             const transcript = transcriptRef.current;
             if (transcript) {
@@ -2044,8 +2036,16 @@ export function CreatePage(props: Props) {
             }
           }}
         >
-          {activeSessionQuery.isLoading ? (
-            <p className="session-transcript-loading">{t("common.loading")}</p>
+          {sessionUnavailable ? <div className="card flex flex-wrap items-center gap-3" role="alert">
+            <span className="min-w-0 break-words">{activeSessionQuery.error?.message ?? t("create.sessions.offline")}</span>
+            <button type="button" className="btn-secondary" onClick={() => void activeSessionQuery.refetch()}>{t("create.failure.retry")}</button>
+          </div> : null}
+          {activeSessionQuery.isPending && !sessionUnavailable ? (
+            <div role="status" aria-label={t("common.loading")} className="session-transcript-loading">
+              <span className="mb-4 flex items-center gap-2"><CircleNotch size={16} className="animate-spin" aria-hidden="true" />{t("common.loading")}</span>
+              <div className="skeleton h-24 w-2/3 rounded-[var(--radius-lg)]" />
+              <div className="skeleton mt-4 h-48 w-full rounded-[var(--radius-lg)]" />
+            </div>
           ) : conversationVersions.map((version) => {
             const images = version.status === "succeeded" && version.asset_type === "image" ? extractImageUrls(version) : [];
             const videoUrl = version.status === "succeeded" && version.asset_type === "video" ? extractVideoUrl(version) : null;
@@ -2194,12 +2194,17 @@ export function CreatePage(props: Props) {
           <h1>{t("create.title")}</h1>
         </div>
       )}
-      <form
+      {!canCompose ? (
+        sessionContextReady && !providerChoices.length ? <p className="composer text-sm text-[var(--c-text-secondary)]" role="alert">{t("create.noAvailable")}</p>
+        : !sessionUnavailable ? <div className="composer" role="status" aria-label={t("common.loading")}>
+          <div className="skeleton h-[90px] w-full rounded-[var(--radius-lg)]" />
+        </div> : null
+      ) : <form
         ref={formRef}
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current });
+          if (canCompose && !submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current });
         }}
       >
         {openPopover ? (
@@ -2591,7 +2596,7 @@ export function CreatePage(props: Props) {
               <div className="composer-popover-section">
                 <p className="composer-popover-heading">{t("create.quickFormat")}</p>
                 <div className="flex flex-col gap-2">
-                  {resolutionField && !selectedModel.routing_goal ? (
+                  {resolutionField && !selectedModel?.routing_goal ? (
                     <select
                       className="input-base py-1.5"
                       value={resolutionValue}
@@ -2660,7 +2665,7 @@ export function CreatePage(props: Props) {
 
         {composerDraft.storageError ? <p className="composer-hint" role="alert">{t("create.draftStorageUnavailable")}</p> : null}
         {hint ? <p className="composer-hint" role={hintFeedback?.kind === "error" ? "alert" : "status"}>{hint}</p> : null}
-      </form>
+      </form>}
 
       </div>
 
@@ -2673,7 +2678,7 @@ export function CreatePage(props: Props) {
           onClose={() => setShowAdvanced(false)}
           onClick={(event) => { if (event.target === event.currentTarget) setShowAdvanced(false); }}
         >
-          <form noValidate onSubmit={(event) => { event.preventDefault(); if (!submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current }); }}>
+          <form noValidate onSubmit={(event) => { event.preventDefault(); if (canCompose && !submitMutation.isPending) submitMutation.mutate({ scope: composerDraft.scope, revision: composerDraft.draft.revision, prompt: promptValue, navigationRevision: openSessionRequestRef.current }); }}>
             <header className="composer-advanced-header">
               <h3 id="composer-advanced-title" className="m-0 text-heading">{t(selectedProvider?.type === "tuzi_veo" ? "create.videoMaterials" : "create.advancedLabel")}</h3>
               <button type="button" className="topbar-icon-btn" aria-label={t("common.close")} onClick={() => setShowAdvanced(false)}>
@@ -2690,7 +2695,7 @@ export function CreatePage(props: Props) {
               {hint ? <p role={hintFeedback?.kind === "error" ? "alert" : "status"} className="composer-hint">{hint}</p> : null}
             </div>
             <footer className="composer-advanced-footer">
-              <button type="submit" className="btn-primary" disabled={submitMutation.isPending || !promptValue.trim()}>
+              <button type="submit" className="btn-primary" disabled={!canCompose || submitMutation.isPending || !promptValue.trim()}>
                 {t(submitMutation.isPending ? "create.submitting" : currentGenerationKind === "image" ? "create.generateImage" : "create.generateVideo")}
               </button>
             </footer>
